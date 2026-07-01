@@ -179,8 +179,15 @@ class GoogleScheduler:
     """
 
     name = "google"
+    # Mínimo privilegio (audit F4): pedir solo lo que se usa, no acceso total a Calendar/Drive.
+    #  - calendar.events  → crear el evento con enlace Meet (events().insert + conferenceData).
+    #  - calendar.freebusy → leer disponibilidad del reclutador (freebusy().query).
+    #  - spreadsheets      → append al registro. No hay scope "por hoja": drive.file solo cubre
+    #    archivos creados/abiertos por la app, no una hoja pre-compartida externamente.
+    # Nota: reducir scopes invalida tokens OAuth previos → re-correr scripts/google_oauth.py.
     _SCOPES = [
-        "https://www.googleapis.com/auth/calendar",
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/calendar.freebusy",
         "https://www.googleapis.com/auth/spreadsheets",
     ]
 

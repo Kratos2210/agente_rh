@@ -34,9 +34,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dotenv import load_dotenv
 
-# Mismos scopes que usa GoogleScheduler (Calendar para evento+Meet, Sheets para el registro).
+# Mismos scopes mínimos que usa GoogleScheduler (audit F4): eventos+Meet, freebusy y la hoja
+# de registro. Deben coincidir con GoogleScheduler._SCOPES.
 SCOPES = [
-    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/calendar.freebusy",
     "https://www.googleapis.com/auth/spreadsheets",
 ]
 

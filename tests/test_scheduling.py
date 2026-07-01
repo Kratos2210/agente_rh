@@ -15,6 +15,7 @@ from agent.graph import make_memory_runner
 from agent.state import PHASE_SCHEDULED, PHASE_SCHEDULING
 from evaluation.scorer import parse_slot_choice
 from integrations.scheduling import (
+    GoogleScheduler,
     SimulatedScheduler,
     _tz,
     compute_free_slots,
@@ -49,6 +50,18 @@ class FakeLLM:
 def _monday_8am():
     tz = _tz("America/Lima")
     return datetime(2026, 6, 22, 8, 0, tzinfo=tz)  # 2026-06-22 es lunes
+
+
+def test_google_scopes_are_minimal():
+    """Audit F4: no pedir acceso total a Calendar/Drive; solo los scopes que se usan."""
+    scopes = GoogleScheduler._SCOPES
+    # No debe pedir el scope total de Calendar (permite borrar/leer todo).
+    assert "https://www.googleapis.com/auth/calendar" not in scopes
+    # Sí los granulares que necesita.
+    assert "https://www.googleapis.com/auth/calendar.events" in scopes
+    assert "https://www.googleapis.com/auth/calendar.freebusy" in scopes
+    # Sheets se mantiene (no hay scope por-hoja para una hoja pre-compartida).
+    assert "https://www.googleapis.com/auth/spreadsheets" in scopes
 
 
 def test_free_slots_fills_working_hours_then_next_day():
