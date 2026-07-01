@@ -356,6 +356,40 @@ embeddings) para responder dudas del candidato sobre el puesto.
   cascade al borrar el tenant limpió su fila). Gotcha ya conocido: tras el DDL, `NOTIFY pgrst, 'reload schema'`.
   **Nota**: el scheduler sigue siendo un proceso con advisory lock; ahora aplica config por-tenant dentro del tick.
 
+- **2026-07-01 — Auditoría de integraciones externas · F2 (mínimo privilegio / aislamiento por tenant)**:
+  cierra el último hallazgo ALTA de `docs/auditoria_integraciones_externas.md` (F1/F3/F4 ya corregidos). Dos
+  capas de defensa. (1) **Blindaje de la capa de app en CI** — `tests/test_tenant_guards.py` recorre TODAS
+  las rutas de FastAPI e impone, sin excepciones silenciosas, que toda ruta `/api/*` fuera de la allowlist
+  pública (`/api/health`, `/api/auth/login`) resuelva el usuario del token (`get_current_user`/`require_role`)
+  **y** que toda ruta que carga un recurso por id de la URL (`{vacancy_id}`/`{candidate_id}`/`{recruiter_id}`/
+  `{outbox_id}`) pase por un guard de tenant (`_require_*_in_tenant` o chequeo de `tenant_id`); si un endpoint
+  futuro lo olvida, CI falla. La cobertura actual ya pasa. (2) **RLS latente (defensa en profundidad)** —
+  migración `0018_rls_tenant_isolation.sql`: activa RLS + política `tenant_isolation` (FOR ALL, roles
+  `anon`/`authenticated`) en las **16 tablas de negocio**; el tenant "actual" sale del claim `tenant_id` del
+  JWT (`app_current_tenant()`, con guard de cadena vacía para requests anónimos de PostgREST — sin él,
+  `''::jsonb` tumbaría toda consulta anónima); las tablas hijas suben al tenant por funciones `SECURITY
+  DEFINER` (`app_vacancy_tenant`/`app_conversation_tenant`/`app_candidate_tenant`) para evitar recursión de
+  RLS. **Sigue latente**: el backend usa la service_role key (BYPASSRLS) → la app no cambia; RLS protege ante
+  fuga de la anon key / clientes directos futuros. Para RLS efectivo sobre el backend habría que dejar
+  service_role + setear `request.jwt.claims.tenant_id` por request (cambio mayor, no hecho). **122/122 tests
+  verde. Verificado en vivo** (Supabase local, `0018` aplicada): `service_role` ve todas las filas (backend
+  intacto); rol no-bypass con claim tenant=A ve **solo** A (no B); claim vacío → 0 filas sin error.
+
+- **2026-07-01 — Auditoría de integraciones externas · F5 (secretos: endurecimiento + rotación)**: cierra
+  el último hallazgo (BAJA) de `docs/auditoria_integraciones_externas.md` → **F1–F5 todos cerrados**. Tres
+  frentes. (1) **Rotación grácil de JWT**: nuevo `jwt_secret_previous` (CSV, `src/config.py`+`.env.example`);
+  se **firma** siempre con `JWT_SECRET` y al **validar** se aceptan el actual + los retirados
+  (`api.auth.accepted_jwt_secrets` + `decode_access_token` prueba en orden; la expiración es definitiva, no
+  sigue probando si la firma valida pero expiró). Permite rotar el secreto de firma sin cerrar sesiones vivas
+  durante ≈`JWT_EXPIRE_MINUTES`; rotación de emergencia = dejar `PREVIOUS` vacío (invalida todo). (2)
+  **`assert_secure_config` ampliado**: en producción bloquea además `JWT_SECRET_PREVIOUS` default/corto y
+  `ADMIN_PASSWORD` <12 chars (antes solo `JWT_SECRET`/`ADMIN_PASSWORD` default). El gate **no tenía tests**;
+  ahora `tests/test_secrets.py` (12: gate dev/prod + rotación). (3) **Runbook** `docs/gestion_secretos.md`:
+  inventario de secretos con radio de impacto, procedimiento de rotación por secreto (JWT grácil + emergencia,
+  service key, DB, Telegram, SMTP, Google, admin), cadencia y camino a un secret manager
+  (Doppler/Vault/AWS-GCP/Supabase Vault) para prod. **134/134 tests verde.** Pendiente pre-prod real (no MVP):
+  migrar los secretos del `.env` plano a un gestor.
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.
