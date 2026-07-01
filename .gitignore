@@ -31,3 +31,4 @@ frontend/*.tsbuildinfo
 
 # Sistema
 .DS_Store
+uvicorn.log
