@@ -118,6 +118,11 @@ class Settings(BaseSettings):
     # Secreto para firmar los JWT. DEBE cambiarse en producción (.env JWT_SECRET=...).
     # El valor por defecto es solo para desarrollo local.
     jwt_secret: str = "dev-insecure-change-me-please-set-a-32B+-secret"
+    # Rotación grácil del secreto JWT (F5): lista separada por comas de secretos RETIRADOS
+    # que todavía se aceptan al validar (nunca al firmar). Al rotar `JWT_SECRET`, mueve el
+    # valor anterior aquí durante una ventana ≈ jwt_expire_minutes para no cerrar las
+    # sesiones vivas; pasada la ventana, vacíalo. Ver docs/gestion_secretos.md.
+    jwt_secret_previous: str = ""
     jwt_expire_minutes: int = 720            # duración del token (12 h)
     # Admin inicial: el backend lo crea al arrancar si la tabla users está vacía.
     admin_email: str = "admin@datawith.ai"

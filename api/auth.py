@@ -75,9 +75,35 @@ def create_access_token(
     return jwt.encode(payload, settings.jwt_secret, algorithm=_ALGO)
 
 
+def accepted_jwt_secrets(settings: Settings) -> list[str]:
+    """Secretos aceptados al VALIDAR un JWT: el actual + los retirados (rotación grácil, F5).
+
+    Se firma siempre con `jwt_secret` (el primero); los de `jwt_secret_previous` (CSV) solo
+    se aceptan para no invalidar los tokens vivos durante la ventana de rotación."""
+    secrets = [settings.jwt_secret]
+    for s in (settings.jwt_secret_previous or "").split(","):
+        s = s.strip()
+        if s and s not in secrets:
+            secrets.append(s)
+    return secrets
+
+
 def decode_access_token(token: str, settings: Settings) -> dict[str, Any]:
-    """Valida firma + expiración y devuelve los claims. Lanza jwt.PyJWTError si es inválido."""
-    return jwt.decode(token, settings.jwt_secret, algorithms=[_ALGO])
+    """Valida firma + expiración y devuelve los claims. Lanza jwt.PyJWTError si es inválido.
+
+    Prueba el secreto actual y luego los retirados (`jwt_secret_previous`) para soportar la
+    rotación sin cerrar sesiones. La expiración es definitiva (no depende del secreto): si un
+    secreto valida la firma pero el token expiró, se propaga sin seguir probando."""
+    last_err: jwt.PyJWTError = jwt.InvalidTokenError("token inválido")
+    for secret in accepted_jwt_secrets(settings):
+        try:
+            return jwt.decode(token, secret, algorithms=[_ALGO])
+        except jwt.ExpiredSignatureError:
+            raise  # firma válida pero expiró: no tiene sentido probar otros secretos
+        except jwt.PyJWTError as err:
+            last_err = err
+            continue
+    raise last_err
 
 
 # ── RBAC (jerarquía de roles) — pura ──────────────────────────────────────────────
@@ -103,14 +129,19 @@ def authenticate(email: str, password: str) -> Optional[dict[str, Any]]:
 
 #: Longitud mínima aceptable para el secreto JWT en producción (32 bytes).
 MIN_JWT_SECRET_LEN = 32
+#: Longitud mínima aceptable para la contraseña del admin inicial en producción.
+MIN_ADMIN_PASSWORD_LEN = 12
 
 
 def assert_secure_config(settings: Settings) -> None:
-    """Rechaza secretos por defecto/débiles al arrancar en producción (audit P0).
+    """Rechaza secretos por defecto/débiles al arrancar en producción (audit P0 · F5).
 
-    En producción (`ENVIRONMENT=production`) LANZA `RuntimeError` si el `jwt_secret` sigue
-    siendo el default o es más corto que `MIN_JWT_SECRET_LEN`, o si `admin_password` sigue
-    siendo el default (`admin1234`). En desarrollo solo advierte (no bloquea el arranque)."""
+    En producción (`ENVIRONMENT=production`) LANZA `RuntimeError` si:
+      - `jwt_secret` es el default o mide <`MIN_JWT_SECRET_LEN`;
+      - algún secreto RETIRADO de `jwt_secret_previous` es el default o es demasiado corto
+        (un secreto de rotación débil también valida tokens → mismo riesgo);
+      - `admin_password` es el default (`admin1234`) o mide <`MIN_ADMIN_PASSWORD_LEN`.
+    En desarrollo solo advierte (no bloquea el arranque)."""
     default_jwt = Settings.model_fields["jwt_secret"].default
     default_pwd = Settings.model_fields["admin_password"].default
     problems: list[str] = []
@@ -119,8 +150,20 @@ def assert_secure_config(settings: Settings) -> None:
             f"JWT_SECRET inseguro (usa el default o mide <{MIN_JWT_SECRET_LEN} bytes); "
             "define uno fuerte en .env"
         )
+    for prev in (settings.jwt_secret_previous or "").split(","):
+        prev = prev.strip()
+        if prev and (prev == default_jwt or len(prev) < MIN_JWT_SECRET_LEN):
+            problems.append(
+                "JWT_SECRET_PREVIOUS contiene un secreto de rotación inseguro "
+                f"(default o <{MIN_JWT_SECRET_LEN} bytes); quítalo o rótalo"
+            )
+            break
     if settings.admin_password == default_pwd:
         problems.append("ADMIN_PASSWORD sigue siendo el default (admin1234); cámbialo en .env")
+    elif len(settings.admin_password) < MIN_ADMIN_PASSWORD_LEN:
+        problems.append(
+            f"ADMIN_PASSWORD es demasiado corta (<{MIN_ADMIN_PASSWORD_LEN} caracteres); usa una fuerte"
+        )
     if not problems:
         return
     if settings.is_production:
