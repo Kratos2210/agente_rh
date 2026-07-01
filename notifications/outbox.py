@@ -67,6 +67,7 @@ _HANDLERS: dict[str, Callable[[Settings, dict[str, Any]], None]] = {
     "meeting_email": _handle_email,
     "meeting_recruiter_telegram": _handle_telegram,
     "candidate_notify": _handle_telegram,
+    "psych_exam_email": _handle_email,
 }
 
 
@@ -180,9 +181,15 @@ def deliver_scorecard_email(
 
 def _meeting_recruiter_text(vacancy: dict, candidate: dict, meeting: dict) -> str:
     cand_c = " · ".join(x for x in (meeting.get("candidate_email"), meeting.get("candidate_phone")) if x)
+    stage_label = {"hr": "RR.HH.", "lead": "Líder del proyecto", "manager": "Gerencia"}.get(
+        meeting.get("stage", "hr"), ""
+    )
+    onsite = meeting.get("modality") == "onsite"
+    where = meeting.get("location", "") if onsite else meeting.get("meet_link", "")
     return (
-        f"📅 Entrevista agendada\n{candidate.get('name', '')} · {vacancy.get('title', '')}\n"
-        f"{meeting.get('scheduled_at', '')}\n{meeting.get('meet_link', '')}"
+        f"📅 Entrevista agendada ({stage_label})\n{candidate.get('name', '')} · {vacancy.get('title', '')}\n"
+        f"{meeting.get('scheduled_at', '')}\n"
+        f"{'📍 ' + where if onsite else where}"
         + (f"\nContacto candidato: {cand_c}" if cand_c else "")
     )
 
@@ -219,6 +226,26 @@ def deliver_meeting(
             conversation_id=conversation_id,
         ) and ok
     return ok
+
+
+def deliver_psych_exam(
+    settings: Settings, vacancy: dict, candidate: dict, exam: dict, *, conversation_id: Optional[str] = None
+) -> bool:
+    """Entrega/encola el correo de exámenes psicológicos al candidato. False si SMTP/email sin configurar."""
+    from notifications.email import build_psych_exam_email
+
+    built = build_psych_exam_email(settings, vacancy, candidate, exam)
+    if built is None:
+        return False
+    recipients, subject, text, html = built
+    return deliver(
+        settings,
+        "psych_exam_email",
+        {"recipients": recipients, "subject": subject, "text": text, "html": html},
+        tenant_id=vacancy.get("tenant_id"),
+        candidate_id=candidate.get("id"),
+        conversation_id=conversation_id,
+    )
 
 
 def deliver_candidate_notify(

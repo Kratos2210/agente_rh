@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, field_validator
@@ -30,6 +30,13 @@ _SCHEDULER_LOCK_KEY = 704127
 
 # Raíz donde el bot guarda los documentos descargados de Telegram (CV/CUL).
 _UPLOADS_ROOT = Path("uploads").resolve()
+
+
+def _now_iso() -> str:
+    """Timestamp UTC ISO (usado al registrar el envío del examen psicológico)."""
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _now_local(tzname: str):
@@ -311,6 +318,7 @@ def health() -> dict[str, Any]:
 from db import repositories as repo  # noqa: E402
 from notifications.candidate import (  # noqa: E402
     DECISION_ADVANCE,
+    DECISION_HIRED,
     DECISION_REJECT,
 )
 from notifications import outbox  # noqa: E402
@@ -327,9 +335,19 @@ class LoginIn(BaseModel):
     password: str
 
 
+# R1 (auditoría): el login es fuerza-brutable sin límite — 5 intentos/minuto por IP.
+# bcrypt encarece cada intento pero no lo impide; esta es la barrera explícita.
+from api.ratelimit import SlidingWindowLimiter  # noqa: E402
+
+_login_limiter = SlidingWindowLimiter(max_calls=5, per_seconds=60)
+
+
 @app.post("/api/auth/login")
-def login(payload: LoginIn) -> dict[str, Any]:
+def login(payload: LoginIn, request: Request) -> dict[str, Any]:
     """Autentica email+contraseña y devuelve un JWT (Bearer) + los datos del usuario."""
+    ip = request.client.host if request.client else "unknown"
+    if not _login_limiter.allow(f"login:{ip}"):
+        raise HTTPException(429, "Demasiados intentos de acceso. Espera un minuto e inténtalo de nuevo.")
     user = authenticate(payload.email, payload.password)
     if not user:
         raise HTTPException(401, "Credenciales inválidas")
@@ -425,7 +443,9 @@ class VacancyIn(BaseModel):
     details_message: str = ""
     company_info: str = ""
     semaphore_thresholds: dict[str, Any] = {"green_min": 75, "yellow_min": 50}
-    recruiter_id: str | None = None             # reclutador asignado al proceso
+    recruiter_id: str | None = None             # RR.HH. asignado (Fase 1 + coordinación)
+    lead_recruiter_id: str | None = None        # líder del proyecto (Fase 2)
+    manager_recruiter_id: str | None = None     # gerencia (Fase 3)
     meeting_duration_minutes: int = Field(default=45, gt=0)  # duración de la entrevista
     # Datos del aviso de empleo (rediseño "hira"; columnas en 0012_vacancy_fields.sql).
     area: str = ""
@@ -447,6 +467,7 @@ class RecruiterIn(BaseModel):
     phone: str = ""
     telegram_chat_id: str = ""
     calendar_id: str = "primary"
+    location: str = ""                          # dirección de oficina (entrevistas presenciales)
     active: bool = True
 
 
@@ -504,6 +525,62 @@ class DecisionIn(BaseModel):
     decision: str  # "advance" | "reject"
 
 
+class PsychExamIn(BaseModel):
+    """Credenciales del examen psicológico que RR.HH. obtiene de la plataforma externa."""
+    link: str
+    code: str = ""
+    key: str = ""
+
+
+class AttendanceIn(BaseModel):
+    stage: str  # "hr" | "lead" | "manager"
+    attended: str  # "attended" | "no_show"
+    reschedule: bool = False  # si no asistió: reabrir horarios (True) o cerrar (False)
+
+    @field_validator("stage")
+    @classmethod
+    def _stage_valid(cls, v: str) -> str:
+        if v not in ("hr", "lead", "manager"):
+            raise ValueError("stage debe ser 'hr', 'lead' o 'manager'")
+        return v
+
+    @field_validator("attended")
+    @classmethod
+    def _attended_valid(cls, v: str) -> str:
+        if v not in ("attended", "no_show"):
+            raise ValueError("attended debe ser 'attended' o 'no_show'")
+        return v
+
+
+class AdvanceStageIn(BaseModel):
+    """Feedback + decisión de una etapa. Al aprobar 'hr'/'lead' se agenda la etapa siguiente."""
+    stage: str  # "hr" | "lead" | "manager"
+    decision: str  # "approved" | "rejected"
+    feedback: str = ""
+    modality: str = "onsite"  # modalidad de la SIGUIENTE etapa (lead: elegible; manager: forzado onsite)
+
+    @field_validator("stage")
+    @classmethod
+    def _stage_valid(cls, v: str) -> str:
+        if v not in ("hr", "lead", "manager"):
+            raise ValueError("stage debe ser 'hr', 'lead' o 'manager'")
+        return v
+
+    @field_validator("decision")
+    @classmethod
+    def _decision_valid(cls, v: str) -> str:
+        if v not in ("approved", "rejected"):
+            raise ValueError("decision debe ser 'approved' o 'rejected'")
+        return v
+
+    @field_validator("modality")
+    @classmethod
+    def _modality_valid(cls, v: str) -> str:
+        if v not in ("virtual", "onsite"):
+            raise ValueError("modality debe ser 'virtual' o 'onsite'")
+        return v
+
+
 _DEFAULT_AUTO_CONTACT = {"enabled": False, "times": ["11:00", "15:00"], "timezone": "America/Lima"}
 
 
@@ -531,7 +608,7 @@ class InactivityIn(BaseModel):
 # Retención de datos (Ley 29733): anonimiza la PII de candidatos descartados con más de N días.
 _DEFAULT_RETENTION = {"enabled": False, "days": 180}
 # Estados terminales-descartados cuya PII se anonimiza tras el período de retención.
-_RETENTION_STATUSES = ["rejected", "declined", "no_response", "prescreen_rejected"]
+_RETENTION_STATUSES = ["rejected", "declined", "no_response", "prescreen_rejected", "no_show"]
 
 
 class RetentionIn(BaseModel):
@@ -539,18 +616,19 @@ class RetentionIn(BaseModel):
     days: int = Field(default=180, ge=0)
 
 
-def _stage_counts(cands: list[dict[str, Any]]) -> dict[str, int]:
-    """Conteo de candidatos por estado (para las mini-barras del dashboard)."""
-    counts: dict[str, int] = {}
-    for c in cands:
-        counts[c.get("status", "")] = counts.get(c.get("status", ""), 0) + 1
-    return counts
+def _candidate_row_from_embed(c: dict[str, Any]) -> dict[str, Any]:
+    """Fila de candidato con semáforo/score y prescreen, para listas y pipeline.
 
-
-def _enrich_candidate_row(c: dict[str, Any]) -> dict[str, Any]:
-    """Fila de candidato con semáforo/score y prescreen, para listas y pipeline."""
-    conv = repo.get_conversation_by_candidate(c["id"])
-    scorecard = repo.get_scorecard(conv["id"]) if conv else None
+    Consume el embed `conversations(scorecards)` de `repo.list_candidate_rows` (D1:
+    cero consultas extra por candidato). Usa la conversación más reciente. PostgREST
+    embebe como OBJETO las relaciones que detecta to-one (scorecards tiene unique de
+    conversation_id) y como lista las to-many — se aceptan ambas formas."""
+    raw = c.get("conversations") or []
+    convs = [raw] if isinstance(raw, dict) else list(raw)
+    convs.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+    conv = convs[0] if convs else None
+    cards = (conv or {}).get("scorecards")
+    scorecard = cards if isinstance(cards, dict) else (cards[0] if cards else None)
     prescreen = c.get("prescreen") or {}
     return {
         "id": c["id"],
@@ -568,31 +646,51 @@ def _enrich_candidate_row(c: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _page_params(limit: int, offset: int) -> tuple[int, int]:
+    """Sanea limit/offset de paginación (U1): 1 ≤ limit ≤ 500, offset ≥ 0."""
+    return (max(1, min(limit, 500)), max(0, offset))
+
+
 @app.get("/api/vacancies")
 def list_vacancies(user: dict[str, Any] = Depends(get_current_user)) -> list[dict[str, Any]]:
+    # D1: 3 consultas fijas (reclutadores + vacantes + conteo por estado), sin 1/vacante.
     tenant_id = user["tenant_id"]
     recruiters = {r["id"]: r for r in repo.list_recruiters(tenant_id=tenant_id)}
+    vacancies = repo.list_vacancies(tenant_id=tenant_id)
+    counts = repo.count_candidates_by_status([v["id"] for v in vacancies])
     out = []
-    for v in repo.list_vacancies(tenant_id=tenant_id):
-        cands = repo.list_candidates(v["id"])
+    for v in vacancies:
+        per = counts.get(v["id"], {})
         out.append({
             **v,
-            "candidate_count": len(cands),
-            "stage_counts": _stage_counts(cands),
+            "candidate_count": sum(per.values()),
+            "stage_counts": per,
             "recruiter": recruiters.get(v.get("recruiter_id")),
         })
     return out
 
 
 @app.get("/api/candidates")
-def list_all_candidates(user: dict[str, Any] = Depends(get_current_user)) -> list[dict[str, Any]]:
-    """Todos los candidatos de las vacantes abiertas del tenant (Pipeline global)."""
+def list_all_candidates(
+    q: str = "",
+    limit: int = 100,
+    offset: int = 0,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Candidatos de las vacantes abiertas del tenant (Pipeline global), paginado.
+
+    D1: 2 consultas fijas (vacantes + candidatos con embeds). U1: `q` busca por
+    nombre; `limit/offset` paginan; `total` permite armar los controles en la UI."""
     titles = {v["id"]: v["title"] for v in repo.list_vacancies(status="open", tenant_id=user["tenant_id"])}
-    out = []
-    for vid, title in titles.items():
-        for c in repo.list_candidates(vid):
-            out.append({**_enrich_candidate_row(c), "vacancy_title": title})
-    return out
+    limit, offset = _page_params(limit, offset)
+    rows, total = repo.list_candidate_rows(
+        list(titles), search=q.strip(), limit=limit, offset=offset
+    )
+    items = [
+        {**_candidate_row_from_embed(c), "vacancy_title": titles.get(c.get("vacancy_id"), "")}
+        for c in rows
+    ]
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @app.post("/api/vacancies", status_code=201)
@@ -615,7 +713,21 @@ def get_vacancy(
 ) -> dict[str, Any]:
     vacancy = _require_vacancy_in_tenant(vacancy_id, user)
     recruiter = repo.get_recruiter(vacancy["recruiter_id"]) if vacancy.get("recruiter_id") else None
-    return {**vacancy, "questions": repo.get_vacancy_questions(vacancy_id), "recruiter": recruiter}
+    lead = repo.get_recruiter(vacancy["lead_recruiter_id"]) if vacancy.get("lead_recruiter_id") else None
+    manager = repo.get_recruiter(vacancy["manager_recruiter_id"]) if vacancy.get("manager_recruiter_id") else None
+    # Deep-link del bot para publicar en avisos: enruta el /start a ESTA vacante (A1).
+    settings: Settings = _state.get("settings") or get_settings()
+    bot_username = (settings.telegram_bot_username or "").strip().lstrip("@")
+    return {
+        **vacancy,
+        "questions": repo.get_vacancy_questions(vacancy_id),
+        "recruiter": recruiter,
+        "lead_recruiter": lead,
+        "manager_recruiter": manager,
+        "telegram_deep_link": (
+            f"https://t.me/{bot_username}?start={vacancy_id}" if bot_username else ""
+        ),
+    }
 
 
 @app.put("/api/vacancies/{vacancy_id}")
@@ -635,10 +747,20 @@ def update_vacancy(
 
 @app.get("/api/vacancies/{vacancy_id}/candidates")
 def list_candidates(
-    vacancy_id: str, user: dict[str, Any] = Depends(get_current_user)
-) -> list[dict[str, Any]]:
+    vacancy_id: str,
+    q: str = "",
+    limit: int = 100,
+    offset: int = 0,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Candidatos de la vacante, paginados (U1) y en 1 consulta con embeds (D1)."""
     _require_vacancy_in_tenant(vacancy_id, user)
-    return [_enrich_candidate_row(c) for c in repo.list_candidates(vacancy_id)]
+    limit, offset = _page_params(limit, offset)
+    rows, total = repo.list_candidate_rows(
+        [vacancy_id], search=q.strip(), limit=limit, offset=offset
+    )
+    items = [_candidate_row_from_embed(c) for c in rows]
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @app.post("/api/vacancies/{vacancy_id}/sync-applicants")
@@ -727,6 +849,9 @@ def get_candidate_detail(
         "thresholds": (vacancy or {}).get("semaphore_thresholds") or {"green_min": 75, "yellow_min": 50},
         "scorecard": scorecard,
         "transcript": messages,
+        "meetings": repo.list_meetings_by_candidate(candidate_id),
+        "stage_feedback": repo.list_stage_feedback(candidate_id),
+        "psych_exam": candidate.get("psych_exam"),
     }
 
 
@@ -946,10 +1071,12 @@ def _bot_send(chat_id: int, messages: list[str]) -> bool:
 
 def _reminder_messages(conv: dict[str, Any], service) -> list[str]:
     """Texto del recordatorio según la fase (en entrevista incluye la pregunta pendiente)."""
-    from agent.prompts import REMINDER_DOCS, REMINDER_INTERVIEW, SCHEDULING_REMINDER
-    from agent.state import PHASE_AWAITING_DOCS, PHASE_SCHEDULING, current_question
+    from agent.prompts import REMINDER_DOCS, REMINDER_GREETING, REMINDER_INTERVIEW, SCHEDULING_REMINDER
+    from agent.state import PHASE_AWAITING_DOCS, PHASE_GREETING, PHASE_SCHEDULING, current_question
 
     state = conv.get("state")
+    if state == PHASE_GREETING:
+        return [REMINDER_GREETING]
     if state == PHASE_AWAITING_DOCS:
         return [REMINDER_DOCS]
     if state == PHASE_SCHEDULING:
@@ -966,7 +1093,7 @@ def _inactivity_sweep(settings: Settings) -> dict[str, int]:
     Síncrono (lo corre el scheduler en un hilo). Idempotente por `reminders_sent`."""
     from datetime import datetime, timezone
 
-    from agent.state import PHASE_AWAITING_DOCS, PHASE_INTERVIEWING, PHASE_SCHEDULING
+    from agent.state import PHASE_AWAITING_DOCS, PHASE_GREETING, PHASE_INTERVIEWING, PHASE_SCHEDULING
 
     report = {"checked": 0, "reminded": 0, "finalized": 0}
     # Config POR-TENANT (Fase 0.1): resuelve el tenant de cada conversación por su vacante.
@@ -975,7 +1102,7 @@ def _inactivity_sweep(settings: Settings) -> dict[str, int]:
     service = _state.get("service")
     now = datetime.now(timezone.utc)
     for conv in repo.list_conversations_by_states(
-        [PHASE_INTERVIEWING, PHASE_AWAITING_DOCS, PHASE_SCHEDULING]
+        [PHASE_GREETING, PHASE_INTERVIEWING, PHASE_AWAITING_DOCS, PHASE_SCHEDULING]
     ):
         cfg = cfg_for(vac_tenant.get(conv.get("vacancy_id")))
         if not cfg.get("enabled"):
@@ -1036,14 +1163,19 @@ def _reconciliation_sweep(settings: Settings) -> dict[str, int]:
     """Detecta estados colgados y los hace visibles (alertas estructuradas). Síncrono.
 
     (1) Envíos en dead-letter del outbox (agotaron reintentos). (2) Reuniones sin enlace
-    Meet (Calendar falló). (3) Coordinaciones de horario estancadas sin reunión. No hace
-    remediación automática riesgosa: alerta para que RR.HH./ops actúen. El outbox ya
-    reintenta los envíos por su cuenta."""
+    Meet (Calendar falló). (3) Coordinaciones de horario estancadas sin reunión.
+    (4) Divergencia entre la fase del checkpoint (motor) y el estado de la conversación
+    (negocio) — la doble escritura no es transaccional (audit G1). No hace remediación
+    automática riesgosa: alerta para que RR.HH./ops actúen. El outbox ya reintenta los
+    envíos por su cuenta."""
     from datetime import datetime, timezone
 
     from agent.state import PHASE_SCHEDULING
 
-    report = {"alerts": 0, "dead_letter": 0, "meetings_no_link": 0, "scheduling_stuck": 0}
+    report = {
+        "alerts": 0, "dead_letter": 0, "meetings_no_link": 0,
+        "scheduling_stuck": 0, "state_divergence": 0,
+    }
     dead = repo.count_outbox_by_status().get("failed", 0)
     if dead:
         report["dead_letter"] = dead
@@ -1068,6 +1200,28 @@ def _reconciliation_sweep(settings: Settings) -> dict[str, int]:
         report["scheduling_stuck"] += 1
         report["alerts"] += 1
         logger.warning("Reconciliación: coordinación de horario estancada (conv %s) — retomar", conv_id)
+    # (4) Divergencia motor↔negocio: el turno persiste el checkpoint y LUEGO proyecta a
+    # Supabase; un fallo entre ambos deja la proyección desactualizada. `_sync_business` se
+    # auto-repara al siguiente mensaje, pero si el candidato no vuelve a escribir la
+    # divergencia es permanente e invisible — aquí se alerta (sin remediar).
+    service = _state.get("service")
+    if service:
+        from agent.state import PHASE_AWAITING_DOCS, PHASE_GREETING, PHASE_INTERVIEWING
+
+        for conv in repo.list_conversations_by_states(
+            [PHASE_GREETING, PHASE_INTERVIEWING, PHASE_AWAITING_DOCS, PHASE_SCHEDULING]
+        ):
+            try:
+                engine_phase = (service.runner.get_state(conv["langgraph_thread_id"]) or {}).get("phase")
+            except Exception:  # noqa: BLE001 — sin checkpoint legible no hay comparación
+                continue
+            if engine_phase and engine_phase != conv.get("state"):
+                report["state_divergence"] += 1
+                report["alerts"] += 1
+                logger.warning(
+                    "Reconciliación: conversación %s divergente (motor=%s, negocio=%s) — revisar",
+                    conv.get("id"), engine_phase, conv.get("state"),
+                )
     return report
 
 
@@ -1103,6 +1257,10 @@ def _retention_sweep(settings: Settings) -> dict[str, int]:
         conv = repo.get_conversation_by_candidate(cand["id"])
         if conv:
             repo.delete_messages(conv["id"])
+            # El checkpoint de LangGraph guarda el estado serializado completo (respuestas
+            # crudas + cv_profile): sin esto, la PII sobrevive a la anonimización (audit M1).
+            if conv.get("langgraph_thread_id"):
+                repo.delete_langgraph_checkpoint(conv["langgraph_thread_id"])
         repo.delete_candidate_documents(cand["id"])
         repo.anonymize_candidate(cand["id"])
         report["anonymized"] += 1
@@ -1266,9 +1424,160 @@ def decide_candidate(
 def get_candidate_meeting(
     candidate_id: str, user: dict[str, Any] = Depends(get_current_user)
 ) -> dict[str, Any] | None:
-    """Reunión agendada del candidato (o null si aún no hay)."""
+    """Reunión más reciente del candidato (o null si aún no hay)."""
     _require_candidate_in_tenant(candidate_id, user)
     return repo.get_meeting_by_candidate(candidate_id)
+
+
+@app.get("/api/candidates/{candidate_id}/meetings")
+def list_candidate_meetings(
+    candidate_id: str, user: dict[str, Any] = Depends(get_current_user)
+) -> list[dict[str, Any]]:
+    """Reuniones del candidato, una por etapa (hr / lead / manager)."""
+    _require_candidate_in_tenant(candidate_id, user)
+    return repo.list_meetings_by_candidate(candidate_id)
+
+
+def _send_scheduling_messages(candidate: dict[str, Any], messages: list[str]) -> bool:
+    """Envía por el bot vivo los mensajes de coordinación (propuesta de horarios)."""
+    chat = str(candidate.get("channel_user_id") or "")
+    return _bot_send(int(chat), messages) if chat.lstrip("-").isdigit() else False
+
+
+# Modalidad forzada por etapa siguiente (gerencia es 100% presencial).
+_NEXT_STAGE = {"hr": "lead", "lead": "manager"}
+
+
+@app.post("/api/candidates/{candidate_id}/psych-exam")
+def send_psych_exam(
+    candidate_id: str,
+    payload: PsychExamIn,
+    user: dict[str, Any] = Depends(require_role("recruiter")),
+) -> dict[str, Any]:
+    """Fase 1: envía por correo el examen psicológico (link+código+clave) y lo registra."""
+    candidate, vacancy = _require_candidate_in_tenant(candidate_id, user)
+    # R3 (auditoría): idempotencia — reenviar las MISMAS credenciales duplica el correo
+    # (doble click). Con credenciales nuevas sí se permite (reemplazo legítimo).
+    prev = candidate.get("psych_exam") or {}
+    if prev and (prev.get("link"), prev.get("code"), prev.get("key")) == (
+        payload.link, payload.code, payload.key
+    ):
+        raise HTTPException(409, "Ese examen ya fue enviado a este candidato.")
+    settings: Settings = _state.get("settings") or get_settings()
+    exam = {
+        "link": payload.link,
+        "code": payload.code,
+        "key": payload.key,
+        "sent_at": _now_iso(),
+        "sent_by": user.get("email") or "",
+    }
+    sent = outbox.deliver_psych_exam(settings, vacancy, candidate, exam, conversation_id=None)
+    repo.update_candidate(candidate_id, {"psych_exam": exam})
+    _audit(user, "candidate.psych_exam", entity_type="candidate", entity_id=candidate_id,
+           summary=f"examen psicológico enviado · {candidate.get('name', '')}")
+    return {"sent": sent, "psych_exam": exam}
+
+
+@app.post("/api/candidates/{candidate_id}/attendance")
+def mark_attendance(
+    candidate_id: str,
+    payload: AttendanceIn,
+    user: dict[str, Any] = Depends(require_role("recruiter")),
+) -> dict[str, Any]:
+    """RR.HH. marca la asistencia a la entrevista de una etapa. `no_show` puede reagendar o cerrar."""
+    candidate, vacancy = _require_candidate_in_tenant(candidate_id, user)
+    settings: Settings = _state.get("settings") or get_settings()
+    conv = repo.get_conversation_by_candidate(candidate_id)
+    if not conv:
+        raise HTTPException(404, "El candidato no tiene una conversación")
+    meeting = repo.get_meeting_by_conversation_stage(conv["id"], payload.stage)
+    if not meeting:
+        raise HTTPException(404, f"No hay reunión agendada en la etapa '{payload.stage}'")
+    repo.set_meeting_attendance(meeting["id"], payload.attended)
+
+    if payload.attended == "attended":
+        _audit(user, "candidate.attendance", entity_type="candidate", entity_id=candidate_id,
+               summary=f"asistió ({payload.stage}) · {candidate.get('name', '')}")
+        return {"attendance": "attended", "status": candidate.get("status")}
+
+    # No asistió: reagendar (reabre horarios de la misma etapa) o cerrar (no_show + notifica).
+    service = _state.get("service")
+    if payload.reschedule and service:
+        result = service.initiate_scheduling(
+            candidate, vacancy, stage=payload.stage, modality=meeting.get("modality") or "virtual"
+        )
+        sent = _send_scheduling_messages(candidate, result.messages)
+        _audit(user, "candidate.attendance", entity_type="candidate", entity_id=candidate_id,
+               summary=f"no asistió → reagendar ({payload.stage}) · {candidate.get('name', '')}")
+        return {"attendance": "no_show", "rescheduled": True, "messages_sent": sent, "messages": result.messages}
+
+    repo.update_candidate(candidate_id, {"status": "no_show"})
+    notified = outbox.deliver_candidate_notify(
+        settings, candidate, DECISION_REJECT, conversation_id=conv["id"], tenant_id=user["tenant_id"]
+    )
+    _audit(user, "candidate.attendance", entity_type="candidate", entity_id=candidate_id,
+           summary=f"no asistió → cerrar ({payload.stage}) · {candidate.get('name', '')}")
+    return {"attendance": "no_show", "status": "no_show", "notified": notified}
+
+
+@app.post("/api/candidates/{candidate_id}/advance-stage")
+def advance_stage(
+    candidate_id: str,
+    payload: AdvanceStageIn,
+    user: dict[str, Any] = Depends(require_role("recruiter")),
+) -> dict[str, Any]:
+    """Registra el feedback + decisión de una etapa. Aprobar 'hr'/'lead' agenda la etapa siguiente;
+    aprobar 'manager' contrata; rechazar cierra y notifica."""
+    candidate, vacancy = _require_candidate_in_tenant(candidate_id, user)
+    settings: Settings = _state.get("settings") or get_settings()
+    conv = repo.get_conversation_by_candidate(candidate_id)
+    repo.save_stage_feedback({
+        "candidate_id": candidate_id,
+        "conversation_id": conv["id"] if conv else None,
+        "stage": payload.stage,
+        "feedback": payload.feedback,
+        "decision": payload.decision,
+        "decided_by": user.get("id"),
+        "decided_email": user.get("email") or "",
+    })
+    _audit(user, "candidate.stage_decision", entity_type="candidate", entity_id=candidate_id,
+           summary=f"{payload.stage}: {payload.decision} · {candidate.get('name', '')}")
+
+    if payload.decision == "rejected":
+        repo.update_candidate(candidate_id, {"status": "rejected"})
+        notified = outbox.deliver_candidate_notify(
+            settings, candidate, DECISION_REJECT,
+            conversation_id=conv["id"] if conv else None, tenant_id=user["tenant_id"],
+        )
+        return {"status": "rejected", "notified": notified}
+
+    # Aprobado.
+    next_stage = _NEXT_STAGE.get(payload.stage)
+    if next_stage is None:  # aprobar en 'manager' = contratado
+        repo.update_candidate(candidate_id, {"status": "hired"})
+        notified = outbox.deliver_candidate_notify(
+            settings, candidate, DECISION_HIRED,
+            conversation_id=conv["id"] if conv else None, tenant_id=user["tenant_id"],
+        )
+        return {"status": "hired", "notified": notified}
+
+    # Agenda la etapa siguiente (lead: modalidad elegida por RR.HH.; manager: forzado presencial).
+    modality = "onsite" if next_stage == "manager" else payload.modality
+    sched = repo.get_app_setting("scheduling", _DEFAULT_SCHEDULING, user["tenant_id"]) or {}
+    service = _state.get("service")
+    if not (sched.get("enabled") and service):
+        raise HTTPException(409, "El agendamiento no está activo: no se puede coordinar la etapa siguiente")
+    result = service.initiate_scheduling(candidate, vacancy, stage=next_stage, modality=modality)
+    sent = _send_scheduling_messages(candidate, result.messages)
+    status = {"lead": "lead_scheduling", "manager": "mgr_scheduling"}[next_stage]
+    return {
+        "status": status,
+        "scheduling_started": True,
+        "stage": next_stage,
+        "modality": modality,
+        "messages_sent": sent,
+        "messages": result.messages,
+    }
 
 
 @app.delete("/api/candidates/{candidate_id}")
@@ -1292,6 +1601,7 @@ def erase_candidate(
 _ACTIVE_STATUSES = {
     "sourced", "prescreen_passed", "invited", "consented",
     "interviewing", "finished", "scheduling", "scheduled", "advanced",
+    "lead_scheduling", "lead_scheduled", "mgr_scheduling", "mgr_scheduled",
 }
 
 
@@ -1300,6 +1610,8 @@ def list_recruiters(user: dict[str, Any] = Depends(get_current_user)) -> list[di
     """Roster con carga de trabajo: vacantes abiertas y candidatos activos por reclutador."""
     tenant_id = user["tenant_id"]
     open_vac = repo.list_vacancies(status="open", tenant_id=tenant_id)
+    # D1: un solo conteo por estado para TODAS las vacantes abiertas (sin 1/vacante).
+    counts = repo.count_candidates_by_status([v["id"] for v in open_vac])
     open_count: dict[str, int] = {}
     active_count: dict[str, int] = {}
     for v in open_vac:
@@ -1307,7 +1619,8 @@ def list_recruiters(user: dict[str, Any] = Depends(get_current_user)) -> list[di
         if not rid:
             continue
         open_count[rid] = open_count.get(rid, 0) + 1
-        active = sum(1 for c in repo.list_candidates(v["id"]) if c.get("status") in _ACTIVE_STATUSES)
+        per = counts.get(v["id"], {})
+        active = sum(n for status, n in per.items() if status in _ACTIVE_STATUSES)
         active_count[rid] = active_count.get(rid, 0) + active
     return [
         {**r, "open_vacancies": open_count.get(r["id"], 0), "active_candidates": active_count.get(r["id"], 0)}

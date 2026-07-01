@@ -17,6 +17,9 @@ from agent.prompts import (
     EVALUATE_ANSWER_PROMPT,
     SCHEDULING_PARSE_PROMPT,
 )
+from src.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -68,14 +71,16 @@ def classify_turn(llm: LLM, *, current_question: str, message: str) -> str:
     try:
         raw = complete_staged(
             llm,
-            CLASSIFY_TURN_PROMPT.format(question=current_question, message=message),
+            CLASSIFY_TURN_PROMPT.format(
+                question=current_question, message=sanitize_answer_for_prompt(message)
+            ),
             "classify",
         )
         kind = str(parse_json_object(raw).get("kind", "")).strip().lower()
         if kind in ("answer", "question"):
             return kind
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning("LLM fallback en classify_turn (heurística): %s", e)
     # Heurística: mensaje corto que termina en '?' y empieza con interrogativo → duda.
     stripped = message.strip()
     interrogatives = ("¿", "qué", "cuál", "cuándo", "cómo", "dónde", "cuánto", "quién", "por qué")
@@ -89,13 +94,15 @@ def answer_candidate_question(llm: LLM, *, company_info: str, question: str) -> 
     try:
         text = complete_staged(
             llm,
-            ANSWER_CANDIDATE_PROMPT.format(company_info=company_info or "", question=question),
+            ANSWER_CANDIDATE_PROMPT.format(
+                company_info=company_info or "", question=sanitize_answer_for_prompt(question)
+            ),
             "answer",
         ).strip()
         if text:
             return text
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning("LLM fallback en answer_candidate_question (respuesta genérica): %s", e)
     return (
         "Buena pregunta. No tengo ese detalle a la mano, pero el equipo te lo confirmará "
         "más adelante en el proceso. ¿Te parece si seguimos? 🙌"
@@ -112,14 +119,18 @@ def parse_slot_choice(llm: LLM, options_human: list[str], message: str) -> Optio
     try:
         data = parse_json_object(
             complete_staged(
-                llm, SCHEDULING_PARSE_PROMPT.format(options=listed, message=message), "schedule"
+                llm,
+                SCHEDULING_PARSE_PROMPT.format(
+                    options=listed, message=sanitize_answer_for_prompt(message)
+                ),
+                "schedule",
             )
         )
         choice = int(data.get("choice", 0) or 0)
         if 1 <= choice <= len(options_human):
             return choice - 1
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning("LLM fallback en parse_slot_choice (heurística de dígito): %s", e)
     # Heurística: un único dígito 1..N presente en la respuesta.
     digits = {c for c in message if c.isdigit()}
     if len(digits) == 1:
@@ -169,8 +180,9 @@ def evaluate_answer(
             follow_up_question=follow_up if needs else "",
             ack=ack or "Gracias por tu respuesta.",
         )
-    except Exception:
+    except Exception as e:  # noqa: BLE001
         # Fallback conservador: puntaje neutro, marcado baja-confianza → revisión humana (#11).
+        logger.warning("LLM fallback en evaluate_answer (score neutro + revisión humana): %s", e)
         return EvalResult(
             score=50.0,
             justification="No se pudo evaluar automáticamente (fallo del modelo); requiere revisión manual.",

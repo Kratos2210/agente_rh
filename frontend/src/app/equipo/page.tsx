@@ -6,7 +6,7 @@ import { api, Recruiter } from "@/lib/api";
 import { avatarColor, initials } from "@/lib/stages";
 
 const MONO = "var(--font-jetbrains), monospace";
-const EMPTY = { name: "", role: "Reclutador", company: "", email: "", phone: "", telegram_chat_id: "", calendar_id: "primary", active: true };
+const EMPTY = { name: "", role: "Reclutador", company: "", email: "", phone: "", telegram_chat_id: "", calendar_id: "primary", location: "", active: true };
 
 const field: React.CSSProperties = {
   width: "100%", padding: "11px 13px", borderRadius: 10, background: "var(--field)",
@@ -26,7 +26,7 @@ export default function EquipoPage() {
   const openNew = () => { setForm({ ...EMPTY }); setEditingId(null); setAdding(true); };
   const openEdit = (r: Recruiter) => {
     setForm({ name: r.name, role: r.role, company: r.company, email: r.email, phone: r.phone,
-      telegram_chat_id: r.telegram_chat_id, calendar_id: r.calendar_id || "primary", active: r.active });
+      telegram_chat_id: r.telegram_chat_id, calendar_id: r.calendar_id || "primary", location: r.location || "", active: r.active });
     setEditingId(r.id); setAdding(true);
   };
   const save = async () => {
@@ -69,6 +69,9 @@ export default function EquipoPage() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <input placeholder="Chat de Telegram (id)" value={form.telegram_chat_id} onChange={(e) => setForm({ ...form, telegram_chat_id: e.target.value })} style={field} />
               <input placeholder="Google Calendar (id/email)" value={form.calendar_id} onChange={(e) => setForm({ ...form, calendar_id: e.target.value })} style={field} />
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <input placeholder="Dirección de oficina (entrevistas presenciales)" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} style={{ ...field, width: "100%" }} />
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <button onClick={save} disabled={saving} style={{ padding: "10px 18px", borderRadius: 10, background: "var(--ac)", color: "var(--ac-ink)", fontWeight: 700, border: "none", cursor: "pointer", opacity: saving ? 0.6 : 1 }}>

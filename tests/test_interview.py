@@ -34,7 +34,8 @@ class FakeLLM:
     def complete(self, prompt: str) -> str:
         self.calls.append(prompt)
         if '"kind"' in prompt:
-            m = re.search(r'El candidato respondió:\s*"(.*?)"', prompt, re.S)
+            # El mensaje va entre delimitadores anti-inyección (igual que evaluate).
+            m = re.search(r"<<<respuesta>>>\n(.*?)\n<<<fin>>>", prompt, re.S)
             msg = m.group(1) if m else ""
             return json.dumps({"kind": self.classify(msg)})
         if "needs_follow_up" in prompt:

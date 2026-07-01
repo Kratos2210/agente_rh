@@ -15,10 +15,16 @@ export const STAGE: Record<string, StageMeta> = {
   consented: { label: "Aceptó", color: "#fbbf24", soft: "rgba(251,191,36,.13)" },
   interviewing: { label: "En entrevista", color: ACCENT.c, soft: ACCENT.soft },
   finished: { label: "Evaluado", color: "#a78bfa", soft: "rgba(167,139,250,.14)" },
-  scheduling: { label: "Coordinando", color: "#a78bfa", soft: "rgba(167,139,250,.14)" },
-  scheduled: { label: "Entrevista agendada", color: "#34d399", soft: "rgba(52,211,153,.16)" },
+  scheduling: { label: "Coordinando RR.HH.", color: "#a78bfa", soft: "rgba(167,139,250,.14)" },
+  scheduled: { label: "Entrevista RR.HH.", color: "#34d399", soft: "rgba(52,211,153,.16)" },
+  lead_scheduling: { label: "Coordinando líder", color: "#22d3ee", soft: "rgba(34,211,238,.13)" },
+  lead_scheduled: { label: "Entrevista líder", color: "#22d3ee", soft: "rgba(34,211,238,.16)" },
+  mgr_scheduling: { label: "Coordinando gerencia", color: "#818cf8", soft: "rgba(129,140,248,.14)" },
+  mgr_scheduled: { label: "Entrevista gerencia", color: "#818cf8", soft: "rgba(129,140,248,.16)" },
+  hired: { label: "Contratado", color: "#34d399", soft: "rgba(52,211,153,.2)" },
   advanced: { label: "Avanzado", color: "#34d399", soft: "rgba(52,211,153,.16)" },
   rejected: { label: "Rechazado", color: "#f87171", soft: "rgba(248,113,113,.12)" },
+  no_show: { label: "No asistió", color: "#f87171", soft: "rgba(248,113,113,.12)" },
   declined: { label: "Declinó", color: "#f87171", soft: "rgba(248,113,113,.12)" },
   no_response: { label: "No respondió", color: "#f87171", soft: "rgba(248,113,113,.12)" },
 };
@@ -34,8 +40,9 @@ export const KANBAN_COLUMNS: { key: string; label: string; color: string; status
   { key: "invited", label: "Contactado", color: "#fbbf24", statuses: ["invited", "consented"] },
   { key: "interviewing", label: "Entrevista", color: ACCENT.c, statuses: ["interviewing"] },
   { key: "finished", label: "Evaluado", color: "#a78bfa", statuses: ["finished", "scheduling"] },
-  { key: "scheduled", label: "Agendado", color: "#34d399", statuses: ["scheduled", "advanced"] },
-  { key: "rejected", label: "Descartado", color: "#f87171", statuses: ["prescreen_rejected", "rejected", "declined", "no_response"] },
+  { key: "scheduled", label: "Entrevistas", color: "#34d399", statuses: ["scheduled", "advanced", "lead_scheduling", "lead_scheduled", "mgr_scheduling", "mgr_scheduled"] },
+  { key: "hired", label: "Contratado", color: "#34d399", statuses: ["hired"] },
+  { key: "rejected", label: "Descartado", color: "#f87171", statuses: ["prescreen_rejected", "rejected", "no_show", "declined", "no_response"] },
 ];
 
 // Agrupa candidatos en las columnas del Kanban según su `status`.

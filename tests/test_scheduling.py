@@ -40,7 +40,8 @@ _CFG = {
 class FakeLLM:
     def complete(self, prompt: str) -> str:
         if '"choice"' in prompt:
-            m = re.search(r'El candidato respondió:\s*"(.*?)"', prompt, re.S)
+            # La respuesta va entre delimitadores anti-inyección (audit S1).
+            m = re.search(r"<<<respuesta>>>\n(.*?)\n<<<fin>>>", prompt, re.S)
             msg = m.group(1) if m else ""
             digits = [c for c in msg if c.isdigit()]
             return json.dumps({"choice": int(digits[0]) if digits else 0})

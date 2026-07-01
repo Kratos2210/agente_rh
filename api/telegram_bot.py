@@ -24,6 +24,7 @@ from telegram.ext import (
 )
 
 from agent.service import InterviewService
+from api.ratelimit import TURN_BLOCKED, TURN_CAP_NOTICE, TURN_COOLDOWN, TurnGovernor
 from channels.base import CHANNEL_TELEGRAM, InboundMessage
 from channels.telegram import send_messages
 from src.config import Settings
@@ -32,6 +33,15 @@ from src.logging_config import get_logger
 logger = get_logger(__name__)
 
 _allowed_users: set[int] = set()
+
+# R2 (auditoría): gobierna los turnos por chat (cooldown + tope diario). Se reconfigura
+# en build_bot_app con los valores de settings.
+_governor = TurnGovernor()
+
+_CAP_NOTICE_TEXT = (
+    "Recibimos muchos mensajes tuyos hoy 🙈 Para continuar, retomemos mañana; "
+    "tu proceso queda guardado justo donde lo dejamos. ¡Gracias por tu comprensión! 🙌"
+)
 
 
 def _init_allowed_users(settings: Settings) -> None:
@@ -53,6 +63,12 @@ def build_bot_app(settings: Settings, state: dict[str, Any]) -> Application:
     _init_allowed_users(settings)
 
     from integrations.scheduling import get_scheduler
+
+    global _governor
+    _governor = TurnGovernor(
+        cooldown_seconds=settings.bot_turn_cooldown_seconds,
+        max_turns_per_day=settings.bot_max_turns_per_day,
+    )
 
     runner = make_postgres_runner(MeteredLLM(build_default_llm()), get_database_url())
     notifier = _build_notifier(settings)
@@ -99,13 +115,25 @@ def _build_meeting_notifier(settings: Settings):
 
 # ── Handlers ─────────────────────────────────────────────────────────────────
 
-async def _dispatch(update: Update, context: ContextTypes.DEFAULT_TYPE, *, text=None, button=None, document=None) -> None:
+async def _dispatch(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, *, text=None, button=None, document=None, start_payload=None
+) -> None:
     chat = update.effective_chat
     user = update.effective_user
     if chat is None:
         return
     if not _is_allowed(chat.id):
         await context.bot.send_message(chat_id=chat.id, text="No tienes acceso a este bot.")
+        return
+
+    # R2: cooldown + tope diario por chat ANTES de gastar LLM. En cooldown se ignora en
+    # silencio (mensajes en ráfaga); al alcanzar el tope se avisa UNA vez y luego silencio.
+    verdict = _governor.check(str(chat.id))
+    if verdict == TURN_COOLDOWN or verdict == TURN_BLOCKED:
+        return
+    if verdict == TURN_CAP_NOTICE:
+        logger.warning("Chat %s alcanzó el tope diario de turnos del bot", chat.id)
+        await context.bot.send_message(chat_id=chat.id, text=_CAP_NOTICE_TEXT)
         return
 
     service: InterviewService = context.bot_data["service"]
@@ -116,6 +144,7 @@ async def _dispatch(update: Update, context: ContextTypes.DEFAULT_TYPE, *, text=
         button=button,
         document=document,
         display_name=(user.full_name if user else ""),
+        start_payload=start_payload,
     )
     try:
         result = await asyncio.to_thread(service.process, inbound)
@@ -134,7 +163,10 @@ async def _dispatch(update: Update, context: ContextTypes.DEFAULT_TYPE, *, text=
 
 async def _on_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # El primer contacto lo decide el servicio (sin estado aún → envía intro + botones).
-    await _dispatch(update, context, text=None, button=None)
+    # Deep-link multi-tenant: t.me/<bot>?start=<vacancy_id> llega como argumento de /start
+    # y enruta al candidato a ESA vacante (sin payload cae a la vacante default).
+    payload = (context.args[0] if context.args else "").strip() or None
+    await _dispatch(update, context, text=None, button=None, start_payload=payload)
 
 
 async def _on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

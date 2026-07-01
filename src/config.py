@@ -100,6 +100,9 @@ class Settings(BaseSettings):
     telegram_default_doc_id: str = ""
     # Lista de chat_ids permitidos separados por coma. Vacío = cualquiera puede usar el bot.
     telegram_allowed_users: str = ""
+    # Username público del bot (sin @). Con él, el dashboard muestra el deep-link
+    # t.me/<bot>?start=<vacancy_id> de cada vacante (routing multi-tenant del bot).
+    telegram_bot_username: str = ""
     # chat_id que recibe notificaciones cuando termina la indexación de un documento.
     telegram_notify_chat_id: str = ""
 
@@ -171,6 +174,13 @@ class Settings(BaseSettings):
     meeting_sheet_tab: str = "Reuniones"
     # Estimación de costo: precio por cada 1000 tokens totales (0 = solo conteo, sin costo).
     token_price_per_1k: float = 0.0
+
+    # Gobierno de turnos del bot (auditoría R2): cada mensaje del candidato cuesta llamadas
+    # LLM; sin freno, cualquier usuario de Telegram puede quemar el presupuesto.
+    #   - cooldown: segundos mínimos entre mensajes procesados del mismo chat (0 = off).
+    #   - tope diario: turnos procesados por chat y día (0 = sin tope).
+    bot_turn_cooldown_seconds: float = 2.0
+    bot_max_turns_per_day: int = 120
 
     # Entrevista: máximo de follow-ups por pregunta ante respuestas vagas.
     interview_max_follow_ups: int = 1

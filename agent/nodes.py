@@ -13,6 +13,7 @@ from agent.llm import LLM
 from agent.prompts import (
     CLOSING_DECLINED,
     CLOSING_DOCS_PENDING,
+    CLOSING_GREETING_NO_RESPONSE,
     CLOSING_INACTIVITY,
     CLOSING_THANKS,
     DOC_RECEIVED,
@@ -20,10 +21,13 @@ from agent.prompts import (
     DOC_SKIPPED,
     EMPTY_ANSWER_NUDGE,
     QUALIFIED_NEXT_STEPS,
+    QUESTIONS_EXHAUSTED,
     REQUEST_DOC,
     SCHEDULING_BOOKING,
+    SCHEDULING_ESCALATE,
     SCHEDULING_PICK_AGAIN,
     SCHEDULING_PROPOSAL,
+    SCHEDULING_SESSION_LINES,
     progress_prefix,
     revalidation_question,
 )
@@ -55,6 +59,11 @@ _SKIP_SIGNALS = ("omitir", "saltar", "skip", "no tengo", "luego", "después", "d
 
 # Documentos que se piden (en orden) tras calificar: (tipo, etiqueta legible).
 DOC_SEQUENCE = [("cv", "tu hoja de vida (CV)"), ("cul", "tu Certificado Único Laboral (CUL)")]
+
+# Criterios de parada de los ciclos deliberativos (auditoría I1/I2): sin tope, cada vuelta
+# cuesta llamadas LLM y el reloj de inactividad se reinicia con cada mensaje.
+MAX_CANDIDATE_QUESTIONS = 3   # dudas respondidas por pregunta de la entrevista
+MAX_SLOT_RETRIES = 3          # intentos fallidos de elegir horario antes de escalar a RR.HH.
 
 
 def start(state: InterviewState) -> InterviewState:
@@ -132,7 +141,13 @@ def handle_turn(state: InterviewState, llm: LLM) -> InterviewState:
 
 def _handle_timeout(state: InterviewState, phase: str | None) -> None:
     """Cierra la conversación por silencio del candidato (según la fase)."""
-    if phase == PHASE_INTERVIEWING:
+    if phase == PHASE_GREETING:
+        # Nunca pulsó Acepto / No interesado: se cierra como "no respondió".
+        state["phase"] = PHASE_CLOSED
+        state["consented"] = False
+        state["closed_reason"] = "no_response"
+        state["outbound"].append(CLOSING_GREETING_NO_RESPONSE)
+    elif phase == PHASE_INTERVIEWING:
         state["phase"] = PHASE_CLOSED
         state["closed_reason"] = "no_response"
         state["outbound"].append(CLOSING_INACTIVITY)
@@ -161,7 +176,10 @@ def _format_slot_options(slots: list[str]) -> str:
 
 
 def start_scheduling(state: InterviewState) -> InterviewState:
-    """Abre la coordinación: presenta al reclutador y propone los horarios (con número)."""
+    """Abre la coordinación: presenta al reclutador y propone los horarios (con número).
+
+    Multi-etapa: la línea que describe la sesión depende de `scheduling_stage`
+    ("hr" | "lead" | "manager") y de `modality` ("virtual" | "onsite")."""
     state = dict(state)
     state["outbound"] = []
     state["show_consent_buttons"] = False
@@ -169,6 +187,7 @@ def start_scheduling(state: InterviewState) -> InterviewState:
     slots = list(state.get("proposed_slots") or [])
     state["proposed_slots"] = slots
     state["meeting_slot"] = None
+    state["slot_retries"] = 0
     state["phase"] = PHASE_SCHEDULING
     if not slots:
         state["outbound"].append(
@@ -176,14 +195,23 @@ def start_scheduling(state: InterviewState) -> InterviewState:
         )
         return state
     rec = state.get("recruiter") or {}
+    interviewer = state.get("interviewer") or {}
     vac = state.get("vacancy") or {}
+    stage = state.get("scheduling_stage") or "hr"
+    modality = state.get("modality") or "virtual"
     name = str((state.get("cv_profile") or {}).get("name", "")).split(" ")[0]
+    session_line = SCHEDULING_SESSION_LINES.get(
+        (stage, modality), SCHEDULING_SESSION_LINES[("hr", "virtual")]
+    ).format(
+        vacancy_title=vac.get("title") or "la vacante",
+        interviewer=interviewer.get("name") or "nuestro equipo",
+    )
     state["outbound"].append(
         SCHEDULING_PROPOSAL.format(
             name=name or "",
             recruiter_name=rec.get("name") or "el equipo de Talento",
             company=rec.get("company") or "nuestra empresa",
-            vacancy_title=vac.get("title") or "la vacante",
+            session_line=session_line,
             options=_format_slot_options(slots),
         )
     )
@@ -194,6 +222,18 @@ def _handle_scheduling(state: InterviewState, llm: LLM, *, text: str) -> None:
     slots = list(state.get("proposed_slots") or [])
     idx = parse_slot_choice(llm, [_slot_label(s) for s in slots], text)
     if idx is None or not (0 <= idx < len(slots)):
+        # Criterio de parada: tras el tope de intentos, escala a RR.HH. en vez de
+        # re-proponer indefinidamente (cada vuelta cuesta una llamada LLM). La fase
+        # queda en `scheduling`: la reconciliación de "scheduling estancado" la vigila
+        # y RR.HH. la retoma (reabrir horarios o coordinar directo).
+        retries = state.get("slot_retries", 0) + 1
+        state["slot_retries"] = retries
+        if retries > MAX_SLOT_RETRIES:
+            # Avisa el escalamiento una sola vez; después guarda silencio (una elección
+            # válida tardía sigue agendando, porque el parseo corre antes de este corte).
+            if retries == MAX_SLOT_RETRIES + 1:
+                state["outbound"].append(SCHEDULING_ESCALATE)
+            return
         state["outbound"].append(SCHEDULING_PICK_AGAIN.format(options=_format_slot_options(slots)))
         return
     # Elige el horario; el servicio crea la reunión y envía la confirmación con el enlace.
@@ -278,6 +318,7 @@ def _emit_question(state: InterviewState, *, ack: str = "") -> None:
     body = f"{prefix}\n\n{qtext}"
     state["outbound"].append(f"{ack}\n\n{body}".strip() if ack else body)
     state["follow_ups_used"] = 0
+    state["questions_asked"] = 0
     state["current_answer_parts"] = []
 
 
@@ -295,6 +336,13 @@ def _handle_interview(state: InterviewState, llm: LLM, *, text: str) -> None:
 
     # ¿Responde o pregunta algo sobre el puesto?
     if classify_turn(llm, current_question=q["text"], message=text) == "question":
+        # Criterio de parada: tras el tope de dudas por pregunta, se difiere al equipo
+        # sin llamar al LLM (evita un ciclo de costo indefinido que además reinicia
+        # el reloj de inactividad en cada vuelta).
+        if state.get("questions_asked", 0) >= MAX_CANDIDATE_QUESTIONS:
+            state["outbound"].append(QUESTIONS_EXHAUSTED.format(question=q["text"]))
+            return
+        state["questions_asked"] = state.get("questions_asked", 0) + 1
         company_info = (state.get("vacancy") or {}).get("company_info", "")
         reply = answer_candidate_question(llm, company_info=company_info, question=text)
         state["outbound"].append(reply)

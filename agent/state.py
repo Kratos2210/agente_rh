@@ -56,6 +56,7 @@ class InterviewState(TypedDict, total=False):
     consented: Optional[bool]
     current_idx: int             # índice de la pregunta actual (0-based)
     follow_ups_used: int         # follow-ups gastados en la pregunta actual
+    questions_asked: int         # dudas del candidato respondidas en la pregunta actual
     current_answer_parts: list[str]  # partes de la respuesta actual (con follow-ups)
     answers: list[AnswerRecord]  # respuestas ya cerradas
 
@@ -67,10 +68,15 @@ class InterviewState(TypedDict, total=False):
     doc_idx: int                          # índice del documento que se está pidiendo
     save_document: Optional[dict[str, Any]]  # documento a persistir este turno (lo lee el servicio)
 
-    # Agendamiento de entrevista (fase 2, tras "Continuar" de RR.HH.).
+    # Agendamiento de entrevista (tras "Continuar" de RR.HH.). Multi-etapa:
+    #   scheduling_stage = "hr" (Fase 1) | "lead" (Fase 2) | "manager" (Fase 3).
     proposed_slots: list[str]             # horarios propuestos (ISO 8601) al candidato
     meeting_slot: Optional[str]           # horario elegido (ISO) — lo lee el servicio para agendar
-    recruiter: dict[str, Any]             # datos del reclutador para firmar/agendar
+    slot_retries: int                     # intentos fallidos de elegir horario (corte → RR.HH.)
+    recruiter: dict[str, Any]             # contacto RR.HH. que coordina/firma los mensajes
+    scheduling_stage: str                 # etapa que se está coordinando ("hr" | "lead" | "manager")
+    modality: str                         # "virtual" (Meet) | "onsite" (presencial)
+    interviewer: dict[str, Any]           # persona entrevistada en esta etapa (líder / gerencia / RR.HH.)
 
     # Por turno (no durable a efectos prácticos; se reescribe cada vez):
     mode: str                    # "start" (primer contacto) | "turn" (procesar mensaje)
@@ -96,6 +102,7 @@ def new_state(
         consented=None,
         current_idx=0,
         follow_ups_used=0,
+        questions_asked=0,
         current_answer_parts=[],
         answers=[],
         scorecard=None,
@@ -104,7 +111,11 @@ def new_state(
         save_document=None,
         proposed_slots=[],
         meeting_slot=None,
+        slot_retries=0,
         recruiter={},
+        scheduling_stage="hr",
+        modality="virtual",
+        interviewer={},
         outbound=[],
         show_consent_buttons=False,
         pending_input=None,

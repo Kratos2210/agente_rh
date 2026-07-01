@@ -390,6 +390,130 @@ embeddings) para responder dudas del candidato sobre el puesto.
   (Doppler/Vault/AWS-GCP/Supabase Vault) para prod. **134/134 tests verde.** Pendiente pre-prod real (no MVP):
   migrar los secretos del `.env` plano a un gestor.
 
+- **2026-07-01 — Proceso de selección multi-etapa (Fases 2 y 3: líder del proyecto + gerencia)**: el flujo ya
+  no termina en la entrevista con RR.HH. (Fase 1); ahora encadena **Fase 2** (entrevista con el **líder del
+  proyecto**, presencial o Meet a elección de RR.HH.) y **Fase 3** (entrevista final con **gerencia**, 100%
+  presencial), con rechazo+notificación en cada punto y **contratación** al final. El agendamiento se
+  **generalizó a un `stage`** (`hr`/`lead`/`manager`) reusando toda la máquina existente. Migración
+  `0019_multi_stage_selection.sql`: `recruiters.location`; `vacancies.lead_recruiter_id`/`manager_recruiter_id`;
+  `meetings` +`stage/modality/location/attendance` y **unique(conversation_id, stage)** (reemplaza el unique por
+  conversación → hasta 3 reuniones); `candidates.psych_exam` (jsonb); tabla **`stage_feedback`** (feedback+decisión
+  por etapa, con RLS por tenant); seed demo (Christian Benites=líder, Gerencia) asignados a la vacante. Motor:
+  `state` +`scheduling_stage/modality/interviewer`; `graph.send(stage=,modality=,interviewer=)`;
+  `nodes.start_scheduling` usa `SCHEDULING_SESSION_LINES[(stage,modality)]`; prompts `SCHEDULING_CONFIRMED_ONSITE`
+  (ubicación+contacto+DNI) y `NOTIFY_HIRED`. Servicio: `initiate_scheduling(stage,modality)` +
+  `_resolve_interviewer(vacancy,stage)`; `_finalize_scheduling` idempotente por (conv,stage), rama `onsite`
+  (sin Meet, con `location`) y confirmación presencial; `_sync_business` mapea `(phase,stage)`→
+  `scheduling/scheduled|lead_*|mgr_*`. Scheduler (`integrations/scheduling.py`): `create_meeting(...,modality,
+  location)` — onsite = evento Calendar con `location`, sin conferenceData/Meet. Notificaciones:
+  `email.build/send_psych_exam_email` (estilo Multitest) + `outbox` kind `psych_exam_email`/`deliver_psych_exam`;
+  `candidate.render_message` acepta `hired`. API (rol recruiter, tenant, auditado): `POST /psych-exam`
+  (RR.HH. pega link+código+clave → correo + registro), `POST /attendance` (`attended`/`no_show`+reagendar|cerrar),
+  `POST /advance-stage` (feedback+decisión: aprobar `hr`→agenda `lead` con modalidad elegida; `lead`→`manager`
+  onsite; `manager`→`hired`; rechazar→`rejected`+notifica), `GET /meetings`; `get_candidate_detail` devuelve
+  `meetings`+`stage_feedback`+`psych_exam`; `VacancyIn`/`get_vacancy` con líder/gerencia; `RecruiterIn.location`;
+  `no_show` en retención. Frontend: tipos/métodos (`Meeting` con stage/modality/location/attendance,
+  `StageFeedback`, `PsychExam`, `sendPsychExam`/`markAttendance`/`advanceStage`/`listMeetings`);
+  statusLabel/phaseMeta/PHASE_STEPS/stages.ts con las etapas nuevas (stepper: …→RR.HH.→Líder→Gerencia→Decisión);
+  detalle del candidato con panel de **exámenes psicológicos**, tarjetas por reunión, controles de **asistencia**,
+  panel **feedback+decisión** (con selector de modalidad al aprobar la etapa hr) e historial; alta de vacante con
+  selectores de líder/gerencia; Equipo con dirección de oficina. **150/150 tests (test_multistage.py +16); tsc +
+  build OK.** **Verificado en vivo** (Supabase local): `0019` aplicada + seed + `NOTIFY pgrst`; round-trip DB real
+  (2 reuniones por conversación lead+manager onsite sin Meet, `get_meeting_by_conversation_stage`, `attendance`,
+  `stage_feedback`). **Verificación end-to-end completa** (`scripts/verify_multistage.py`, contra DB real + **Groq
+  qwen3-32b**): drivea el flujo entero por el MISMO `InterviewService` que usa el bot (checkpointer Postgres +
+  repos Supabase + SimulatedScheduler), simulando al candidato con `InboundMessage` y a RR.HH. con las mismas ops
+  de los endpoints → entrevista(scorecard 🟢)→Fase 1 RR.HH.(virtual, Meet)→Fase 2 líder(presencial, dirección, sin
+  Meet)→Fase 3 gerencia(presencial)→`hired`; el LLM parseó la elección de horario en las 3 etapas; 3 reuniones +
+  asistencia + 3 feedbacks correctos; candidato de prueba autolimpiado. Equivale al paseo por Telegram (solo se
+  reemplaza el transporte por llamadas directas). Config-gated: sin líder/gerencia asignados, el proceso cierra en
+  Fase 1 (retrocompat). **Pendiente (menor)**: actualizar la guía `/guia` con las Fases 2 y 3.
+
+- **2026-07-01 — Inactividad también en el saludo inicial**: antes la fase `greeting` (esperando
+  Acepto/No interesado) **no** tenía recordatorio ni cierre (esperaba indefinidamente). Ahora el barrido de
+  inactividad la incluye, reusando la MISMA config por-tenant (`reminder_minutes`/`max_reminders`):
+  `_inactivity_sweep` agrega `PHASE_GREETING` a los estados barridos; `_reminder_messages` devuelve
+  `REMINDER_GREETING` (invita a tocar Acepto, sin pregunta de entrevista); `nodes._handle_timeout` maneja
+  `greeting`→`PHASE_CLOSED` + `closed_reason=no_response` + `CLOSING_GREETING_NO_RESPONSE` → status
+  `no_response`. Nuevos prompts `REMINDER_GREETING`/`CLOSING_GREETING_NO_RESPONSE`. **152/152 tests**
+  (test_inactivity.py +2: recordatorio de saludo + timeout del motor cierra `no_response`).
+
+- **2026-07-01 — Auditoría e2e (10 dimensiones) + cierre de 5 hallazgos**: auditoría completa en
+  `docs/auditoria_e2e.md` (seguridad, arquitectura, DB, UX, observabilidad, rate limiting, pipeline
+  LLM, estado/memoria, grafo/consistencia, control de bucles) con backlog priorizado — top pendiente:
+  rate limiting (login + bot), sanitizar los 3 prompts sin blindar, routing multi-tenant del bot
+  (deep-links), N+1+paginación, métricas de fallback/latencia LLM. **Implementados los 5 hallazgos
+  nuevos**: (M1) `_retention_sweep` ahora borra el **checkpoint LangGraph** (la PII del estado
+  sobrevivía a la anonimización); (G2) `_finalize_scheduling` **registra la reunión ANTES** de crear
+  el evento de Calendar (registro-primero: crash a mitad ya no duplica el evento; nuevo
+  `repositories.update_meeting` completa link/event_id después); (G1) la reconciliación detecta
+  **divergencia motor↔negocio** (fase del checkpoint vs `conversations.state`, alerta
+  `state_divergence`); (I1) tope de dudas del candidato por pregunta (`MAX_CANDIDATE_QUESTIONS=3`,
+  estado `questions_asked`, corte `QUESTIONS_EXHAUSTED` sin gastar LLM — el ciclo era infinito y
+  reseteaba el reloj de inactividad); (I2) tope de reintentos al elegir horario (`MAX_SLOT_RETRIES=3`,
+  estado `slot_retries`, escala con `SCHEDULING_ESCALATE` una sola vez; elección válida tardía sigue
+  agendando; RR.HH. lo retoma vía la alerta de scheduling estancado). **160/160 tests verde
+  (test_iteration_limits.py +8).**
+
+- **2026-07-01 — Cierre del top del backlog de la auditoría (S1 + R1/R2/R3 + O1)**: (S1)
+  **anti-inyección completa** — `classify_turn`/`answer_candidate_question`/`parse_slot_choice`
+  ahora sanitizan (`sanitize_answer_for_prompt`) y encierran el texto del candidato entre
+  `<<<respuesta>>>…<<<fin>>>` con instrucción anti-inyección (el de dudas además prohíbe confirmar
+  salario/condiciones fuera de `company_info`); FakeLLMs de tests adaptados al formato. (R1)
+  **login 5/min por IP** → 429 (`api/ratelimit.py`: `SlidingWindowLimiter` puro, sin deps, por
+  proceso). (R2) **gobierno de turnos del bot** — `TurnGovernor`: cooldown 2 s por chat (ignora
+  ráfagas en silencio) + tope diario 120 turnos (aviso único `_CAP_NOTICE_TEXT`, luego silencio),
+  ANTES de gastar LLM; config `BOT_TURN_COOLDOWN_SECONDS`/`BOT_MAX_TURNS_PER_DAY` (+.env.example).
+  (R3) **psych-exam idempotente** — reenviar las mismas credenciales → 409 (nuevas sí); de paso
+  se corrigió un **bug latente**: el endpoint usaba `_now_iso()` sin definir en `api/main.py` →
+  500 en runtime (ahora definido). (O1) **fallbacks/latencia visibles** — `MeteredLLM` acumula
+  `calls/errors/duration_ms` por etapa → migración `0020_llm_usage_latency.sql` (**aplicada en
+  vivo** por psql directo + `NOTIFY pgrst`, patrón conocido; la historia CLI de 0019/0020 quedó
+  fuera del registro `supabase migration up`) → `record_usage` con retry retro-compatible sin las
+  columnas nuevas → `_aggregate_tokens` expone `calls/errors/avg_ms` en `/api/metrics`; toda rama
+  de fallback loggea `LLM fallback en <fn>`. **Smoke en vivo**: insert+agg round-trip OK.
+  `docs/auditoria_e2e.md` actualizado (top-5: quedan A1 deep-links multi-tenant y D1+U1 N+1/paginación).
+  **170/170 tests verde (test_ratelimit.py +7, test_integrity +3).**
+
+- **2026-07-01 — A1: routing multi-tenant del bot (deep-links por vacante)**: cierra el bloqueante
+  SaaS de la auditoría e2e (el `/start` caía en la primera vacante abierta GLOBAL, cruzando tenants).
+  `service.process()` ahora resuelve con **`_resolve_context`** en orden: ① **conversación existente**
+  del thread → SU vacante/candidato (sticky; de paso corrige el **bug latente** de que la respuesta de
+  un candidato contactado para la vacante B se procesara contra la default y **duplicara** candidato),
+  ② **deep-link** `t.me/<bot>?start=<vacancy_id>` (nuevo `InboundMessage.start_payload`; `_on_start`
+  lee `context.args`; payload validado como **UUID antes de tocar la DB** — basura/inyección se corta;
+  vacante inexistente o cerrada → `VACANCY_UNAVAILABLE` **sin crear candidato**, para no enganchar a
+  otro tenant), ③ fallback `get_default_open_vacancy()` (retrocompat demo mono-vacante; sin vacantes →
+  `NO_OPEN_VACANCY`). Prompts nuevos en `agent/prompts.py`. Dashboard: config `TELEGRAM_BOT_USERNAME`
+  (`src/config.py` + `.env.example`; en el `.env` local ya seteado a `leia_talento_bot` vía getMe) →
+  `GET /api/vacancies/{id}` devuelve `telegram_deep_link` y el detalle de la vacante muestra el
+  **enlace del aviso copiable** (botón Copiar). **177/177 tests verde (test_routing.py +7: payload
+  gana a default, inexistente/cerrada→aviso sin candidato, no-UUID no toca DB, fallback, sticky).**
+  **Verificado en vivo** (backend --reload + Supabase): `GET /api/vacancies/{id}` →
+  `https://t.me/leia_talento_bot?start=<vacancy_id>`; tsc OK. Nota: el login demo usa los defaults de
+  config (`admin@datawith.ai`, sin `ADMIN_*` en `.env`) y responde `access_token` (no `token`).
+
+- **2026-07-01 — D1+U1: listados sin N+1 + paginación/búsqueda**: cierra el último ítem del top-5 de
+  `docs/auditoria_e2e.md` (**top-5 completo**). (D1) `repo.list_candidate_rows(vacancy_ids, search,
+  limit, offset)`: UNA consulta con **embedded selects** de PostgREST (`conversations(id,created_at,
+  scorecards(semaphore,total_score))` vía FKs) + columnas livianas + `count=exact` (total en la misma
+  request); `repo.count_candidates_by_status(vacancy_ids)`: 1 consulta de 2 columnas → `{vacancy:
+  {status: n}}`. Con eso: `GET /api/vacancies` = 3 consultas fijas (antes 2+1/vacante), `GET
+  /api/candidates` = 2 (antes 1+1/vacante+2/candidato), `GET /api/vacancies/{id}/candidates` = 1,
+  `GET /api/recruiters` = 3 (la carga activa sale del conteo). `_enrich_candidate_row` (2 queries/
+  candidato) reemplazado por `_candidate_row_from_embed` (puro). **Gotcha PostgREST**: embebe
+  `scorecards` como **objeto** (detecta to-one por el unique de `conversation_id`), no lista — el
+  builder acepta ambas formas (el 500 salió en el smoke en vivo, no en los tests con fakes). (U1)
+  Ambos listados de candidatos aceptan `q` (ilike por nombre, comodines `%`/`_` escapados) +
+  `limit/offset` (clamp 1–500, default 100) y responden `{items,total,limit,offset}` (**breaking**
+  para consumidores del array plano; frontend actualizado). UI: input "Buscar por nombre…" con
+  debounce 300 ms + controles ‹ Anteriores / Siguientes › (solo si total>100) en detalle de vacante
+  y Pipeline global; stat "Importados" y contadores usan `total` del servidor. **185/185 tests verde
+  (test_listing.py +8: builder con embeds lista/objeto, clamps, endpoints con guard anti-N+1 —
+  `list_candidates`/`get_conversation_by_candidate` truenan si un listado recae en la ruta vieja).**
+  **Verificado en vivo** (Supabase real): búsqueda "dan" → Daniela 🟢 92.8 con embed real, offset
+  pagina, global con `vacancy_title`, roster con carga; `/pipeline` y `/vacantes/{id}` → 200; tsc OK.
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.

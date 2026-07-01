@@ -133,6 +133,8 @@ class SchedulingBackend(Protocol):
         end: datetime,
         attendees: list[str],
         description: str = "",
+        modality: str = "virtual",
+        location: str = "",
     ) -> MeetingResult: ...
 
     def append_sheet_row(self, sheet_id: str, tab: str, row: list[str]) -> str: ...
@@ -155,9 +157,14 @@ class SimulatedScheduler:
     def busy_intervals(self, calendar_id, start, end):  # noqa: ANN001
         return []
 
-    def create_meeting(self, *, calendar_id, summary, start, end, attendees, description=""):  # noqa: ANN001
+    def create_meeting(self, *, calendar_id, summary, start, end, attendees, description="", modality="virtual", location=""):  # noqa: ANN001
         token = uuid.uuid4().hex[:11]
-        link = f"https://meet.google.com/sim-{token[:4]}-{token[4:7]}-{token[7:11]}"
+        # Presencial: sin enlace Meet (la ubicación la maneja el servicio).
+        link = (
+            ""
+            if modality == "onsite"
+            else f"https://meet.google.com/sim-{token[:4]}-{token[4:7]}-{token[7:11]}"
+        )
         return MeetingResult(
             start=start, end=end, meet_link=link, event_id=f"sim-{token}"
         )
@@ -248,26 +255,32 @@ class GoogleScheduler:
             out.append((datetime.fromisoformat(b["start"]), datetime.fromisoformat(b["end"])))
         return out
 
-    def create_meeting(self, *, calendar_id, summary, start, end, attendees, description=""):  # noqa: ANN001
+    def create_meeting(self, *, calendar_id, summary, start, end, attendees, description="", modality="virtual", location=""):  # noqa: ANN001
+        onsite = modality == "onsite"
         event = {
             "summary": summary,
             "description": description,
             "start": {"dateTime": start.isoformat()},
             "end": {"dateTime": end.isoformat()},
             "attendees": [{"email": a} for a in attendees if a],
-            "conferenceData": {
+        }
+        if onsite:
+            # Presencial: sin enlace Meet; la ubicación va en el campo location del evento.
+            if location:
+                event["location"] = location
+        else:
+            event["conferenceData"] = {
                 "createRequest": {
                     "requestId": uuid.uuid4().hex,
                     "conferenceSolutionKey": {"type": "hangoutsMeet"},
                 }
-            },
-        }
+            }
         created = (
             self._calendar.events()
             .insert(
                 calendarId=calendar_id,
                 body=event,
-                conferenceDataVersion=1,
+                conferenceDataVersion=0 if onsite else 1,
                 sendUpdates="all",
             )
             .execute()
@@ -275,7 +288,7 @@ class GoogleScheduler:
         return MeetingResult(
             start=start,
             end=end,
-            meet_link=created.get("hangoutLink", ""),
+            meet_link="" if onsite else created.get("hangoutLink", ""),
             event_id=created.get("id", ""),
         )
 

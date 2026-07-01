@@ -71,16 +71,23 @@ class InterviewRunner:
         timeout: bool = False,
         start_scheduling: Optional[list[str]] = None,
         recruiter: Optional[dict[str, Any]] = None,
+        stage: str = "hr",
+        modality: str = "virtual",
+        interviewer: Optional[dict[str, Any]] = None,
     ) -> InterviewState:
         """Procesa un mensaje del candidato y avanza la entrevista un turno.
 
         `timeout=True` cierra la conversación por inactividad (sin respuesta del candidato).
-        `start_scheduling` (lista de horarios ISO) abre la fase de coordinación de entrevista."""
+        `start_scheduling` (lista de horarios ISO) abre la fase de coordinación de entrevista de
+        la etapa `stage` ("hr" | "lead" | "manager") con la modalidad y el entrevistador dados."""
         if start_scheduling is not None:
             payload: InterviewState = {
                 "mode": "schedule_start",
                 "proposed_slots": start_scheduling,
                 "recruiter": recruiter or {},
+                "scheduling_stage": stage,
+                "modality": modality,
+                "interviewer": interviewer or {},
             }
             return self.graph.invoke(payload, self._cfg(thread_id))
         payload = {

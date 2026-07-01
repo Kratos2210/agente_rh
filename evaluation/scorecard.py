@@ -10,6 +10,9 @@ from typing import Any, Optional
 
 from agent.llm import LLM, complete_staged, parse_json_object
 from agent.prompts import SCORECARD_PROMPT
+from src.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 SEMAPHORE_GREEN = "green"
 SEMAPHORE_YELLOW = "yellow"
@@ -118,8 +121,8 @@ def build_scorecard(
             )
             summary = str(data.get("summary", "")).strip()[:1500]
             recommendation = str(data.get("recommendation", "")).strip()[:600]
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.warning("LLM fallback en build_scorecard (resumen por reglas): %s", e)
 
     if not summary or not recommendation:
         fb_summary, fb_reco = _fallback_recommendation(semaphore)

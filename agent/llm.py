@@ -48,12 +48,14 @@ class MeteredLLM:
 
     Cada call site evalúa con un `stage` (prescreen|classify|evaluate|scorecard|
     revalidate|answer). El servicio lee `drain()` tras procesar el turno y lo persiste.
+    Además de tokens acumula `calls`, `errors` (excepciones del proveedor = fallback en
+    el caller) y `duration_ms` por etapa (observabilidad del pipeline, auditoría O1).
     """
 
     def __init__(self, inner: LLM, stage: str = "answer") -> None:
         self._inner = inner
         self.stage = stage
-        # acumulado por stage: {stage: {input_tokens, output_tokens, total_tokens}}
+        # acumulado por stage: {stage: {input/output/total_tokens, calls, errors, duration_ms}}
         self._acc: dict[str, dict[str, int]] = {}
 
     @property
@@ -64,12 +66,29 @@ class MeteredLLM:
         self.stage = stage
         return self
 
+    def _bucket(self) -> dict[str, int]:
+        return self._acc.setdefault(
+            self.stage, {**_ZERO_USAGE, "calls": 0, "errors": 0, "duration_ms": 0}
+        )
+
     def complete(self, prompt: str) -> str:
-        out = self._inner.complete(prompt)
+        import time
+
+        t0 = time.perf_counter()
+        try:
+            out = self._inner.complete(prompt)
+        except Exception:
+            bucket = self._bucket()
+            bucket["calls"] = bucket.get("calls", 0) + 1
+            bucket["errors"] = bucket.get("errors", 0) + 1
+            bucket["duration_ms"] = bucket.get("duration_ms", 0) + int((time.perf_counter() - t0) * 1000)
+            raise
         usage = getattr(self._inner, "last_usage", None) or _ZERO_USAGE
-        bucket = self._acc.setdefault(self.stage, dict(_ZERO_USAGE))
+        bucket = self._bucket()
         for k in ("input_tokens", "output_tokens", "total_tokens"):
             bucket[k] += int(usage.get(k, 0) or 0)
+        bucket["calls"] = bucket.get("calls", 0) + 1
+        bucket["duration_ms"] = bucket.get("duration_ms", 0) + int((time.perf_counter() - t0) * 1000)
         return out
 
     def drain(self) -> dict[str, dict[str, int]]:

@@ -4,12 +4,16 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Shell, BackLink } from "@/components/Shell";
 import { Radar, ScoreRing, Stepper, Toast } from "@/components/ui";
-import { api, CandidateDetail, Meeting, PHASE_STEPS, phaseMeta, statusLabel } from "@/lib/api";
+import { api, CandidateDetail, MeetingStage, PHASE_STEPS, phaseMeta } from "@/lib/api";
 import { isAdmin } from "@/lib/auth";
 import { ACCENT, avatarColor, initials, scoreColor, sourceIcon, stageMeta } from "@/lib/stages";
 
 const MONO = "var(--font-jetbrains), monospace";
 const panel: React.CSSProperties = { padding: "20px 22px", borderRadius: 15, background: "rgba(255,255,255,.02)", border: "1px solid var(--edge)" };
+const inputStyle: React.CSSProperties = { padding: "9px 12px", borderRadius: 9, background: "rgba(255,255,255,.03)", border: "1px solid var(--edge)", color: "#eef2f9", fontSize: 13 };
+const btnPrimary: React.CSSProperties = { padding: "10px 18px", borderRadius: 10, background: "#34d399", color: "#06231a", fontWeight: 700, border: "none", cursor: "pointer" };
+const btnGhost: React.CSSProperties = { padding: "10px 18px", borderRadius: 10, background: "rgba(255,255,255,.05)", border: "1px solid var(--edge)", color: "#cfd8e8", fontWeight: 700, cursor: "pointer" };
+const btnDanger: React.CSSProperties = { padding: "10px 18px", borderRadius: 10, background: "rgba(248,113,113,.1)", border: "1px solid rgba(248,113,113,.3)", color: "#f87171", fontWeight: 700, cursor: "pointer" };
 
 function formatWhen(iso: string): string {
   try {
@@ -26,6 +30,14 @@ function buildSteps(status: string) {
   }));
 }
 
+// Etapa (hr/lead/manager) que está en curso según el status del candidato.
+const STAGE_OF: Record<string, MeetingStage> = {
+  scheduling: "hr", scheduled: "hr",
+  lead_scheduling: "lead", lead_scheduled: "lead",
+  mgr_scheduling: "manager", mgr_scheduled: "manager",
+};
+const STAGE_LABEL: Record<MeetingStage, string> = { hr: "RR.HH.", lead: "Líder del proyecto", manager: "Gerencia" };
+
 export default function CandidatePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -36,13 +48,14 @@ export default function CandidatePage() {
   const [contacting, setContacting] = useState(false);
   const [erasing, setErasing] = useState(false);
   const [admin, setAdmin] = useState(false);
-  const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [txOpen, setTxOpen] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [nextModality, setNextModality] = useState<"virtual" | "onsite">("onsite");
+  const [exam, setExam] = useState({ link: "", code: "", key: "" });
 
   const load = () => {
     if (!id) return;
     api.getCandidate(id).then(setData).catch((e) => setError(String(e)));
-    api.getMeeting(id).then(setMeeting).catch(() => {});
   };
   useEffect(load, [id]);
   useEffect(() => setAdmin(isAdmin()), []);
@@ -82,6 +95,37 @@ export default function CandidatePage() {
       load();
     } catch (e) { flash("Error: " + String(e)); } finally { setContacting(false); }
   };
+  const sendExam = async () => {
+    if (!exam.link.trim()) { flash("Falta el link del examen"); return; }
+    setActing(true);
+    try {
+      const r = await api.sendPsychExam(id, exam);
+      flash(r.sent ? "Examen psicológico enviado por correo ✅" : "Correo encolado (revisa SMTP/email del candidato)");
+      setExam({ link: "", code: "", key: "" });
+      load();
+    } catch (e) { flash("Error: " + String(e)); } finally { setActing(false); }
+  };
+  const doAttendance = async (stage: MeetingStage, attended: "attended" | "no_show", reschedule = false) => {
+    setActing(true);
+    try {
+      await api.markAttendance(id, { stage, attended, reschedule });
+      flash(attended === "attended" ? "Asistencia registrada ✅" : reschedule ? "Reagendando por Telegram 📅" : "Proceso cerrado (no asistió).");
+      load();
+    } catch (e) { flash("Error: " + String(e)); } finally { setActing(false); }
+  };
+  const doAdvance = async (stage: MeetingStage, decision: "approved" | "rejected") => {
+    setActing(true);
+    try {
+      const r = await api.advanceStage(id, { stage, decision, feedback, modality: nextModality });
+      flash(
+        decision === "rejected" ? "Candidatura rechazada · candidato notificado."
+          : r.status === "hired" ? "¡Contratado! 🎉 Candidato notificado."
+          : "Aprobado · coordinando la siguiente entrevista por Telegram 📅",
+      );
+      setFeedback("");
+      load();
+    } catch (e) { flash("Error: " + String(e)); } finally { setActing(false); }
+  };
 
   if (error) return <Shell width={1020}><BackLink href="/" label="Volver" /><p style={{ color: "#f87171" }}>Error: {error}</p></Shell>;
   if (!data) return <Shell width={1020}><p style={{ color: "var(--muted)" }}>Cargando…</p></Shell>;
@@ -93,8 +137,16 @@ export default function CandidatePage() {
   const documents = candidate.documents ?? [];
   const docCv = documents.find((d) => d.type === "cv");
   const docCul = documents.find((d) => d.type === "cul");
-  const decided = ["advanced", "rejected", "scheduling", "scheduled"].includes(candidate.status);
-  const inScheduling = ["scheduling", "scheduled"].includes(candidate.status) || !!meeting;
+  const meetings = data.meetings ?? [];
+  const stageFeedback = data.stage_feedback ?? [];
+  const psychExam = data.psych_exam ?? null;
+  const activeStage = STAGE_OF[candidate.status];
+  const activeMeeting = activeStage ? meetings.find((m) => m.stage === activeStage) : undefined;
+  // El scorecard decidido ya no bloquea la barra: solo el estado `finished` la muestra.
+  const decidedInitial = candidate.status !== "finished";
+  // Fase 1 (RR.HH.): el examen psicológico se comparte mientras el candidato esté evaluado o coordinando/agendado con RR.HH.
+  const inPhase1 = ["finished", "scheduling", "scheduled"].includes(candidate.status);
+  const isHired = candidate.status === "hired";
   const canContact = candidate.status === "prescreen_passed";
   const waiting = ["invited", "consented", "interviewing"].includes(candidate.status) && !scorecard;
   const green = thresholds?.green_min ?? 75;
@@ -119,21 +171,111 @@ export default function CandidatePage() {
       {/* stepper */}
       <div style={{ marginBottom: 16 }}><Stepper steps={buildSteps(candidate.status)} /></div>
 
-      {/* agendamiento */}
-      {inScheduling && (
-        <div style={{ padding: "20px 22px", borderRadius: 15, background: "linear-gradient(135deg,var(--ac-soft),rgba(255,255,255,.015))", border: "1px solid var(--ac-bd)", marginBottom: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, fontWeight: 700, color: "#eef2f9", marginBottom: 14 }}><span style={{ color: "var(--ac)" }}>▦</span>Entrevista agendada</div>
-          {meeting ? (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "13px 28px", fontSize: 13.5 }}>
-              <div><span style={{ color: "var(--muted)", fontWeight: 600 }}>Fecha</span><div style={{ color: "#eef2f9", marginTop: 3, fontWeight: 600 }}>{formatWhen(meeting.scheduled_at)}</div></div>
-              <div><span style={{ color: "var(--muted)", fontWeight: 600 }}>Enlace</span><div style={{ marginTop: 3 }}>{meeting.meet_link ? <a href={meeting.meet_link} target="_blank" rel="noopener noreferrer" style={{ color: "var(--ac)", fontWeight: 600, textDecoration: "none" }}>{meeting.meet_link.replace("https://", "")}</a> : "—"}</div></div>
-              <div><span style={{ color: "var(--muted)", fontWeight: 600 }}>Candidato</span><div style={{ color: "#aeb8cc", marginTop: 3 }}>{[meeting.candidate_email, meeting.candidate_phone].filter(Boolean).join(" · ") || "—"}</div></div>
-              <div><span style={{ color: "var(--muted)", fontWeight: 600 }}>Reclutador</span><div style={{ color: "#aeb8cc", marginTop: 3 }}>{[meeting.recruiter_name, meeting.recruiter_email].filter(Boolean).join(" · ") || "—"}</div></div>
+      {/* Fase 1 — exámenes psicológicos (RR.HH. pega link + código + clave y se envía por correo) */}
+      {inPhase1 && (
+        <div style={{ ...panel, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontWeight: 700, color: "#eef2f9", marginBottom: 4 }}>🧠 Exámenes psicológicos</div>
+          {psychExam ? (
+            <div style={{ fontSize: 13, color: "#aeb8cc", marginTop: 8 }}>
+              ✅ Enviado el {formatWhen(psychExam.sent_at)} {psychExam.sent_by ? `por ${psychExam.sent_by}` : ""}.
+              <div style={{ marginTop: 6, fontSize: 12, color: "var(--muted)" }}>Link: {psychExam.link || "—"} · Código: {psychExam.code || "—"} · Clave: {psychExam.key || "—"}</div>
             </div>
           ) : (
-            <p style={{ fontSize: 13.5, color: "#aeb8cc", margin: 0 }}>Coordinando el horario con el candidato por Telegram (según la disponibilidad del reclutador)…</p>
+            <>
+              <div style={{ fontSize: 12.5, color: "var(--muted)", margin: "4px 0 12px" }}>Crea la prueba en la plataforma (p.ej. Multitest), pega aquí el link + código + clave y se envía por correo al candidato.</div>
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10 }}>
+                <input value={exam.link} onChange={(e) => setExam({ ...exam, link: e.target.value })} placeholder="Link de la evaluación" style={inputStyle} />
+                <input value={exam.code} onChange={(e) => setExam({ ...exam, code: e.target.value })} placeholder="Código de acceso" style={inputStyle} />
+                <input value={exam.key} onChange={(e) => setExam({ ...exam, key: e.target.value })} placeholder="Clave de acceso" style={inputStyle} />
+              </div>
+              <button onClick={sendExam} disabled={acting} style={{ marginTop: 12, padding: "10px 18px", borderRadius: 10, background: "var(--ac)", color: "var(--ac-ink)", fontWeight: 700, border: "none", cursor: "pointer", opacity: acting ? 0.6 : 1 }}>Enviar examen por correo</button>
+            </>
           )}
         </div>
+      )}
+
+      {/* Proceso de entrevistas — una tarjeta por etapa (RR.HH. → líder → gerencia) */}
+      {meetings.map((m) => {
+        const label = STAGE_LABEL[m.stage];
+        const onsite = m.modality === "onsite";
+        return (
+          <div key={m.id} style={{ padding: "20px 22px", borderRadius: 15, background: "linear-gradient(135deg,var(--ac-soft),rgba(255,255,255,.015))", border: "1px solid var(--ac-bd)", marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, fontWeight: 700, color: "#eef2f9", marginBottom: 14 }}>
+              <span style={{ color: "var(--ac)" }}>▦</span>Entrevista · {label}
+              <span style={{ padding: "2px 9px", borderRadius: 7, fontSize: 11, fontWeight: 700, background: "rgba(255,255,255,.06)", color: "#cfd8e8" }}>{onsite ? "Presencial" : "Virtual (Meet)"}</span>
+              {m.attendance === "attended" && <span style={{ fontSize: 11.5, color: "#34d399", fontWeight: 700 }}>✓ Asistió</span>}
+              {m.attendance === "no_show" && <span style={{ fontSize: 11.5, color: "#f87171", fontWeight: 700 }}>✕ No asistió</span>}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "13px 28px", fontSize: 13.5 }}>
+              <div><span style={{ color: "var(--muted)", fontWeight: 600 }}>Fecha</span><div style={{ color: "#eef2f9", marginTop: 3, fontWeight: 600 }}>{formatWhen(m.scheduled_at)}</div></div>
+              <div><span style={{ color: "var(--muted)", fontWeight: 600 }}>{onsite ? "Lugar" : "Enlace"}</span><div style={{ marginTop: 3 }}>{onsite ? <span style={{ color: "#aeb8cc" }}>{m.location || "—"}</span> : m.meet_link ? <a href={m.meet_link} target="_blank" rel="noopener noreferrer" style={{ color: "var(--ac)", fontWeight: 600, textDecoration: "none" }}>{m.meet_link.replace("https://", "")}</a> : "—"}</div></div>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Coordinando horario (aún sin reunión de la etapa activa) */}
+      {activeStage && !activeMeeting && (
+        <div style={{ ...panel, marginBottom: 16 }}>
+          <p style={{ fontSize: 13.5, color: "#aeb8cc", margin: 0 }}>Coordinando el horario con el candidato por Telegram (entrevista con {STAGE_LABEL[activeStage]})…</p>
+        </div>
+      )}
+
+      {/* Asistencia (RR.HH. la marca tras la entrevista de la etapa activa) */}
+      {activeStage && activeMeeting && activeMeeting.attendance === "" && (
+        <div style={{ ...panel, marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#eef2f9", marginBottom: 4 }}>Asistencia · {STAGE_LABEL[activeStage]}</div>
+          <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14 }}>¿El candidato asistió a la entrevista?</div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button onClick={() => doAttendance(activeStage, "attended")} disabled={acting} style={btnPrimary}>Asistió</button>
+            <button onClick={() => doAttendance(activeStage, "no_show", true)} disabled={acting} style={btnGhost}>No fui: Reagendar</button>
+            <button onClick={() => doAttendance(activeStage, "no_show", false)} disabled={acting} style={btnDanger}>No fui: Cerrar</button>
+          </div>
+        </div>
+      )}
+
+      {/* Feedback + decisión (tras registrar asistencia de la etapa activa) */}
+      {activeStage && activeMeeting && activeMeeting.attendance === "attended" && (
+        <div style={{ ...panel, marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#eef2f9", marginBottom: 4 }}>Feedback del entrevistador · {STAGE_LABEL[activeStage]}</div>
+          <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12 }}>
+            {activeStage === "manager" ? "Decisión final: contratar o rechazar." : "Registra el feedback y aprueba para agendar la siguiente entrevista, o rechaza."}
+          </div>
+          <textarea value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="Comentarios del entrevistador…" rows={3} style={{ ...inputStyle, width: "100%", resize: "vertical", marginBottom: 12 }} />
+          {activeStage === "hr" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, fontSize: 13, color: "#aeb8cc" }}>
+              <span style={{ fontWeight: 600 }}>Modalidad de la entrevista con el líder:</span>
+              <label style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}><input type="radio" checked={nextModality === "onsite"} onChange={() => setNextModality("onsite")} /> Presencial</label>
+              <label style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}><input type="radio" checked={nextModality === "virtual"} onChange={() => setNextModality("virtual")} /> Meet</label>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={() => doAdvance(activeStage, "rejected")} disabled={acting} style={btnDanger}>✕ Rechazar</button>
+            <button onClick={() => doAdvance(activeStage, "approved")} disabled={acting} style={btnPrimary}>
+              {activeStage === "manager" ? "✓ Contratar" : activeStage === "lead" ? "✓ Aprobar → agendar con gerencia" : "✓ Aprobar → agendar con líder"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Historial de feedback por etapa */}
+      {stageFeedback.length > 0 && (
+        <div style={{ ...panel, marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#eef2f9", marginBottom: 10 }}>Historial de decisiones</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {stageFeedback.map((f) => (
+              <div key={f.id} style={{ fontSize: 12.5, color: "#aeb8cc", paddingBottom: 8, borderBottom: "1px solid var(--edge-soft)" }}>
+                <b style={{ color: "#eef2f9" }}>{STAGE_LABEL[f.stage] || f.stage}</b> · <span style={{ color: f.decision === "approved" ? "#34d399" : "#f87171", fontWeight: 700 }}>{f.decision === "approved" ? "Aprobado" : "Rechazado"}</span> {f.decided_email ? `· ${f.decided_email}` : ""}
+                {f.feedback && <div style={{ marginTop: 3, color: "#9aa4b8" }}>{f.feedback}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Contratado */}
+      {isHired && (
+        <div style={{ marginBottom: 16, padding: "16px 20px", borderRadius: 14, background: "rgba(52,211,153,.1)", border: "1px solid rgba(52,211,153,.3)", color: "#34d399", fontSize: 14, fontWeight: 700 }}>🎉 Candidato contratado — proceso finalizado.</div>
       )}
 
       {/* contacto manual (aptos sin contactar) */}
@@ -266,8 +408,8 @@ export default function CandidatePage() {
         </>
       )}
 
-      {/* barra de decisión */}
-      {scorecard && !decided && (
+      {/* barra de decisión inicial (Fase 1: continuar a la entrevista con RR.HH.) */}
+      {scorecard && !decidedInitial && (
         <div style={{ position: "sticky", bottom: 0, zIndex: 50, marginTop: 18, padding: "18px 0 4px", background: "linear-gradient(180deg,transparent,rgba(10,14,22,.92) 30%)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 20px", borderRadius: 15, background: "#0f1521", border: "1px solid rgba(255,255,255,.1)", boxShadow: "0 -8px 30px rgba(0,0,0,.4)" }}>
             <div style={{ flex: 1 }}>
@@ -275,12 +417,9 @@ export default function CandidatePage() {
               <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>El candidato {scorecard.semaphore === "green" ? "superó el umbral en la evaluación." : "requiere tu criterio."}</div>
             </div>
             <button onClick={() => decide("reject")} disabled={acting} style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 20px", borderRadius: 11, background: "rgba(248,113,113,.1)", border: "1px solid rgba(248,113,113,.3)", color: "#f87171", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: acting ? 0.5 : 1 }}>✕ Rechazar</button>
-            <button onClick={() => decide("advance")} disabled={acting} style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 24px", borderRadius: 11, background: "#34d399", color: "#06231a", fontSize: 14, fontWeight: 800, border: "none", cursor: "pointer", boxShadow: "0 8px 22px rgba(52,211,153,.3)", opacity: acting ? 0.5 : 1 }}>✓ Continuar → Agendar entrevista</button>
+            <button onClick={() => decide("advance")} disabled={acting} style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 24px", borderRadius: 11, background: "#34d399", color: "#06231a", fontSize: 14, fontWeight: 800, border: "none", cursor: "pointer", boxShadow: "0 8px 22px rgba(52,211,153,.3)", opacity: acting ? 0.5 : 1 }}>✓ Continuar → Agendar entrevista con RR.HH.</button>
           </div>
         </div>
-      )}
-      {scorecard && decided && (
-        <div style={{ marginTop: 18, padding: "15px 20px", borderRadius: 14, background: "rgba(52,211,153,.08)", border: "1px solid rgba(52,211,153,.25)", color: "#34d399", fontSize: 13.5, fontWeight: 700 }}>✓ Decisión tomada: {statusLabel[candidate.status] ?? candidate.status}.</div>
       )}
 
       {admin && (

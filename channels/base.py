@@ -33,6 +33,9 @@ class InboundMessage:
     button: Optional[str] = None       # BUTTON_ACCEPT | BUTTON_DECLINE | None
     display_name: str = ""
     document: Optional[dict[str, Any]] = None  # PDF recibido: {file_id, filename, local_path}
+    # Payload del deep-link (t.me/<bot>?start=<vacancy_id>): enruta el primer contacto
+    # a una vacante específica (multi-tenant). Solo cuenta si aún no hay conversación.
+    start_payload: Optional[str] = None
 
     @property
     def thread_id(self) -> str:

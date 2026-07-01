@@ -13,7 +13,7 @@ interface NV {
   title: string; company: string; area: string; modality: string; location: string;
   salMin: string; salMax: string; desc: string;
   reqs: string[]; benefits: string[]; criteria: Criterion[]; threshold: number;
-  questions: string[]; recruiterId: string; portals: Record<string, boolean>; autoAgent: boolean;
+  questions: string[]; recruiterId: string; leadRecruiterId: string; managerRecruiterId: string; portals: Record<string, boolean>; autoAgent: boolean;
 }
 
 const DEFAULT_NV: NV = {
@@ -37,7 +37,7 @@ const DEFAULT_NV: NV = {
     "¿Qué herramientas específicas usas?",
     "¿Cuál es tu pretensión salarial (monto, moneda, bruto/neto)?",
   ],
-  recruiterId: "", portals: { bumeran: true, linkedin: true, computrabajo: false }, autoAgent: true,
+  recruiterId: "", leadRecruiterId: "", managerRecruiterId: "", portals: { bumeran: true, linkedin: true, computrabajo: false }, autoAgent: true,
 };
 
 const STEP_META = [["Puesto", "Datos básicos"], ["Requisitos", "Filtro de CV"], ["Criterios", "Ponderación"], ["Preguntas", "Entrevista IA"], ["Publicar", "Portales"]];
@@ -98,6 +98,8 @@ export default function NuevaVacante() {
         portals: Object.entries(nv.portals).filter(([, on]) => on).map(([k]) => k),
         auto_agent: nv.autoAgent,
         recruiter_id: nv.recruiterId || null,
+        lead_recruiter_id: nv.leadRecruiterId || null,
+        manager_recruiter_id: nv.managerRecruiterId || null,
         semaphore_thresholds: { green_min: nv.threshold, yellow_min: 50 },
         questions,
       });
@@ -230,6 +232,22 @@ export default function NuevaVacante() {
                   );
                 })}
                 {recruiters.length === 0 && <p style={{ fontSize: 13, color: "var(--muted)" }}>No hay reclutadores. Agrégalos en Equipo.</p>}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 24 }}>
+                <div>
+                  <label style={lbl}>Líder del proyecto (Fase 2)</label>
+                  <select value={nv.leadRecruiterId} onChange={(e) => set({ leadRecruiterId: e.target.value })} style={{ ...field, cursor: "pointer" }}>
+                    <option value="">— Sin asignar —</option>
+                    {recruiters.map((r) => <option key={r.id} value={r.id}>{r.name}{r.role ? ` · ${r.role}` : ""}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={lbl}>Gerencia (Fase 3)</label>
+                  <select value={nv.managerRecruiterId} onChange={(e) => set({ managerRecruiterId: e.target.value })} style={{ ...field, cursor: "pointer" }}>
+                    <option value="">— Sin asignar —</option>
+                    {recruiters.map((r) => <option key={r.id} value={r.id}>{r.name}{r.role ? ` · ${r.role}` : ""}</option>)}
+                  </select>
+                </div>
               </div>
               <label style={lbl}>Portales de empleo</label>
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>

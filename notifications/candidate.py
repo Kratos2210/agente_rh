@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 
-from agent.prompts import NOTIFY_ADVANCE, NOTIFY_REJECT
+from agent.prompts import NOTIFY_ADVANCE, NOTIFY_HIRED, NOTIFY_REJECT
 from channels.base import CHANNEL_TELEGRAM
 from src.config import Settings
 from src.logging_config import get_logger
@@ -20,6 +20,7 @@ logger = get_logger(__name__)
 
 DECISION_ADVANCE = "advance"
 DECISION_REJECT = "reject"
+DECISION_HIRED = "hired"
 
 # Seguridad (audit F1): las excepciones de httpx incluyen la URL del request en su
 # mensaje, y las llamadas a Telegram llevan el token EN la URL
@@ -36,7 +37,10 @@ def redact_token(text: str) -> str:
 
 
 def render_message(decision: str, name: str) -> str:
-    template = NOTIFY_ADVANCE if decision == DECISION_ADVANCE else NOTIFY_REJECT
+    template = {
+        DECISION_ADVANCE: NOTIFY_ADVANCE,
+        DECISION_HIRED: NOTIFY_HIRED,
+    }.get(decision, NOTIFY_REJECT)
     return template.format(name=name or "")
 
 

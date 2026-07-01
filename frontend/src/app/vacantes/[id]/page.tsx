@@ -9,6 +9,7 @@ import { api, CandidateRow, Metrics, Vacancy } from "@/lib/api";
 import { ACCENT, avatarColor, buildColumns, cvChip, initials, stageMeta } from "@/lib/stages";
 
 const MONO = "var(--font-jetbrains), monospace";
+const PAGE_SIZE = 100;
 const EMOJI_PREFIX = /^[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}️‍]+\s*/u;
 
 // Renderiza el detalle del puesto (texto plano con emojis para Telegram) como secciones.
@@ -47,13 +48,37 @@ export default function VacancyPage() {
   const [contactingId, setContactingId] = useState("");
   const [view, setView] = useState<"kanban" | "lista">("kanban");
   const [puestoOpen, setPuestoOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const copyDeepLink = async () => {
+    if (!vacancy?.telegram_deep_link) return;
+    try {
+      await navigator.clipboard.writeText(vacancy.telegram_deep_link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* clipboard no disponible (http): el enlace queda visible para copiar a mano */ }
+  };
+
+  // Búsqueda por nombre (server-side, con debounce) + paginación (U1).
+  const [qInput, setQInput] = useState("");
+  const [q, setQ] = useState("");
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
+  useEffect(() => {
+    const t = setTimeout(() => { setQ(qInput.trim()); setOffset(0); }, 300);
+    return () => clearTimeout(t);
+  }, [qInput]);
 
   const load = useCallback(() => {
     if (!id) return;
-    Promise.all([api.getVacancy(id), api.listCandidates(id), api.getVacancyMetrics(id)])
-      .then(([v, c, m]) => { setVacancy(v); setCandidates(c); setMetrics(m); })
+    Promise.all([
+      api.getVacancy(id),
+      api.listCandidates(id, { q, limit: PAGE_SIZE, offset }),
+      api.getVacancyMetrics(id),
+    ])
+      .then(([v, page, m]) => { setVacancy(v); setCandidates(page.items); setTotal(page.total); setMetrics(m); })
       .catch((e) => setError(String(e)));
-  }, [id]);
+  }, [id, q, offset]);
   useEffect(() => { load(); }, [load]);
 
   const handleContact = async (e: React.MouseEvent, candId: string) => {
@@ -81,7 +106,7 @@ export default function VacancyPage() {
   const cnt = (pred: (c: CandidateRow) => boolean) => candidates.filter(pred).length;
   const contactedSet = ["invited", "consented", "interviewing", "finished", "scheduling", "scheduled", "advanced"];
   const stats = [
-    { value: candidates.length, label: "Importados", color: "#e8edf6" },
+    { value: total, label: "Importados", color: "#e8edf6" },
     { value: cnt((c) => c.prescreen_verdict === "pass"), label: "Aptos (CV)", color: "#34d399" },
     { value: cnt((c) => c.status === "prescreen_rejected"), label: "Descartados", color: "#f87171" },
     { value: cnt((c) => contactedSet.includes(c.status)), label: "Contactados", color: "#fbbf24" },
@@ -98,7 +123,7 @@ export default function VacancyPage() {
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 20, flexWrap: "wrap", marginBottom: 22 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 30, fontWeight: 800, letterSpacing: "-.03em", color: "var(--heading)" }}>{vacancy.title}</h1>
-          <div style={{ marginTop: 8, fontSize: 13.5, color: "var(--muted)" }}>{(vacancy.questions?.length ?? 0)} preguntas · {candidates.length} candidatos{sub ? ` · ${sub}` : ""}</div>
+          <div style={{ marginTop: 8, fontSize: 13.5, color: "var(--muted)" }}>{(vacancy.questions?.length ?? 0)} preguntas · {total} candidatos{sub ? ` · ${sub}` : ""}</div>
         </div>
         <button onClick={handleSync} disabled={syncing} style={{
           display: "flex", alignItems: "center", gap: 11, padding: "12px 18px", borderRadius: 11,
@@ -120,6 +145,14 @@ export default function VacancyPage() {
         </div>
       )}
 
+      {vacancy.telegram_deep_link && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 18px", borderRadius: 15, background: "rgba(255,255,255,.025)", border: "1px solid var(--edge)", marginBottom: 14, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 11, color: "var(--muted-2)", fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase" }}>Enlace del aviso (Telegram)</div>
+          <span style={{ flex: 1, minWidth: 0, fontFamily: MONO, fontSize: 12.5, color: "#9aa4b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{vacancy.telegram_deep_link}</span>
+          <button onClick={copyDeepLink} style={{ fontSize: 12, borderRadius: 9, padding: "7px 13px", fontWeight: 700, background: copied ? "rgba(52,211,153,.15)" : "var(--ac)", color: copied ? "#34d399" : "var(--ac-ink)", border: "none", cursor: "pointer" }}>{copied ? "Copiado ✓" : "Copiar"}</button>
+        </div>
+      )}
+
       {/* stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 1, background: "var(--edge)", border: "1px solid var(--edge)", borderRadius: 15, overflow: "hidden", marginBottom: 8 }}>
         {stats.map((s) => (
@@ -137,12 +170,20 @@ export default function VacancyPage() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-.02em", color: "var(--heading)" }}>Pipeline de candidatos</div>
-          <div style={{ fontSize: 12, color: "var(--muted-2)", fontWeight: 600 }}>{candidates.length} en proceso</div>
+          <div style={{ fontSize: 12, color: "var(--muted-2)", fontWeight: 600 }}>{total} en proceso</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 2, padding: 3, borderRadius: 10, background: "rgba(255,255,255,.04)", border: "1px solid var(--edge)" }}>
-          {(["kanban", "lista"] as const).map((v) => (
-            <div key={v} onClick={() => setView(v)} style={{ padding: "6px 13px", borderRadius: 7, fontSize: 12.5, fontWeight: 700, cursor: "pointer", background: view === v ? ACCENT.soft : "transparent", color: view === v ? ACCENT.c : "var(--muted)" }}>{v === "kanban" ? "▦ Kanban" : "☰ Lista"}</div>
-          ))}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <input
+            value={qInput}
+            onChange={(e) => setQInput(e.target.value)}
+            placeholder="Buscar por nombre…"
+            style={{ padding: "8px 13px", borderRadius: 10, fontSize: 13, background: "rgba(255,255,255,.04)", border: "1px solid var(--edge)", color: "#eef2f9", outline: "none", width: 200 }}
+          />
+          <div style={{ display: "flex", alignItems: "center", gap: 2, padding: 3, borderRadius: 10, background: "rgba(255,255,255,.04)", border: "1px solid var(--edge)" }}>
+            {(["kanban", "lista"] as const).map((v) => (
+              <div key={v} onClick={() => setView(v)} style={{ padding: "6px 13px", borderRadius: 7, fontSize: 12.5, fontWeight: 700, cursor: "pointer", background: view === v ? ACCENT.soft : "transparent", color: view === v ? ACCENT.c : "var(--muted)" }}>{v === "kanban" ? "▦ Kanban" : "☰ Lista"}</div>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -173,7 +214,19 @@ export default function VacancyPage() {
               </Link>
             );
           })}
-          {candidates.length === 0 && <p style={{ color: "var(--muted)" }}>Aún no hay candidatos. Usa “Sincronizar postulantes”.</p>}
+          {candidates.length === 0 && (
+            <p style={{ color: "var(--muted)" }}>
+              {q ? `Sin resultados para “${q}”.` : "Aún no hay candidatos. Usa “Sincronizar postulantes”."}
+            </p>
+          )}
+        </div>
+      )}
+
+      {total > PAGE_SIZE && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginTop: 18 }}>
+          <button onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))} disabled={offset === 0} style={{ fontSize: 12.5, fontWeight: 700, padding: "7px 14px", borderRadius: 9, background: "rgba(255,255,255,.04)", border: "1px solid var(--edge)", color: offset === 0 ? "var(--muted-3)" : "#eef2f9", cursor: offset === 0 ? "default" : "pointer" }}>‹ Anteriores</button>
+          <span style={{ fontSize: 12.5, color: "var(--muted)", fontFamily: MONO }}>{offset + 1}–{Math.min(offset + PAGE_SIZE, total)} de {total}</span>
+          <button onClick={() => setOffset(offset + PAGE_SIZE)} disabled={offset + PAGE_SIZE >= total} style={{ fontSize: 12.5, fontWeight: 700, padding: "7px 14px", borderRadius: 9, background: "rgba(255,255,255,.04)", border: "1px solid var(--edge)", color: offset + PAGE_SIZE >= total ? "var(--muted-3)" : "#eef2f9", cursor: offset + PAGE_SIZE >= total ? "default" : "pointer" }}>Siguientes ›</button>
         </div>
       )}
 

@@ -13,7 +13,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 
 from agent.graph import InterviewRunner
-from agent.prompts import SCHEDULING_CONFIRMED
+from agent.prompts import (
+    NO_OPEN_VACANCY,
+    SCHEDULING_CONFIRMED,
+    SCHEDULING_CONFIRMED_ONSITE,
+    VACANCY_UNAVAILABLE,
+)
 from agent.state import (
     PHASE_AWAITING_DOCS,
     PHASE_CLOSED,
@@ -107,16 +112,10 @@ class InterviewService:
         self.settings = settings
 
     def process(self, inbound: InboundMessage) -> TurnResult:
-        vacancy = repositories.get_default_open_vacancy()
-        if not vacancy:
-            return TurnResult(messages=["En este momento no hay vacantes activas. ¡Gracias por tu interés!"])
-
-        candidate = repositories.get_or_create_candidate(
-            vacancy["id"], inbound.channel, inbound.chat_id, inbound.display_name
-        )
-        conv = repositories.get_or_create_conversation(
-            candidate["id"], vacancy["id"], inbound.thread_id
-        )
+        resolved = self._resolve_context(inbound)
+        if isinstance(resolved, TurnResult):
+            return resolved
+        vacancy, candidate, conv = resolved
 
         state = self.runner.get_state(inbound.thread_id)
         first_contact = not state or not state.get("phase")
@@ -150,6 +149,57 @@ class InterviewService:
             conv["id"], {"last_activity_at": _now_iso(), "reminders_sent": 0}
         )
         return self._result(new_state)
+
+    def _resolve_context(
+        self, inbound: InboundMessage
+    ) -> tuple[dict, dict, dict] | TurnResult:
+        """Resuelve (vacante, candidato, conversación) del mensaje entrante.
+
+        Routing multi-tenant (auditoría A1), en orden:
+          1. Conversación existente del thread → SU vacante/candidato (sticky: un mensaje
+             a mitad de proceso nunca se cruza a otra vacante/tenant, ni vía deep-link).
+          2. Deep-link `t.me/<bot>?start=<vacancy_id>` → esa vacante si existe y está
+             abierta; si no, se avisa que la convocatoria no está disponible (sin crear
+             candidato — engancharlo a otra vacante sería un cruce entre tenants).
+          3. Sin payload → primera vacante abierta (retrocompatible, demo mono-vacante).
+        """
+        conv = repositories.get_conversation_by_thread(inbound.thread_id)
+        if conv:
+            candidate = repositories.get_candidate(conv["candidate_id"])
+            vacancy = repositories.get_vacancy(conv["vacancy_id"])
+            if candidate and vacancy:
+                return vacancy, candidate, conv
+
+        if inbound.start_payload:
+            vacancy = self._vacancy_from_payload(inbound.start_payload)
+            if not vacancy or vacancy.get("status") != "open":
+                return TurnResult(messages=[VACANCY_UNAVAILABLE])
+        else:
+            vacancy = repositories.get_default_open_vacancy()
+            if not vacancy:
+                return TurnResult(messages=[NO_OPEN_VACANCY])
+
+        candidate = repositories.get_or_create_candidate(
+            vacancy["id"], inbound.channel, inbound.chat_id, inbound.display_name
+        )
+        conv = repositories.get_or_create_conversation(
+            candidate["id"], vacancy["id"], inbound.thread_id
+        )
+        return vacancy, candidate, conv
+
+    @staticmethod
+    def _vacancy_from_payload(payload: str) -> Optional[dict]:
+        """Vacante apuntada por el deep-link; None si el payload no es un UUID o no existe."""
+        import uuid
+
+        try:
+            uuid.UUID(payload.strip())
+        except (ValueError, AttributeError, TypeError):
+            return None
+        try:
+            return repositories.get_vacancy(payload.strip())
+        except Exception:  # noqa: BLE001 — un payload raro no debe tumbar el turno
+            return None
 
     def finalize_inactive(self, thread_id: str) -> TurnResult:
         """Cierra una conversación colgada por inactividad (la dispara el scheduler).
@@ -227,24 +277,44 @@ class InterviewService:
     # ── Agendamiento de entrevista (fase 2) ──────────────────────────────────
 
     def _resolve_recruiter(self, vacancy: dict) -> dict[str, Any]:
+        """Contacto RR.HH. de la vacante (coordina/firma los mensajes en todas las etapas)."""
         rid = vacancy.get("recruiter_id")
         if rid:
             return repositories.get_recruiter(rid) or {}
         return {}
 
+    def _resolve_interviewer(self, vacancy: dict, stage: str) -> dict[str, Any]:
+        """Persona entrevistada según la etapa: hr→RR.HH., lead→líder, manager→gerencia.
+
+        Si la vacante no tiene asignado el líder/gerencia, cae al contacto RR.HH."""
+        field_by_stage = {
+            "hr": "recruiter_id",
+            "lead": "lead_recruiter_id",
+            "manager": "manager_recruiter_id",
+        }
+        rid = vacancy.get(field_by_stage.get(stage, "recruiter_id"))
+        if rid:
+            return repositories.get_recruiter(rid) or {}
+        return self._resolve_recruiter(vacancy)
+
     def _scheduler(self):
         return self.scheduler or get_scheduler(self.settings)
 
-    def initiate_scheduling(self, candidate: dict, vacancy: dict) -> TurnResult:
-        """Abre la coordinación de la entrevista: consulta la disponibilidad del reclutador
-        en su calendario, propone 2-3 horarios al candidato y proyecta el estado.
+    def initiate_scheduling(
+        self, candidate: dict, vacancy: dict, *, stage: str = "hr", modality: str = "virtual"
+    ) -> TurnResult:
+        """Abre la coordinación de la entrevista de una etapa: consulta la disponibilidad del
+        entrevistador (RR.HH./líder/gerencia) en su calendario, propone 2-3 horarios y proyecta
+        el estado.
 
-        La dispara el endpoint de decisión (advance). El saludo + opciones se envían por el bot."""
+        `stage` = "hr" | "lead" | "manager"; `modality` = "virtual" | "onsite".
+        La dispara el endpoint de decisión/avance de etapa. El saludo + opciones los envía el bot."""
         thread_id = f"{candidate['channel']}:{candidate['channel_user_id']}"
         conv = repositories.get_or_create_conversation(candidate["id"], vacancy["id"], thread_id)
         cfg = repositories.get_app_setting("scheduling", {}, vacancy.get("tenant_id")) or {}
         recruiter = self._resolve_recruiter(vacancy)
-        calendar_id = recruiter.get("calendar_id") or "primary"
+        interviewer = self._resolve_interviewer(vacancy, stage)
+        calendar_id = interviewer.get("calendar_id") or recruiter.get("calendar_id") or "primary"
         now = datetime.now(timezone.utc)
         horizon = int(cfg.get("horizon_days", 7) or 7)
         busy: list[tuple[datetime, datetime]] = []
@@ -253,7 +323,14 @@ class InterviewService:
         except Exception:  # noqa: BLE001 — sin disponibilidad legible, proponemos igual
             busy = []
         slots = [s.isoformat() for s in compute_free_slots(busy, cfg, now=now)]
-        state = self.runner.send(thread_id, start_scheduling=slots, recruiter=recruiter)
+        state = self.runner.send(
+            thread_id,
+            start_scheduling=slots,
+            recruiter=recruiter,
+            stage=stage,
+            modality=modality,
+            interviewer=interviewer,
+        )
         self._sync_business(vacancy, candidate, conv, state)
         self._persist_outbound(conv, state)
         repositories.update_conversation(
@@ -264,12 +341,17 @@ class InterviewService:
     def _finalize_scheduling(self, vacancy: dict, candidate: dict, conv: dict, state: InterviewState) -> None:
         """Crea la reunión (Calendar + Sheets) tras la elección del candidato y notifica.
 
-        Idempotente: solo si la fase es `scheduled`, hay horario elegido y aún no hay reunión."""
+        Multi-etapa: idempotente por (conversación, etapa). Solo actúa si la fase es `scheduled`,
+        hay horario elegido y aún no existe la reunión de esa etapa. Presencial (`onsite`): sin
+        enlace Meet, con ubicación y confirmación distinta."""
         if state.get("phase") != PHASE_SCHEDULED or not state.get("meeting_slot"):
             return
-        if repositories.get_meeting_by_conversation(conv["id"]):
+        stage = state.get("scheduling_stage") or "hr"
+        modality = state.get("modality") or "virtual"
+        if repositories.get_meeting_by_conversation_stage(conv["id"], stage):
             return
         recruiter = self._resolve_recruiter(vacancy)
+        interviewer = self._resolve_interviewer(vacancy, stage)
         try:
             start = datetime.fromisoformat(state["meeting_slot"])
         except Exception:  # noqa: BLE001
@@ -282,24 +364,57 @@ class InterviewService:
         recruiter_email = str(recruiter.get("email", "")).strip()
         recruiter_phone = str(recruiter.get("phone", "")).strip()
         recruiter_name = str(recruiter.get("name", "")).strip()
-        attendees = [e for e in (candidate_email, recruiter_email) if e]
-        summary = f"Entrevista — {vacancy.get('title', '')} — {candidate.get('name', '')}".strip()
+        interviewer_name = str(interviewer.get("name", "")).strip() or recruiter_name
+        interviewer_email = str(interviewer.get("email", "")).strip()
+        onsite = modality == "onsite"
+        location = str(interviewer.get("location", "") or vacancy.get("location", "")).strip() if onsite else ""
+        # Invitados: candidato + entrevistador (+ RR.HH. si es distinto).
+        attendees = [e for e in (candidate_email, interviewer_email, recruiter_email) if e]
+        stage_label = {"hr": "RR.HH.", "lead": "Líder del proyecto", "manager": "Gerencia"}.get(stage, "")
+        summary = f"Entrevista {stage_label} — {vacancy.get('title', '')} — {candidate.get('name', '')}".strip()
         description = (
-            f"Entrevista de selección para {vacancy.get('title', '')}.\n\n"
+            f"Entrevista de selección ({stage_label}) para {vacancy.get('title', '')}.\n\n"
             f"Candidato: {candidate.get('name', '')}\n"
             f"  • Correo: {candidate_email or '—'}\n"
             f"  • Teléfono: {candidate_phone or '—'}\n\n"
-            f"Reclutador: {recruiter_name or '—'}\n"
+            f"Entrevistador: {interviewer_name or '—'} ({interviewer.get('role', '') or '—'})\n"
+            f"  • Correo: {interviewer_email or '—'}\n\n"
+            f"Contacto RR.HH.: {recruiter_name or '—'}\n"
             f"  • Correo: {recruiter_email or '—'}\n"
             f"  • Teléfono: {recruiter_phone or '—'}"
+            + (f"\n\nModalidad: presencial\nLugar: {location}" if onsite else "\n\nModalidad: virtual")
         )
+        # Registro-PRIMERO (auditoría G2): la intención queda en la DB ANTES de crear el
+        # evento externo. Si el proceso muere a mitad, el guard de idempotencia de arriba ve
+        # la fila y el reintento NO duplica el evento de Calendar; la reconciliación alerta
+        # la reunión sin enlace. Tras crear el evento se completan link/event_id/sheet_row.
+        meeting = repositories.save_meeting({
+            "conversation_id": conv["id"],
+            "candidate_id": candidate["id"],
+            "vacancy_id": vacancy["id"],
+            "stage": stage,
+            "modality": modality,
+            "location": location,
+            "scheduled_at": start.isoformat(),
+            "end_at": end.isoformat(),
+            "meet_link": "",
+            "event_id": "",
+            "sheet_row": "",
+            "candidate_email": candidate_email,
+            "candidate_phone": candidate_phone,
+            "recruiter_email": recruiter_email,
+            "recruiter_phone": recruiter_phone,
+            "recruiter_name": recruiter_name,
+            "status": "scheduled",
+        })
         backend = self._scheduler()
         try:
             result = backend.create_meeting(
-                calendar_id=recruiter.get("calendar_id") or "primary",
+                calendar_id=interviewer.get("calendar_id") or recruiter.get("calendar_id") or "primary",
                 summary=summary, start=start, end=end, attendees=attendees, description=description,
+                modality=modality, location=location,
             )
-        except Exception:  # noqa: BLE001 — registra el horario aunque falle la creación del evento
+        except Exception:  # noqa: BLE001 — el horario ya quedó registrado aunque falle el evento
             result = MeetingResult(start=start, end=end)
         sheet_row = ""
         sheet_id = getattr(self.settings, "meeting_sheet_id", "") if self.settings else ""
@@ -308,38 +423,41 @@ class InterviewService:
                 sheet_row = backend.append_sheet_row(
                     sheet_id,
                     getattr(self.settings, "meeting_sheet_tab", "Reuniones"),
-                    [human_slot_long(start), vacancy.get("title", ""), candidate.get("name", ""),
-                     candidate_email, candidate_phone, recruiter_name, recruiter_email,
-                     recruiter_phone, result.meet_link],
+                    [human_slot_long(start), stage_label, vacancy.get("title", ""), candidate.get("name", ""),
+                     candidate_email, candidate_phone, interviewer_name, interviewer_email,
+                     recruiter_name, recruiter_email, recruiter_phone,
+                     "presencial" if onsite else "virtual", result.meet_link or location],
                 )
             except Exception:  # noqa: BLE001
                 sheet_row = ""
-        meeting = {
-            "conversation_id": conv["id"],
-            "candidate_id": candidate["id"],
-            "vacancy_id": vacancy["id"],
-            "scheduled_at": start.isoformat(),
-            "end_at": end.isoformat(),
-            "meet_link": result.meet_link,
-            "event_id": result.event_id,
-            "sheet_row": sheet_row,
-            "candidate_email": candidate_email,
-            "candidate_phone": candidate_phone,
-            "recruiter_email": recruiter_email,
-            "recruiter_phone": recruiter_phone,
-            "recruiter_name": recruiter_name,
-            "status": "scheduled",
-        }
-        repositories.save_meeting(meeting)
+        if result.meet_link or result.event_id or sheet_row:
+            try:
+                meeting = repositories.update_meeting(
+                    meeting["id"],
+                    {"meet_link": result.meet_link, "event_id": result.event_id, "sheet_row": sheet_row},
+                )
+            except Exception:  # noqa: BLE001 — la reunión ya existe; el link va igual al candidato
+                meeting = {**meeting, "meet_link": result.meet_link, "event_id": result.event_id}
         # Confirmación al candidato (la envía el bot junto con el resto del turno).
         first = str(candidate.get("name", "")).split(" ")[0]
-        state["outbound"].append(
-            SCHEDULING_CONFIRMED.format(
-                name=first or "",
-                date=human_slot_long(start),
-                link=result.meet_link or "te lo compartimos en breve",
+        if onsite:
+            state["outbound"].append(
+                SCHEDULING_CONFIRMED_ONSITE.format(
+                    name=first or "",
+                    date=human_slot_long(start),
+                    location=location or "te confirmamos la dirección en breve",
+                    interviewer=interviewer_name or "nuestro equipo",
+                    contact=recruiter_name or "el equipo de Talento",
+                )
             )
-        )
+        else:
+            state["outbound"].append(
+                SCHEDULING_CONFIRMED.format(
+                    name=first or "",
+                    date=human_slot_long(start),
+                    link=result.meet_link or "te lo compartimos en breve",
+                )
+            )
         if self.notify_meeting:
             try:
                 self.notify_meeting(vacancy, candidate, meeting, recruiter)
@@ -381,10 +499,12 @@ class InterviewService:
         elif phase in (PHASE_AWAITING_DOCS, PHASE_FINISHED):
             # La entrevista ya terminó (scorecard generado); en awaiting_docs solo faltan documentos.
             cand_update["status"] = "finished"
-        elif phase == PHASE_SCHEDULING:
-            cand_update["status"] = "scheduling"
-        elif phase == PHASE_SCHEDULED:
-            cand_update["status"] = "scheduled"
+        elif phase in (PHASE_SCHEDULING, PHASE_SCHEDULED):
+            # Multi-etapa: el status distingue la etapa (hr/lead/manager) + si está agendada.
+            stage = state.get("scheduling_stage") or "hr"
+            prefix = {"hr": "", "lead": "lead_", "manager": "mgr_"}.get(stage, "")
+            suffix = "scheduled" if phase == PHASE_SCHEDULED else "scheduling"
+            cand_update["status"] = f"{prefix}{suffix}"
         if cand_update:
             repositories.update_candidate(candidate["id"], cand_update)
 

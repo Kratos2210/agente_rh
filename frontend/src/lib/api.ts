@@ -29,8 +29,14 @@ export interface Vacancy {
   stage_counts?: Record<string, number>;
   questions?: Question[];
   recruiter_id?: string | null;
+  lead_recruiter_id?: string | null;
+  manager_recruiter_id?: string | null;
   meeting_duration_minutes?: number;
   recruiter?: Recruiter | null;
+  lead_recruiter?: Recruiter | null;
+  manager_recruiter?: Recruiter | null;
+  // Deep-link del bot (t.me/<bot>?start=<vacancy_id>) — vacío si el username no está configurado.
+  telegram_deep_link?: string;
   // Datos del aviso (migración 0012).
   area?: string;
   modality?: string;
@@ -51,14 +57,21 @@ export interface Recruiter {
   phone: string;
   telegram_chat_id: string;
   calendar_id: string;
+  location?: string;
   active: boolean;
   created_at?: string;
   open_vacancies?: number;
   active_candidates?: number;
 }
 
+export type MeetingStage = "hr" | "lead" | "manager";
+
 export interface Meeting {
   id: string;
+  stage: MeetingStage;
+  modality: "virtual" | "onsite";
+  location: string;
+  attendance: "" | "attended" | "no_show";
   scheduled_at: string;
   end_at: string | null;
   meet_link: string;
@@ -68,6 +81,23 @@ export interface Meeting {
   recruiter_phone: string;
   recruiter_name: string;
   status: string;
+}
+
+export interface StageFeedback {
+  id: string;
+  stage: MeetingStage;
+  feedback: string;
+  decision: "approved" | "rejected" | "";
+  decided_email: string;
+  created_at: string;
+}
+
+export interface PsychExam {
+  link: string;
+  code: string;
+  key: string;
+  sent_at: string;
+  sent_by: string;
 }
 
 export interface SchedulingConfig {
@@ -99,6 +129,29 @@ export interface CandidateRow {
   total_score: number | null;
   prescreen_score: number | null;
   prescreen_verdict: Verdict | null;
+}
+
+// Página de candidatos (U1): items + total para armar los controles de paginación.
+export interface CandidatePage {
+  items: CandidateRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface ListOpts {
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+function listQuery(opts?: ListOpts): string {
+  const p = new URLSearchParams();
+  if (opts?.q) p.set("q", opts.q);
+  if (opts?.limit != null) p.set("limit", String(opts.limit));
+  if (opts?.offset != null) p.set("offset", String(opts.offset));
+  const s = p.toString();
+  return s ? `?${s}` : "";
 }
 
 export interface CvProfile {
@@ -187,6 +240,9 @@ export interface CandidateDetail {
   thresholds?: { green_min: number; yellow_min: number };
   scorecard: Scorecard | null;
   transcript: Message[];
+  meetings?: Meeting[];
+  stage_feedback?: StageFeedback[];
+  psych_exam?: PsychExam | null;
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -237,9 +293,9 @@ export const api = {
   getVacancy: (id: string) => req<Vacancy>(`/api/vacancies/${id}`),
   createVacancy: (body: Partial<Vacancy> & { questions?: Question[] }) =>
     req<Vacancy>("/api/vacancies", { method: "POST", body: JSON.stringify(body) }),
-  listCandidates: (vacancyId: string) =>
-    req<CandidateRow[]>(`/api/vacancies/${vacancyId}/candidates`),
-  listAllCandidates: () => req<CandidateRow[]>("/api/candidates"),
+  listCandidates: (vacancyId: string, opts?: ListOpts) =>
+    req<CandidatePage>(`/api/vacancies/${vacancyId}/candidates${listQuery(opts)}`),
+  listAllCandidates: (opts?: ListOpts) => req<CandidatePage>(`/api/candidates${listQuery(opts)}`),
   getCandidate: (id: string) => req<CandidateDetail>(`/api/candidates/${id}`),
   decide: (id: string, decision: "advance" | "reject") =>
     req<{
@@ -253,6 +309,31 @@ export const api = {
       body: JSON.stringify({ decision }),
     }),
   getMeeting: (id: string) => req<Meeting | null>(`/api/candidates/${id}/meeting`),
+  listMeetings: (id: string) => req<Meeting[]>(`/api/candidates/${id}/meetings`),
+  sendPsychExam: (id: string, body: { link: string; code?: string; key?: string }) =>
+    req<{ sent: boolean; psych_exam: PsychExam }>(`/api/candidates/${id}/psych-exam`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  markAttendance: (
+    id: string,
+    body: { stage: MeetingStage; attended: "attended" | "no_show"; reschedule?: boolean },
+  ) =>
+    req<{ attendance: string; status?: string; rescheduled?: boolean; notified?: boolean; messages?: string[] }>(
+      `/api/candidates/${id}/attendance`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  advanceStage: (
+    id: string,
+    body: { stage: MeetingStage; decision: "approved" | "rejected"; feedback?: string; modality?: "virtual" | "onsite" },
+  ) =>
+    req<{
+      status: string;
+      notified?: boolean;
+      scheduling_started?: boolean;
+      messages_sent?: boolean;
+      messages?: string[];
+    }>(`/api/candidates/${id}/advance-stage`, { method: "POST", body: JSON.stringify(body) }),
   listRecruiters: () => req<Recruiter[]>("/api/recruiters"),
   createRecruiter: (body: Partial<Recruiter>) =>
     req<Recruiter>("/api/recruiters", { method: "POST", body: JSON.stringify(body) }),
@@ -341,10 +422,16 @@ export const statusLabel: Record<string, string> = {
   consented: "Aceptó",
   interviewing: "En entrevista",
   finished: "Entrevista completa",
-  scheduling: "Coordinando entrevista",
-  scheduled: "Entrevista agendada",
+  scheduling: "Coordinando con RR.HH.",
+  scheduled: "Entrevista RR.HH. agendada",
+  lead_scheduling: "Coordinando con líder",
+  lead_scheduled: "Entrevista con líder agendada",
+  mgr_scheduling: "Coordinando con gerencia",
+  mgr_scheduled: "Entrevista con gerencia agendada",
+  hired: "Contratado",
   advanced: "Avanzado",
   rejected: "Rechazado",
+  no_show: "No asistió",
   declined: "Declinó",
   no_response: "No respondió",
 };
@@ -364,10 +451,16 @@ export const phaseMeta: Record<string, { label: string; color: string; step: num
   consented: { label: "Aceptó", color: "#2563eb", step: 2 },
   interviewing: { label: "En entrevista", color: "#d97706", step: 3 },
   finished: { label: "Entrevista completa", color: "#16a34a", step: 4 },
-  scheduling: { label: "Coordinando entrevista", color: "#d97706", step: 4 },
-  scheduled: { label: "Entrevista agendada", color: "#16a34a", step: 5 },
+  scheduling: { label: "Coordinando con RR.HH.", color: "#d97706", step: 5 },
+  scheduled: { label: "Entrevista RR.HH. agendada", color: "#16a34a", step: 5 },
   advanced: { label: "Avanzado", color: "#16a34a", step: 5 },
-  rejected: { label: "Rechazado", color: "#dc2626", step: 5 },
+  lead_scheduling: { label: "Coordinando con líder", color: "#d97706", step: 6 },
+  lead_scheduled: { label: "Entrevista con líder agendada", color: "#16a34a", step: 6 },
+  mgr_scheduling: { label: "Coordinando con gerencia", color: "#d97706", step: 7 },
+  mgr_scheduled: { label: "Entrevista con gerencia agendada", color: "#16a34a", step: 7 },
+  hired: { label: "Contratado", color: "#16a34a", step: 8 },
+  rejected: { label: "Rechazado", color: "#dc2626", step: -1 },
+  no_show: { label: "No asistió", color: "#dc2626", step: -1 },
   prescreen_rejected: { label: "Descartado en CV", color: "#dc2626", step: -1 },
   declined: { label: "Declinó", color: "#dc2626", step: -1 },
   no_response: { label: "No respondió", color: "#dc2626", step: -1 },
@@ -380,6 +473,9 @@ export const PHASE_STEPS: { key: string; label: string }[] = [
   { key: "prescreen_passed", label: "Apto" },
   { key: "invited", label: "Contactado" },
   { key: "interviewing", label: "Entrevista" },
-  { key: "finished", label: "Completa" },
-  { key: "scheduled", label: "Agendada" },
+  { key: "finished", label: "Evaluado" },
+  { key: "scheduled", label: "RR.HH." },
+  { key: "lead_scheduled", label: "Líder" },
+  { key: "mgr_scheduled", label: "Gerencia" },
+  { key: "hired", label: "Decisión" },
 ];

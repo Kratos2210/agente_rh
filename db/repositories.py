@@ -207,6 +207,64 @@ def list_candidates(vacancy_id: str) -> list[dict[str, Any]]:
     )
 
 
+# Columnas de la fila de listado + conversación/scorecard EMBEBIDOS (D1: PostgREST
+# resuelve los joins vía FKs en UN solo round-trip; antes eran 2 consultas por candidato).
+_CANDIDATE_ROW_COLS = (
+    "id,name,status,channel,source,created_at,vacancy_id,prescreen,"
+    "conversations(id,created_at,scorecards(semaphore,total_score))"
+)
+
+
+def list_candidate_rows(
+    vacancy_ids: list[str],
+    *,
+    search: str = "",
+    limit: Optional[int] = None,
+    offset: int = 0,
+) -> tuple[list[dict[str, Any]], int]:
+    """Filas de candidato para listados (columnas livianas + embeds) + total exacto.
+
+    `search` filtra por nombre (ilike, case-insensitive). `limit/offset` paginan (U1);
+    el total viene del header `count=exact` de PostgREST en la misma consulta."""
+    if not vacancy_ids:
+        return ([], 0)
+    q = (
+        get_supabase()
+        .table("candidates")
+        .select(_CANDIDATE_ROW_COLS, count="exact")
+        .in_("vacancy_id", vacancy_ids)
+        .order("created_at", desc=True)
+    )
+    if search:
+        # % y _ son comodines de ilike: se escapan para buscar el texto literal.
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        q = q.ilike("name", f"%{escaped}%")
+    if limit is not None:
+        q = q.range(offset, offset + limit - 1)
+    res = q.execute()
+    return (res.data or [], res.count or 0)
+
+
+def count_candidates_by_status(vacancy_ids: list[str]) -> dict[str, dict[str, int]]:
+    """{vacancy_id: {status: n}} en UNA consulta liviana de 2 columnas (sin N+1)."""
+    if not vacancy_ids:
+        return {}
+    rows = (
+        get_supabase()
+        .table("candidates")
+        .select("vacancy_id,status")
+        .in_("vacancy_id", vacancy_ids)
+        .execute()
+        .data
+        or []
+    )
+    out: dict[str, dict[str, int]] = {}
+    for r in rows:
+        per = out.setdefault(r["vacancy_id"], {})
+        per[r.get("status", "")] = per.get(r.get("status", ""), 0) + 1
+    return out
+
+
 # ── Conversaciones ───────────────────────────────────────────────────────────
 
 def get_conversation_by_thread(thread_id: str) -> Optional[dict[str, Any]]:
@@ -408,11 +466,61 @@ def get_scorecard(conversation_id: str) -> Optional[dict[str, Any]]:
 # ── Reuniones agendadas (entrevista de la fase 2) ───────────────────────────────
 
 def save_meeting(payload: dict[str, Any]) -> dict[str, Any]:
-    """Inserta/actualiza la reunión de una conversación (idempotente por conversation_id)."""
+    """Inserta/actualiza la reunión de una conversación+etapa (idempotente por (conversation_id, stage))."""
     return (
         get_supabase()
         .table("meetings")
-        .upsert(payload, on_conflict="conversation_id")
+        .upsert(payload, on_conflict="conversation_id,stage")
+        .execute()
+        .data[0]
+    )
+
+
+def update_meeting(meeting_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Actualiza campos de una reunión ya registrada (p. ej. enlace/event_id tras crear el evento)."""
+    return (
+        get_supabase()
+        .table("meetings")
+        .update(payload)
+        .eq("id", meeting_id)
+        .execute()
+        .data[0]
+    )
+
+
+def get_meeting_by_conversation_stage(conversation_id: str, stage: str) -> Optional[dict[str, Any]]:
+    res = (
+        get_supabase()
+        .table("meetings")
+        .select("*")
+        .eq("conversation_id", conversation_id)
+        .eq("stage", stage)
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def list_meetings_by_candidate(candidate_id: str) -> list[dict[str, Any]]:
+    """Todas las reuniones del candidato (una por etapa), en orden cronológico."""
+    return (
+        get_supabase()
+        .table("meetings")
+        .select("*")
+        .eq("candidate_id", candidate_id)
+        .order("created_at", desc=False)
+        .execute()
+        .data
+        or []
+    )
+
+
+def set_meeting_attendance(meeting_id: str, attendance: str) -> dict[str, Any]:
+    return (
+        get_supabase()
+        .table("meetings")
+        .update({"attendance": attendance})
+        .eq("id", meeting_id)
         .execute()
         .data[0]
     )
@@ -535,25 +643,37 @@ def record_usage(
     candidate_id: Optional[str] = None,
     conversation_id: Optional[str] = None,
 ) -> None:
-    """Registra el uso de tokens de una etapa. No rompe el flujo si falla."""
+    """Registra el uso de tokens + latencia/errores de una etapa. No rompe el flujo si falla."""
     total = int(tokens.get("total_tokens", 0) or 0)
-    if total <= 0 and not tokens.get("input_tokens") and not tokens.get("output_tokens"):
+    if (
+        total <= 0
+        and not tokens.get("input_tokens")
+        and not tokens.get("output_tokens")
+        and not tokens.get("errors")  # un fallo con 0 tokens TAMBIÉN es señal (fallback)
+    ):
         return
+    base = {
+        "vacancy_id": vacancy_id,
+        "candidate_id": candidate_id,
+        "conversation_id": conversation_id,
+        "stage": stage,
+        "model": model or "",
+        "input_tokens": int(tokens.get("input_tokens", 0) or 0),
+        "output_tokens": int(tokens.get("output_tokens", 0) or 0),
+        "total_tokens": total,
+    }
+    extra = {  # observabilidad O1 (columnas de 0020; si la migración no está, cae al insert base)
+        "calls": int(tokens.get("calls", 0) or 0),
+        "errors": int(tokens.get("errors", 0) or 0),
+        "duration_ms": int(tokens.get("duration_ms", 0) or 0),
+    }
     try:
-        get_supabase().table("llm_usage").insert(
-            {
-                "vacancy_id": vacancy_id,
-                "candidate_id": candidate_id,
-                "conversation_id": conversation_id,
-                "stage": stage,
-                "model": model or "",
-                "input_tokens": int(tokens.get("input_tokens", 0) or 0),
-                "output_tokens": int(tokens.get("output_tokens", 0) or 0),
-                "total_tokens": total,
-            }
-        ).execute()
-    except Exception:  # noqa: BLE001 — las métricas no deben tumbar la conversación
-        pass
+        get_supabase().table("llm_usage").insert({**base, **extra}).execute()
+    except Exception:  # noqa: BLE001 — retro-compat: sin las columnas nuevas, registra lo básico
+        try:
+            get_supabase().table("llm_usage").insert(base).execute()
+        except Exception:  # noqa: BLE001 — las métricas no deben tumbar la conversación
+            pass
 
 
 def _usage_rows(vacancy_id: Optional[str] = None) -> list[dict[str, Any]]:
@@ -570,7 +690,15 @@ def _aggregate_tokens(rows: list[dict[str, Any]]) -> dict[str, Any]:
     by_stage: dict[str, int] = {}
     for r in rows:
         by_stage[r.get("stage", "?")] = by_stage.get(r.get("stage", "?"), 0) + int(r.get("total_tokens", 0) or 0)
-    return {"total": total, "input": inp, "output": out, "by_stage": by_stage}
+    # Observabilidad O1: llamadas, errores (≈ fallbacks) y latencia media por llamada.
+    calls = sum(int(r.get("calls", 0) or 0) for r in rows)
+    errors = sum(int(r.get("errors", 0) or 0) for r in rows)
+    duration = sum(int(r.get("duration_ms", 0) or 0) for r in rows)
+    return {
+        "total": total, "input": inp, "output": out, "by_stage": by_stage,
+        "calls": calls, "errors": errors, "duration_ms": duration,
+        "avg_ms": round(duration / calls) if calls else 0,
+    }
 
 
 # ── Métricas: embudo de candidatos ──────────────────────────────────────────────
@@ -750,6 +878,25 @@ def list_audit_log(tenant_id: str, limit: int = 100) -> list[dict[str, Any]]:
         .eq("tenant_id", tenant_id)
         .order("created_at", desc=True)
         .limit(limit)
+        .execute()
+        .data
+        or []
+    )
+
+
+# ── Feedback + decisión por etapa (líder / gerencia / RR.HH.) ────────────────────
+
+def save_stage_feedback(row: dict[str, Any]) -> dict[str, Any]:
+    return get_supabase().table("stage_feedback").insert(row).execute().data[0]
+
+
+def list_stage_feedback(candidate_id: str) -> list[dict[str, Any]]:
+    return (
+        get_supabase()
+        .table("stage_feedback")
+        .select("*")
+        .eq("candidate_id", candidate_id)
+        .order("created_at", desc=False)
         .execute()
         .data
         or []

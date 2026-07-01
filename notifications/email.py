@@ -224,3 +224,75 @@ def send_meeting_email(
         logger.info("Confirmación de entrevista enviada a %s", built[0])
     except Exception:  # noqa: BLE001
         logger.exception("No se pudo enviar el correo de la reunión")
+
+
+# ── Exámenes psicológicos (Fase 1: link + código + clave de la plataforma externa) ─
+
+def build_psych_exam_email(
+    settings: Settings, vacancy: dict, candidate: dict, exam: dict
+) -> tuple[list[str], str, str, str] | None:
+    """(recipients, subject, text, html) del correo de exámenes psicológicos, o None si no aplica.
+
+    RR.HH. obtiene link/código/clave de la plataforma externa (p.ej. Multitest) y los pega;
+    este correo se los reenvía al candidato con el formato de la empresa."""
+    cand_email = str((candidate.get("cv_profile") or {}).get("email", "")).strip()
+    if not (settings.smtp_host and settings.smtp_from and cand_email):
+        return None
+    link = str(exam.get("link", "")).strip()
+    code = str(exam.get("code", "")).strip()
+    key = str(exam.get("key", "")).strip()
+    name = candidate.get("name") or "Candidato"
+    title = vacancy.get("title", "")
+    subject = f"Evaluación psicológica · {title}".strip(" ·")
+
+    text = "\n".join([
+        f"Estimad@ {name},",
+        "",
+        "A continuación encontrarás un link con pruebas que deberás resolver para que podamos "
+        "evaluar tu potencial.",
+        "",
+        "Te pedimos las resuelvas en un lugar ajeno a ruidos y distracciones, a fin de obtener los "
+        "mejores resultados. Una vez iniciado el proceso, no deberás detenerte hasta culminar todas "
+        "las pruebas ya que tiene un tiempo determinado de duración.",
+        "",
+        f"Link de la evaluación: {link}",
+        f"Código de acceso: {code}",
+        f"Clave de acceso: {key}",
+        "",
+        "*Por favor abre la prueba en tu navegador Google Chrome.",
+        "",
+        "¡Éxitos!",
+    ])
+    h_name, h_title = _esc(str(name)), _esc(str(title))
+    h_link, h_code, h_key = _esc(link), _esc(code), _esc(key)
+    html = f"""<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;color:#111;background:#f6f7f9;padding:24px">
+      <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
+        <div style="background:#2563eb;color:#fff;padding:20px 24px">
+          <div style="font-size:13px;opacity:.9">Evaluación psicológica</div>
+          <div style="font-size:22px;font-weight:700">{h_title}</div>
+        </div>
+        <div style="padding:24px;line-height:1.6;color:#333">
+          <p style="margin:0 0 12px">Estimad@ <b>{h_name}</b>,</p>
+          <p style="margin:0 0 12px">A continuación encontrarás un link con pruebas que deberás resolver para que podamos evaluar tu potencial.</p>
+          <p style="margin:0 0 12px">Te pedimos las resuelvas en un lugar ajeno a ruidos y distracciones. Una vez iniciado el proceso, no deberás detenerte hasta culminar todas las pruebas, ya que tienen un tiempo determinado de duración.</p>
+          <p style="margin:0 0 6px"><b>Link de la evaluación:</b> <a href="{h_link}" style="color:#2563eb">{h_link}</a></p>
+          <p style="margin:0 0 6px"><b>Código de acceso:</b> <span style="color:#d97706;font-weight:700">{h_code}</span></p>
+          <p style="margin:0 0 12px"><b>Clave de acceso:</b> <span style="color:#d97706;font-weight:700">{h_key}</span></p>
+          <p style="margin:0;color:#555">*Por favor abre la prueba en tu navegador Google Chrome. ¡Éxitos!</p>
+        </div>
+      </div>
+    </body></html>"""
+    return ([cand_email], subject, text, html)
+
+
+def send_psych_exam_email(settings: Settings, vacancy: dict, candidate: dict, exam: dict) -> None:
+    """Envía el correo de exámenes psicológicos al candidato. No lanza (envío directo)."""
+    built = build_psych_exam_email(settings, vacancy, candidate, exam)
+    if built is None:
+        logger.info("SMTP/email del candidato sin configurar: se omite el correo de exámenes")
+        return
+    try:
+        send_email(settings, *built)
+        logger.info("Correo de exámenes psicológicos enviado a %s", built[0])
+    except Exception:  # noqa: BLE001
+        logger.exception("No se pudo enviar el correo de exámenes psicológicos")

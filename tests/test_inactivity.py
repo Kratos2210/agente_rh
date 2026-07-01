@@ -6,9 +6,16 @@ recordatorios ya enviados y la configuración (minutos / máximo de recordatorio
 
 from __future__ import annotations
 
-from api.main import _inactivity_decision
+from agent.graph import make_memory_runner
+from agent.state import PHASE_CLOSED, PHASE_GREETING
+from api.main import _inactivity_decision, _reminder_messages
 
 _CFG = {"enabled": True, "reminder_minutes": 2, "max_reminders": 2}
+
+
+class _NoLLM:
+    def complete(self, prompt: str) -> str:  # el saludo/timeout no llaman al LLM
+        return "{}"
 
 
 def test_wait_before_threshold():
@@ -36,3 +43,23 @@ def test_defaults_when_cfg_missing_keys():
     assert _inactivity_decision(60, 0, {}) == "wait"
     assert _inactivity_decision(121, 0, {}) == "remind"
     assert _inactivity_decision(121, 2, {}) == "finalize"
+
+
+# ── Saludo inicial (Acepto / No interesado): también recuerda y cierra ──────────────
+
+def test_greeting_reminder_message():
+    """El recordatorio del saludo invita a tocar Acepto (no incluye pregunta de entrevista)."""
+    msgs = _reminder_messages({"state": PHASE_GREETING, "langgraph_thread_id": "x"}, None)
+    assert len(msgs) == 1 and "Acepto" in msgs[0]
+
+
+def test_greeting_timeout_closes_as_no_response():
+    """Sin pulsar Acepto/No interesado: el timeout cierra la conversación como 'no respondió'."""
+    runner = make_memory_runner(_NoLLM())
+    tid = "test:greet-timeout"
+    s0 = runner.start(tid, {"title": "Analista"}, [])
+    assert s0["phase"] == PHASE_GREETING
+    s1 = runner.send(tid, timeout=True)
+    assert s1["phase"] == PHASE_CLOSED
+    assert s1["closed_reason"] == "no_response"
+    assert s1["outbound"]  # envía un cierre cordial
