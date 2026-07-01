@@ -6,6 +6,7 @@ Envía por el canal del candidato. En Telegram usa la API HTTP directa
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx
@@ -20,6 +21,19 @@ logger = get_logger(__name__)
 DECISION_ADVANCE = "advance"
 DECISION_REJECT = "reject"
 
+# Seguridad (audit F1): las excepciones de httpx incluyen la URL del request en su
+# mensaje, y las llamadas a Telegram llevan el token EN la URL
+# (api.telegram.org/bot<id>:<secret>/...). Ese texto termina en logs (logger.exception,
+# outbox) y en outbox.last_error (persistido en DB). Redactamos el token antes de que
+# el mensaje escape. Subir httpx a WARNING (logging_config) tapa el log de request de
+# httpx, pero NO nuestras propias excepciones re-lanzadas.
+_TOKEN_RE = re.compile(r"bot\d+:[A-Za-z0-9_-]+")
+
+
+def redact_token(text: str) -> str:
+    """Oculta el token del bot de Telegram si aparece embebido en `text`."""
+    return _TOKEN_RE.sub("bot<REDACTED>", text)
+
 
 def render_message(decision: str, name: str) -> str:
     template = NOTIFY_ADVANCE if decision == DECISION_ADVANCE else NOTIFY_REJECT
@@ -32,13 +46,22 @@ def can_send_telegram(settings: Settings, chat_id: Any) -> bool:
 
 
 def post_telegram(settings: Settings, chat_id: str, text: str) -> None:
-    """POST sendMessage a Telegram. LANZA si falla (habilita el reintento del outbox)."""
-    resp = httpx.post(
-        f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
-        json={"chat_id": chat_id, "text": text},
-        timeout=15,
-    )
-    resp.raise_for_status()
+    """POST sendMessage a Telegram. LANZA si falla (habilita el reintento del outbox).
+
+    Re-lanza un error **saneado** (`from None`): el mensaje de la excepción de httpx
+    lleva la URL con el token, y esa cadena acabaría en logs y en outbox.last_error
+    (audit F1). Redactamos el token y cortamos la cadena de la causa para que tampoco
+    aparezca en el traceback.
+    """
+    try:
+        resp = httpx.post(
+            f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
+            json={"chat_id": chat_id, "text": text},
+            timeout=15,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPError as e:
+        raise RuntimeError(f"Envío a Telegram falló: {redact_token(str(e))}") from None
 
 
 def send_text(settings: Settings, channel: str, chat_id: str, text: str) -> bool:

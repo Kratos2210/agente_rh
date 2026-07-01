@@ -30,6 +30,12 @@ def setup_logging() -> None:
     level_name = os.getenv("LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
     logging.basicConfig(level=level, format=_FORMAT, datefmt=_DATEFMT)
+    # Seguridad (audit F1): httpx/httpcore loguean cada request en INFO, incluida la
+    # URL. Las llamadas a la API de Telegram llevan el token del bot EN la URL
+    # (api.telegram.org/bot<TOKEN>/...), así que a nivel INFO el token quedaba escrito
+    # en los logs. Se sube su nivel a WARNING para no filtrar la credencial.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     _CONFIGURED = True
 
 
