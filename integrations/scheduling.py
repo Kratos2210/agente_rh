@@ -16,6 +16,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
+from src.logging_config import get_logger
+
+logger = get_logger("integrations.scheduling")
+
 # Nombres en español para formatear los horarios sin depender del locale del sistema.
 _WEEKDAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 _MONTHS = [
@@ -295,13 +299,47 @@ def get_scheduler(settings: Any) -> SchedulingBackend:
     """Factory del backend según la config (default: simulado, sin credenciales).
 
     Con provider="google" prioriza OAuth de usuario (Gmail personal: Meet real + invitaciones);
-    si solo hay cuenta de servicio (Workspace), la usa. Sin credenciales cae a simulado."""
+    si solo hay cuenta de servicio (Workspace), la usa. Sin credenciales cae a simulado.
+
+    **Degradación con gracia (hardening):** construir `GoogleScheduler` hace I/O de red
+    (refresh del token OAuth) que puede fallar (token revocado/expirado, `invalid_scope`,
+    Google caído). Como este factory corre en el arranque del backend+bot, un fallo aquí
+    tumbaría TODO el servicio por una función periférica (agendar). En su lugar se registra
+    un ERROR ruidoso y se cae a `SimulatedScheduler`: el servicio arranca igual y el estado
+    degradado queda visible en `/api/health` (`scheduler = "simulated-fallback"`) para que
+    ops re-autorice. Nunca se degrada en silencio."""
     provider = getattr(settings, "scheduling_provider", "simulated")
     if provider == "google":
         token = getattr(settings, "google_oauth_token_path", "")
-        if token:
-            return GoogleScheduler(oauth_token_path=token)
         sa = getattr(settings, "google_credentials_path", "")
-        if sa:
-            return GoogleScheduler(sa)
+        try:
+            if token:
+                return GoogleScheduler(oauth_token_path=token)
+            if sa:
+                return GoogleScheduler(sa)
+        except Exception:  # noqa: BLE001 — no dejar que un fallo de credenciales tumbe el arranque
+            logger.error(
+                "No se pudo inicializar GoogleScheduler (¿token OAuth revocado/expirado o "
+                "invalid_scope?). Se cae a agendamiento SIMULADO — re-autoriza con "
+                "`uv run python scripts/google_oauth.py`. El agendamiento NO usará Meet/Calendar "
+                "real hasta corregirlo.",
+                exc_info=True,
+            )
     return SimulatedScheduler()
+
+
+def scheduler_mode(settings: Any, scheduler: SchedulingBackend | None) -> str:
+    """Modo efectivo del scheduler para observabilidad (`/api/health`). Puro.
+
+    Distingue el simulado NORMAL (config) del **fallback degradado**: si la config pide
+    Google y hay credenciales configuradas pero el backend activo es simulado, es que la
+    construcción de Google falló → "simulated-fallback" (señal para re-autorizar)."""
+    active = getattr(scheduler, "name", None) or "unknown"
+    provider = getattr(settings, "scheduling_provider", "simulated")
+    creds_configured = bool(
+        getattr(settings, "google_oauth_token_path", "")
+        or getattr(settings, "google_credentials_path", "")
+    )
+    if provider == "google" and creds_configured and active == "simulated":
+        return "simulated-fallback"
+    return active

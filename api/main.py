@@ -290,10 +290,18 @@ app.add_middleware(
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     settings: Settings | None = _state.get("settings")
+    # Modo del scheduler: expone si el agendamiento cayó a simulado por un fallo de
+    # credenciales de Google ("simulated-fallback") — degradación visible, no silenciosa.
+    scheduler = getattr(_state.get("service"), "scheduler", None)
+    from integrations.scheduling import scheduler_mode
+
+    mode = scheduler_mode(settings, scheduler) if settings else "unknown"
     return {
         "status": "ok",
         "telegram": bool(settings and settings.telegram_bot_token),
         "supabase": bool(settings and settings.supabase_url),
+        "scheduler": mode,
+        "scheduler_degraded": mode == "simulated-fallback",
     }
 
 

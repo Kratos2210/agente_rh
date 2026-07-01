@@ -19,7 +19,9 @@ from integrations.scheduling import (
     SimulatedScheduler,
     _tz,
     compute_free_slots,
+    get_scheduler,
     human_slot,
+    scheduler_mode,
 )
 
 _CFG = {
@@ -142,3 +144,42 @@ def test_engine_scheduling_reprompts_on_unclear_choice():
     assert s["phase"] == PHASE_SCHEDULING        # sigue coordinando
     assert s.get("meeting_slot") is None
     assert "número" in " ".join(s["outbound"]).lower()
+
+
+# ── Degradación con gracia del factory (hardening) ─────────────────────────────────
+
+class _Settings:
+    """Stub mínimo de Settings para el factory (evita cargar el .env real)."""
+
+    def __init__(self, **kw):
+        self.scheduling_provider = kw.get("scheduling_provider", "simulated")
+        self.google_oauth_token_path = kw.get("google_oauth_token_path", "")
+        self.google_credentials_path = kw.get("google_credentials_path", "")
+
+
+def test_get_scheduler_defaults_to_simulated():
+    assert get_scheduler(_Settings()).name == "simulated"
+
+
+def test_get_scheduler_falls_back_when_google_creds_fail(monkeypatch, caplog):
+    """provider=google con token, pero construir GoogleScheduler lanza (token revocado):
+    NO propaga (no tumbaría el arranque) → cae a simulado y loguea ERROR."""
+    import integrations.scheduling as sched
+
+    def _boom(*a, **k):
+        raise RuntimeError("invalid_scope: Bad Request")
+
+    monkeypatch.setattr(sched, "GoogleScheduler", _boom)
+    s = _Settings(scheduling_provider="google", google_oauth_token_path="secrets/token.json")
+    with caplog.at_level("ERROR"):
+        backend = get_scheduler(s)
+    assert backend.name == "simulated"                     # degradó, no explotó
+    assert any("GoogleScheduler" in r.message for r in caplog.records)  # ruidoso
+
+
+def test_scheduler_mode_distinguishes_fallback():
+    # Simulado por configuración (normal): no es fallback.
+    assert scheduler_mode(_Settings(), SimulatedScheduler()) == "simulated"
+    # Google configurado + credenciales, pero backend activo simulado = fallback degradado.
+    degraded = _Settings(scheduling_provider="google", google_oauth_token_path="secrets/token.json")
+    assert scheduler_mode(degraded, SimulatedScheduler()) == "simulated-fallback"
