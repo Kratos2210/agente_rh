@@ -1,0 +1,43 @@
+{
+  "Analista de Automatizaciones e IA": [
+    {
+      "external_id": "bmn-10241",
+      "name": "Daniela Quispe",
+      "email": "albertoruizasto@gmail.com",
+      "phone": "+51 987580725",
+      "headline": "Analista de Automatización e IA · RPA + Python",
+      "education": { "level": "bachiller", "career": "Ingeniería de Sistemas" },
+      "years_experience": 4,
+      "skills": ["UiPath", "Power Automate", "Python", "n8n", "Azure", "PostgreSQL", "APIs REST", "SCRUM"],
+      "location": "Lima (Surco)",
+      "salary_expectation": "S/ 6500 brutos",
+      "raw_cv_text": "Analista de automatización con 4 años de experiencia. Implementé bots RPA en UiPath y Power Automate para conciliaciones contables (ahorro de 120 h/mes). Integré ERP SAP con un CRM vía APIs REST. Desarrollo agentes de IA con Python y LLMs para clasificación de tickets. Bachiller en Ingeniería de Sistemas (UNMSM). Disponible presencial en Surco."
+    },
+    {
+      "external_id": "bmn-10355",
+      "name": "Marco Antonio Ríos",
+      "email": "marco.rios@example.com",
+      "phone": "+51 956 112 233",
+      "headline": "Desarrollador backend con interés en automatización",
+      "education": { "level": "bachiller", "career": "Ingeniería de Software" },
+      "years_experience": 1,
+      "skills": ["Python", "Django", "SQL", "Git"],
+      "location": "Lima (San Juan de Lurigancho)",
+      "salary_expectation": "S/ 5000 brutos",
+      "raw_cv_text": "Desarrollador backend con 1 año de experiencia en Django y APIs. He hecho scripts puntuales de automatización con Python pero sin experiencia formal en RPA ni agentes de IA. Bachiller en Ingeniería de Software. Disponibilidad presencial."
+    },
+    {
+      "external_id": "bmn-10412",
+      "name": "Lucía Fernández",
+      "email": "lucia.fernandez@example.com",
+      "phone": "+51 944 778 990",
+      "headline": "Diseñadora gráfica · Community manager",
+      "education": { "level": "técnico", "career": "Diseño Gráfico" },
+      "years_experience": 5,
+      "skills": ["Photoshop", "Illustrator", "Canva", "Redes sociales"],
+      "location": "Arequipa",
+      "salary_expectation": "S/ 3500 netos",
+      "raw_cv_text": "Diseñadora gráfica con 5 años de experiencia en branding y gestión de redes sociales. Sin experiencia en programación, RPA ni IA. Técnica en Diseño Gráfico. Resido en Arequipa, busco trabajo remoto."
+    }
+  ]
+}

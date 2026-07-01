@@ -1,0 +1,33 @@
+# Entorno y secretos
+.env
+_cred.txt
+secrets/
+*client_secret*.json
+*token*.json
+venv/
+.venv/
+
+# Vector store generado
+chroma_db/
+
+# Subidas y registro multi-documento (generados en runtime)
+data/uploads/
+data/registry.db*
+
+# Staging de documentos de candidatos (PII; el contenido durable vive en Postgres)
+uploads/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Frontend (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/next-env.d.ts
+frontend/*.tsbuildinfo
+
+# Sistema
+.DS_Store

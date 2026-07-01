@@ -1,0 +1,33 @@
+# Lo que NO entra a las imágenes (se regenera o es secreto/innecesario).
+.git
+.gitignore
+.venv
+venv
+**/__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.DS_Store
+
+# Frontend: se reinstala/reconstruye dentro de la imagen.
+frontend/node_modules
+frontend/.next
+
+# Secretos: el .env real NUNCA va a la imagen (compose lo inyecta como env_file).
+.env
+
+# Lanzadores macOS (no aplican en contenedor).
+*.command
+Asistente RAG.app
+
+# Docs/material pesado innecesario en runtime.
+*.html
+ui:ux
+.claude
+
+# NOTA: data/ y chroma_db/ SÍ se incluyen (semilla de demo con documentos ya
+# indexados). Si NO querés compartir esos documentos, agregá aquí:
+#   data/uploads
+#   data/registry.db
+#   chroma_db

@@ -1,0 +1,794 @@
+"""Repositorios CRUD sobre Supabase para el agente de selección.
+
+Funciones sencillas que devuelven dicts (lo que retorna supabase-py). Las consume
+tanto el motor de entrevista (agent/) como los endpoints del reclutador (api/).
+Todas son síncronas: el bot las llama desde hilos worker junto con el LLM.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from db.client import get_supabase
+
+
+# ── Vacantes ──────────────────────────────────────────────────────────────────
+
+def get_vacancy(vacancy_id: str) -> Optional[dict[str, Any]]:
+    res = get_supabase().table("vacancies").select("*").eq("id", vacancy_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def list_vacancies(
+    status: Optional[str] = None, *, tenant_id: Optional[str] = None
+) -> list[dict[str, Any]]:
+    q = get_supabase().table("vacancies").select("*").order("created_at", desc=True)
+    if status:
+        q = q.eq("status", status)
+    if tenant_id:
+        q = q.eq("tenant_id", tenant_id)
+    return q.execute().data or []
+
+
+def get_default_open_vacancy() -> Optional[dict[str, Any]]:
+    """Primera vacante abierta — usada por el bot cuando no se indica vacante."""
+    res = (
+        get_supabase()
+        .table("vacancies")
+        .select("*")
+        .eq("status", "open")
+        .order("created_at", desc=False)
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def create_vacancy(payload: dict[str, Any]) -> dict[str, Any]:
+    return get_supabase().table("vacancies").insert(payload).execute().data[0]
+
+
+def update_vacancy(vacancy_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return (
+        get_supabase().table("vacancies").update(payload).eq("id", vacancy_id).execute().data[0]
+    )
+
+
+def get_vacancy_questions(vacancy_id: str) -> list[dict[str, Any]]:
+    return (
+        get_supabase()
+        .table("vacancy_questions")
+        .select("*")
+        .eq("vacancy_id", vacancy_id)
+        .order("position", desc=False)
+        .execute()
+        .data
+        or []
+    )
+
+
+def replace_vacancy_questions(vacancy_id: str, questions: list[dict[str, Any]]) -> None:
+    """Reemplaza el set de preguntas de una vacante (usado por el dashboard)."""
+    sb = get_supabase()
+    sb.table("vacancy_questions").delete().eq("vacancy_id", vacancy_id).execute()
+    if questions:
+        rows = [{**q, "vacancy_id": vacancy_id} for q in questions]
+        sb.table("vacancy_questions").insert(rows).execute()
+
+
+# ── Candidatos ──────────────────────────────────────────────────────────────────
+
+def get_or_create_candidate(
+    vacancy_id: str,
+    channel: str,
+    channel_user_id: str,
+    name: str = "",
+    *,
+    source: str = "telegram",
+) -> dict[str, Any]:
+    sb = get_supabase()
+    res = (
+        sb.table("candidates")
+        .select("*")
+        .eq("vacancy_id", vacancy_id)
+        .eq("channel", channel)
+        .eq("channel_user_id", channel_user_id)
+        .limit(1)
+        .execute()
+    )
+    if res.data:
+        return res.data[0]
+    return (
+        sb.table("candidates")
+        .insert(
+            {
+                "vacancy_id": vacancy_id,
+                "channel": channel,
+                "channel_user_id": channel_user_id,
+                "name": name,
+                "source": source,
+            }
+        )
+        .execute()
+        .data[0]
+    )
+
+
+def add_candidate_document(candidate_id: str, doc: dict[str, Any]) -> dict[str, Any]:
+    """Anexa un documento (CUL/CV) al jsonb documents del candidato (idempotente por type+filename)."""
+    cand = get_candidate(candidate_id) or {}
+    docs = list(cand.get("documents") or [])
+    key = (doc.get("type"), doc.get("filename"))
+    docs = [d for d in docs if (d.get("type"), d.get("filename")) != key]
+    docs.append(doc)
+    return update_candidate(candidate_id, {"documents": docs})
+
+
+def update_candidate(candidate_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return (
+        get_supabase().table("candidates").update(payload).eq("id", candidate_id).execute().data[0]
+    )
+
+
+# ── Almacenamiento durable de documentos (contenido en Postgres) ─────────────────
+
+def save_document_content(
+    candidate_id: str,
+    *,
+    doc_type: str,
+    filename: str,
+    content_b64: str,
+    mime: str = "application/pdf",
+    size_bytes: int = 0,
+    conversation_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """Guarda (o reemplaza) el contenido de un documento del candidato. Idempotente por (candidate, type)."""
+    return (
+        get_supabase()
+        .table("candidate_documents")
+        .upsert(
+            {
+                "candidate_id": candidate_id,
+                "conversation_id": conversation_id,
+                "type": doc_type,
+                "filename": filename,
+                "mime": mime,
+                "size_bytes": size_bytes,
+                "content_b64": content_b64,
+            },
+            on_conflict="candidate_id,type",
+        )
+        .execute()
+        .data[0]
+    )
+
+
+def get_document_content(candidate_id: str, doc_type: str) -> Optional[dict[str, Any]]:
+    """Fila del documento (con content_b64) o None si no está en la DB."""
+    res = (
+        get_supabase()
+        .table("candidate_documents")
+        .select("*")
+        .eq("candidate_id", candidate_id)
+        .eq("type", doc_type)
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def claim_candidate_for_contact(candidate_id: str) -> Optional[dict[str, Any]]:
+    """Transición atómica `prescreen_passed → invited` (UPDATE ... WHERE status='prescreen_passed').
+
+    Devuelve la fila actualizada si este llamador ganó el claim; `None` si otro disparo ya la
+    contactó (el estado ya no era `prescreen_passed`). Postgres serializa el UPDATE, así que ante
+    dos disparos concurrentes (botón manual + auto-contacto) solo uno gana → un único saludo."""
+    res = (
+        get_supabase()
+        .table("candidates")
+        .update({"status": "invited"})
+        .eq("id", candidate_id)
+        .eq("status", "prescreen_passed")
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def list_candidates(vacancy_id: str) -> list[dict[str, Any]]:
+    return (
+        get_supabase()
+        .table("candidates")
+        .select("*")
+        .eq("vacancy_id", vacancy_id)
+        .order("created_at", desc=True)
+        .execute()
+        .data
+        or []
+    )
+
+
+# ── Conversaciones ───────────────────────────────────────────────────────────
+
+def get_conversation_by_thread(thread_id: str) -> Optional[dict[str, Any]]:
+    res = (
+        get_supabase()
+        .table("conversations")
+        .select("*")
+        .eq("langgraph_thread_id", thread_id)
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def get_conversation_by_candidate(candidate_id: str) -> Optional[dict[str, Any]]:
+    res = (
+        get_supabase()
+        .table("conversations")
+        .select("*")
+        .eq("candidate_id", candidate_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def get_candidate(candidate_id: str) -> Optional[dict[str, Any]]:
+    res = get_supabase().table("candidates").select("*").eq("id", candidate_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def get_or_create_conversation(
+    candidate_id: str, vacancy_id: str, thread_id: str
+) -> dict[str, Any]:
+    existing = get_conversation_by_thread(thread_id)
+    if existing:
+        return existing
+    return (
+        get_supabase()
+        .table("conversations")
+        .insert(
+            {
+                "candidate_id": candidate_id,
+                "vacancy_id": vacancy_id,
+                "langgraph_thread_id": thread_id,
+            }
+        )
+        .execute()
+        .data[0]
+    )
+
+
+def delete_thread_conversations(thread_id: str) -> int:
+    """Borra las conversaciones de un thread (cascade: mensajes/respuestas/scorecards).
+
+    Se usa al reasignar un chat a otro candidato (override de demo) para liberar el
+    thread_id único y evitar que los mensajes se atribuyan al ocupante anterior."""
+    sb = get_supabase()
+    rows = sb.table("conversations").select("id").eq("langgraph_thread_id", thread_id).execute().data or []
+    for r in rows:
+        sb.table("conversations").delete().eq("id", r["id"]).execute()
+    return len(rows)
+
+
+def delete_langgraph_checkpoint(thread_id: str) -> None:
+    """Borra el checkpoint durable de LangGraph de un thread (arranque limpio). No lanza."""
+    import psycopg
+
+    from db.client import get_database_url
+
+    try:
+        with psycopg.connect(get_database_url(), autocommit=True) as conn:
+            for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
+                try:
+                    conn.execute(f"delete from {table} where thread_id = %s", (thread_id,))
+                except Exception:  # noqa: BLE001 — la tabla puede no existir aún
+                    pass
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def list_conversations_by_states(states: list[str]) -> list[dict[str, Any]]:
+    """Conversaciones cuyo estado del flujo está en `states` (para el barrido de inactividad)."""
+    if not states:
+        return []
+    return (
+        get_supabase()
+        .table("conversations")
+        .select("*")
+        .in_("state", states)
+        .execute()
+        .data
+        or []
+    )
+
+
+def update_conversation(conversation_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return (
+        get_supabase()
+        .table("conversations")
+        .update(payload)
+        .eq("id", conversation_id)
+        .execute()
+        .data[0]
+    )
+
+
+# ── Mensajes ─────────────────────────────────────────────────────────────────
+
+def add_message(conversation_id: str, role: str, content: str) -> dict[str, Any]:
+    return (
+        get_supabase()
+        .table("messages")
+        .insert({"conversation_id": conversation_id, "role": role, "content": content})
+        .execute()
+        .data[0]
+    )
+
+
+def get_messages(conversation_id: str) -> list[dict[str, Any]]:
+    return (
+        get_supabase()
+        .table("messages")
+        .select("*")
+        .eq("conversation_id", conversation_id)
+        .order("created_at", desc=False)
+        .execute()
+        .data
+        or []
+    )
+
+
+# ── Respuestas evaluadas ──────────────────────────────────────────────────────
+
+def upsert_answer(
+    conversation_id: str,
+    question_id: str,
+    raw_answer: str,
+    score: Optional[float],
+    justification: str,
+    follow_up_count: int,
+) -> dict[str, Any]:
+    return (
+        get_supabase()
+        .table("answers")
+        .upsert(
+            {
+                "conversation_id": conversation_id,
+                "question_id": question_id,
+                "raw_answer": raw_answer,
+                "score": score,
+                "justification": justification,
+                "follow_up_count": follow_up_count,
+            },
+            on_conflict="conversation_id,question_id",
+        )
+        .execute()
+        .data[0]
+    )
+
+
+def get_answers(conversation_id: str) -> list[dict[str, Any]]:
+    return (
+        get_supabase()
+        .table("answers")
+        .select("*")
+        .eq("conversation_id", conversation_id)
+        .execute()
+        .data
+        or []
+    )
+
+
+# ── Scorecard ────────────────────────────────────────────────────────────────
+
+def save_scorecard(conversation_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return (
+        get_supabase()
+        .table("scorecards")
+        .upsert({**payload, "conversation_id": conversation_id}, on_conflict="conversation_id")
+        .execute()
+        .data[0]
+    )
+
+
+def get_scorecard(conversation_id: str) -> Optional[dict[str, Any]]:
+    res = (
+        get_supabase()
+        .table("scorecards")
+        .select("*")
+        .eq("conversation_id", conversation_id)
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+# ── Reuniones agendadas (entrevista de la fase 2) ───────────────────────────────
+
+def save_meeting(payload: dict[str, Any]) -> dict[str, Any]:
+    """Inserta/actualiza la reunión de una conversación (idempotente por conversation_id)."""
+    return (
+        get_supabase()
+        .table("meetings")
+        .upsert(payload, on_conflict="conversation_id")
+        .execute()
+        .data[0]
+    )
+
+
+def get_meeting_by_conversation(conversation_id: str) -> Optional[dict[str, Any]]:
+    res = (
+        get_supabase()
+        .table("meetings")
+        .select("*")
+        .eq("conversation_id", conversation_id)
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def list_meetings_without_link() -> list[dict[str, Any]]:
+    """Reuniones agendadas sin enlace Meet (Calendar falló) — para la reconciliación."""
+    return (
+        get_supabase()
+        .table("meetings")
+        .select("*")
+        .eq("meet_link", "")
+        .eq("status", "scheduled")
+        .execute()
+        .data
+        or []
+    )
+
+
+def get_meeting_by_candidate(candidate_id: str) -> Optional[dict[str, Any]]:
+    res = (
+        get_supabase()
+        .table("meetings")
+        .select("*")
+        .eq("candidate_id", candidate_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+# ── Reclutadores (roster de RR.HH.) ─────────────────────────────────────────────
+
+def list_recruiters(
+    active_only: bool = False, *, tenant_id: Optional[str] = None
+) -> list[dict[str, Any]]:
+    q = get_supabase().table("recruiters").select("*").order("created_at", desc=False)
+    if active_only:
+        q = q.eq("active", True)
+    if tenant_id:
+        q = q.eq("tenant_id", tenant_id)
+    return q.execute().data or []
+
+
+def get_recruiter(recruiter_id: str) -> Optional[dict[str, Any]]:
+    res = get_supabase().table("recruiters").select("*").eq("id", recruiter_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def create_recruiter(payload: dict[str, Any]) -> dict[str, Any]:
+    return get_supabase().table("recruiters").insert(payload).execute().data[0]
+
+
+def update_recruiter(recruiter_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return (
+        get_supabase().table("recruiters").update(payload).eq("id", recruiter_id).execute().data[0]
+    )
+
+
+# ── Configuración de la app (key/value editable desde el dashboard) ──────────────
+
+def get_app_setting(
+    key: str, default: Optional[Any] = None, tenant_id: Optional[str] = None
+) -> Any:
+    """Config del tenant (Fase 0.1). Sin fila para ese tenant → `default` (defaults del código)."""
+    q = get_supabase().table("app_settings").select("value").eq("key", key)
+    if tenant_id:
+        q = q.eq("tenant_id", tenant_id)
+    res = q.limit(1).execute()
+    return res.data[0]["value"] if res.data else default
+
+
+def set_app_setting(key: str, value: Any, tenant_id: str) -> dict[str, Any]:
+    return (
+        get_supabase()
+        .table("app_settings")
+        .upsert(
+            {"key": key, "value": value, "tenant_id": tenant_id},
+            on_conflict="tenant_id,key",
+        )
+        .execute()
+        .data[0]
+    )
+
+
+def list_tenants() -> list[dict[str, Any]]:
+    """Todas las empresas cliente (para los barridos por-tenant del scheduler)."""
+    return (
+        get_supabase()
+        .table("tenants")
+        .select("id,slug,name,active")
+        .order("created_at", desc=False)
+        .execute()
+        .data
+        or []
+    )
+
+
+# ── Métricas: uso de tokens del LLM ────────────────────────────────────────────
+
+def record_usage(
+    stage: str,
+    model: str,
+    tokens: dict[str, int],
+    *,
+    vacancy_id: Optional[str] = None,
+    candidate_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+) -> None:
+    """Registra el uso de tokens de una etapa. No rompe el flujo si falla."""
+    total = int(tokens.get("total_tokens", 0) or 0)
+    if total <= 0 and not tokens.get("input_tokens") and not tokens.get("output_tokens"):
+        return
+    try:
+        get_supabase().table("llm_usage").insert(
+            {
+                "vacancy_id": vacancy_id,
+                "candidate_id": candidate_id,
+                "conversation_id": conversation_id,
+                "stage": stage,
+                "model": model or "",
+                "input_tokens": int(tokens.get("input_tokens", 0) or 0),
+                "output_tokens": int(tokens.get("output_tokens", 0) or 0),
+                "total_tokens": total,
+            }
+        ).execute()
+    except Exception:  # noqa: BLE001 — las métricas no deben tumbar la conversación
+        pass
+
+
+def _usage_rows(vacancy_id: Optional[str] = None) -> list[dict[str, Any]]:
+    q = get_supabase().table("llm_usage").select("*")
+    if vacancy_id:
+        q = q.eq("vacancy_id", vacancy_id)
+    return q.execute().data or []
+
+
+def _aggregate_tokens(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    total = sum(int(r.get("total_tokens", 0) or 0) for r in rows)
+    inp = sum(int(r.get("input_tokens", 0) or 0) for r in rows)
+    out = sum(int(r.get("output_tokens", 0) or 0) for r in rows)
+    by_stage: dict[str, int] = {}
+    for r in rows:
+        by_stage[r.get("stage", "?")] = by_stage.get(r.get("stage", "?"), 0) + int(r.get("total_tokens", 0) or 0)
+    return {"total": total, "input": inp, "output": out, "by_stage": by_stage}
+
+
+# ── Métricas: embudo de candidatos ──────────────────────────────────────────────
+
+def _funnel(candidates: list[dict[str, Any]]) -> dict[str, int]:
+    """Cuenta candidatos por etapa del embudo de postulación."""
+    funnel = {
+        "imported": 0,
+        "prescreen_passed": 0,
+        "prescreen_rejected": 0,
+        "invited": 0,
+        "interviewing": 0,
+        "finished": 0,
+        "advanced": 0,
+        "rejected": 0,
+    }
+    for c in candidates:
+        status = c.get("status", "")
+        # "importados" = todo lo que vino del sourcing (tiene un verdict de CV).
+        verdict = (c.get("prescreen") or {}).get("verdict")
+        if verdict:
+            funnel["imported"] += 1
+            if verdict == "reject":
+                funnel["prescreen_rejected"] += 1
+            else:
+                funnel["prescreen_passed"] += 1
+        if status == "invited":
+            funnel["invited"] += 1
+        elif status == "interviewing":
+            funnel["interviewing"] += 1
+        elif status == "finished":
+            funnel["finished"] += 1
+        elif status == "advanced":
+            funnel["advanced"] += 1
+        elif status == "rejected":
+            funnel["rejected"] += 1
+    return funnel
+
+
+def vacancy_metrics(vacancy_id: str) -> dict[str, Any]:
+    cands = list_candidates(vacancy_id)
+    return {"funnel": _funnel(cands), "tokens": _aggregate_tokens(_usage_rows(vacancy_id))}
+
+
+def global_metrics(*, tenant_id: Optional[str] = None) -> dict[str, Any]:
+    if tenant_id:
+        cands: list[dict[str, Any]] = []
+        for vac in list_vacancies(tenant_id=tenant_id):
+            cands.extend(list_candidates(vac["id"]))
+        rows: list[dict[str, Any]] = []
+        for vac in list_vacancies(tenant_id=tenant_id):
+            rows.extend(_usage_rows(vac["id"]))
+        return {"funnel": _funnel(cands), "tokens": _aggregate_tokens(rows)}
+    cands = get_supabase().table("candidates").select("*").execute().data or []
+    return {"funnel": _funnel(cands), "tokens": _aggregate_tokens(_usage_rows())}
+
+
+# ── Outbox durable (envíos salientes con reintentos + dead-letter) ───────────────
+
+def enqueue_outbox(row: dict[str, Any]) -> dict[str, Any]:
+    """Encola un envío saliente pendiente (email/telegram) para reintento durable."""
+    return get_supabase().table("outbox").insert(row).execute().data[0]
+
+
+def list_due_outbox(now_iso: str, limit: int = 50) -> list[dict[str, Any]]:
+    """Envíos pendientes ya vencidos (next_attempt_at <= ahora), del más antiguo al más nuevo."""
+    return (
+        get_supabase()
+        .table("outbox")
+        .select("*")
+        .eq("status", "pending")
+        .lte("next_attempt_at", now_iso)
+        .order("next_attempt_at", desc=False)
+        .limit(limit)
+        .execute()
+        .data
+        or []
+    )
+
+
+def update_outbox(outbox_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return get_supabase().table("outbox").update(payload).eq("id", outbox_id).execute().data[0]
+
+
+def count_outbox_by_status(tenant_id: Optional[str] = None) -> dict[str, int]:
+    """Conteo por estado (pending/sent/failed) para el diagnóstico de entregas.
+
+    Sin `tenant_id` → global (reconciliación process-wide). Con `tenant_id` → aislado por empresa."""
+    q = get_supabase().table("outbox").select("status")
+    if tenant_id:
+        q = q.eq("tenant_id", tenant_id)
+    rows = q.execute().data or []
+    out: dict[str, int] = {}
+    for r in rows:
+        out[r.get("status", "?")] = out.get(r.get("status", "?"), 0) + 1
+    return out
+
+
+def list_outbox(
+    tenant_id: str, statuses: Optional[list[str]] = None, limit: int = 100
+) -> list[dict[str, Any]]:
+    """Envíos del tenant (del más reciente al más antiguo), opcionalmente filtrados por estado."""
+    q = get_supabase().table("outbox").select("*").eq("tenant_id", tenant_id)
+    if statuses:
+        q = q.in_("status", statuses)
+    return q.order("created_at", desc=True).limit(limit).execute().data or []
+
+
+def get_outbox(outbox_id: str) -> Optional[dict[str, Any]]:
+    res = get_supabase().table("outbox").select("*").eq("id", outbox_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+# ── Tenants (empresas cliente) ──────────────────────────────────────────────────
+
+def get_tenant(tenant_id: str) -> Optional[dict[str, Any]]:
+    res = get_supabase().table("tenants").select("*").eq("id", tenant_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def get_tenant_by_slug(slug: str) -> Optional[dict[str, Any]]:
+    res = get_supabase().table("tenants").select("*").eq("slug", slug).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def create_tenant(name: str, slug: str) -> dict[str, Any]:
+    return get_supabase().table("tenants").insert({"name": name, "slug": slug}).execute().data[0]
+
+
+# ── Usuarios del dashboard (auth) ───────────────────────────────────────────────
+
+def get_user_by_email(email: str) -> Optional[dict[str, Any]]:
+    res = (
+        get_supabase()
+        .table("users")
+        .select("*")
+        .eq("email", email.strip().lower())
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def get_user(user_id: str) -> Optional[dict[str, Any]]:
+    res = get_supabase().table("users").select("*").eq("id", user_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def count_users() -> int:
+    res = get_supabase().table("users").select("id").limit(1).execute()
+    return len(res.data or [])
+
+
+def create_user(payload: dict[str, Any]) -> dict[str, Any]:
+    data = {**payload, "email": str(payload.get("email", "")).strip().lower()}
+    return get_supabase().table("users").insert(data).execute().data[0]
+
+
+def list_users(*, tenant_id: Optional[str] = None) -> list[dict[str, Any]]:
+    q = get_supabase().table("users").select("*").order("created_at", desc=False)
+    if tenant_id:
+        q = q.eq("tenant_id", tenant_id)
+    return q.execute().data or []
+
+
+# ── Auditoría de acciones del dashboard (quién/qué/cuándo) ───────────────────────
+
+def add_audit_log(row: dict[str, Any]) -> dict[str, Any]:
+    return get_supabase().table("audit_log").insert(row).execute().data[0]
+
+
+def list_audit_log(tenant_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    return (
+        get_supabase()
+        .table("audit_log")
+        .select("*")
+        .eq("tenant_id", tenant_id)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+        .data
+        or []
+    )
+
+
+# ── Borrado / anonimización de candidatos (Ley 29733: erasure + retención) ───────
+
+def delete_candidate(candidate_id: str) -> None:
+    """Borra el candidato y, por cascada (FK), su conversación/mensajes/respuestas/scorecard/reunión."""
+    get_supabase().table("candidates").delete().eq("id", candidate_id).execute()
+
+
+def anonymize_candidate(candidate_id: str) -> dict[str, Any]:
+    """Borra la PII del candidato conservando la fila (para métricas agregadas)."""
+    return update_candidate(
+        candidate_id,
+        {
+            "name": "",
+            "channel_user_id": f"anon-{candidate_id[:8]}",
+            "cv_profile": {},
+            "documents": [],
+        },
+    )
+
+
+def list_candidates_by_statuses(statuses: list[str]) -> list[dict[str, Any]]:
+    if not statuses:
+        return []
+    return (
+        get_supabase().table("candidates").select("*").in_("status", statuses).execute().data or []
+    )
+
+
+def delete_messages(conversation_id: str) -> None:
+    """Borra la transcripción de una conversación (retención de datos)."""
+    get_supabase().table("messages").delete().eq("conversation_id", conversation_id).execute()
+
+
+def delete_candidate_documents(candidate_id: str) -> None:
+    """Borra el contenido durable de los documentos del candidato (retención de datos)."""
+    get_supabase().table("candidate_documents").delete().eq("candidate_id", candidate_id).execute()

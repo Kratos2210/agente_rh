@@ -1,0 +1,211 @@
+"""Reporte del scorecard al reclutador por email (SMTP).
+
+Patrón de envío tomado de ../qrs (Gmail SMTP con STARTTLS). Genera un correo
+HTML con el semáforo, el puntaje total, el desglose por criterio, el resumen y la
+recomendación. Degrada con gracia: si falta configuración SMTP, no hace nada.
+"""
+
+from __future__ import annotations
+
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from typing import Any
+
+from evaluation.scorecard import semaphore_emoji
+from src.config import Settings
+from src.logging_config import get_logger
+
+logger = get_logger(__name__)
+
+_SEMAPHORE_COLOR = {"green": "#16a34a", "yellow": "#d97706", "red": "#dc2626"}
+_SEMAPHORE_LABEL = {"green": "AVANZA", "yellow": "REVISAR", "red": "NO AVANZA"}
+
+
+def _score_txt(score: Any) -> str:
+    return f"{score:.0f}" if isinstance(score, (int, float)) else "s/d"
+
+
+def _render_html(vacancy: dict, candidate: dict, scorecard: dict) -> str:
+    semaphore = scorecard.get("semaphore", "")
+    color = _SEMAPHORE_COLOR.get(semaphore, "#6b7280")
+    label = _SEMAPHORE_LABEL.get(semaphore, "—")
+    rows = "".join(
+        f"""<tr>
+              <td style="padding:8px;border-bottom:1px solid #eee;font-weight:600;text-align:center">{_score_txt(c.get('score'))}</td>
+              <td style="padding:8px;border-bottom:1px solid #eee">
+                <div style="font-weight:600">{c.get('criterion','')}</div>
+                <div style="color:#555;font-size:13px;margin-top:2px">{c.get('justification','')}</div>
+              </td>
+            </tr>"""
+        for c in scorecard.get("per_criterion", [])
+    )
+    name = candidate.get("name") or "Candidato"
+    return f"""<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;color:#111;background:#f6f7f9;padding:24px">
+      <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
+        <div style="background:{color};color:#fff;padding:20px 24px">
+          <div style="font-size:13px;opacity:.9">Scorecard de selección</div>
+          <div style="font-size:22px;font-weight:700">{semaphore_emoji(semaphore)} {label} · {scorecard.get('total_score','')}/100</div>
+        </div>
+        <div style="padding:24px">
+          <p style="margin:0 0 4px"><b>Candidato:</b> {name}</p>
+          <p style="margin:0 0 4px"><b>Vacante:</b> {vacancy.get('title','')}</p>
+          <h3 style="margin:20px 0 8px">Evaluación por criterio</h3>
+          <table style="width:100%;border-collapse:collapse;font-size:14px">{rows}</table>
+          <h3 style="margin:20px 0 8px">Resumen</h3>
+          <p style="margin:0;color:#333;line-height:1.5">{scorecard.get('summary','')}</p>
+          <h3 style="margin:20px 0 8px">Recomendación</h3>
+          <p style="margin:0;color:#333;line-height:1.5;font-weight:600">{scorecard.get('recommendation','')}</p>
+        </div>
+      </div>
+    </body></html>"""
+
+
+def _render_text(vacancy: dict, candidate: dict, scorecard: dict) -> str:
+    lines = [
+        f"Scorecard — {vacancy.get('title','')}",
+        f"Candidato: {candidate.get('name') or 'Candidato'}",
+        f"Total: {scorecard.get('total_score','')}/100  "
+        f"[{semaphore_emoji(scorecard.get('semaphore',''))} {_SEMAPHORE_LABEL.get(scorecard.get('semaphore',''),'—')}]",
+        "",
+        "Por criterio:",
+    ]
+    for c in scorecard.get("per_criterion", []):
+        lines.append(f"  [{_score_txt(c.get('score'))}/100] {c.get('criterion','')}")
+        lines.append(f"     {c.get('justification','')}")
+    lines += ["", f"Resumen: {scorecard.get('summary','')}", f"Recomendación: {scorecard.get('recommendation','')}"]
+    return "\n".join(lines)
+
+
+# ── Primitiva de envío (LANZA ante fallo → habilita el reintento del outbox) ──────
+
+def send_email(settings: Settings, recipients: list[str], subject: str, text: str, html: str) -> None:
+    """Envía un correo multipart (texto + HTML). LANZA si falla (SMTP caído, auth, etc.)."""
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = settings.smtp_from
+    msg["To"] = ", ".join(recipients)
+    msg.attach(MIMEText(text, "plain", "utf-8"))
+    msg.attach(MIMEText(html, "html", "utf-8"))
+    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as server:
+        server.starttls()
+        if settings.smtp_user and settings.smtp_password:
+            server.login(settings.smtp_user, settings.smtp_password)
+        server.sendmail(settings.smtp_from, recipients, msg.as_string())
+
+
+def build_scorecard_email(
+    settings: Settings, vacancy: dict, candidate: dict, scorecard: dict
+) -> tuple[list[str], str, str, str] | None:
+    """(recipients, subject, text, html) del scorecard, o None si SMTP/recruiter_email sin configurar."""
+    if not (settings.smtp_host and settings.recruiter_email and settings.smtp_from):
+        return None
+    name = candidate.get("name") or "candidato"
+    semaphore = scorecard.get("semaphore", "")
+    subject = (
+        f"[{_SEMAPHORE_LABEL.get(semaphore, '—')}] {name} · {vacancy.get('title', '')} "
+        f"({scorecard.get('total_score', '')}/100)"
+    )
+    return (
+        [settings.recruiter_email],
+        subject,
+        _render_text(vacancy, candidate, scorecard),
+        _render_html(vacancy, candidate, scorecard),
+    )
+
+
+def send_scorecard_email(
+    settings: Settings, vacancy: dict, candidate: dict, conversation: dict, scorecard: dict
+) -> None:
+    """Envía el scorecard al reclutador. No lanza: registra y sigue ante fallo.
+
+    (El camino robusto con reintentos es notifications.outbox; esta función queda como
+    envío directo para usos puntuales/tests.)"""
+    built = build_scorecard_email(settings, vacancy, candidate, scorecard)
+    if built is None:
+        logger.info("SMTP/recruiter_email sin configurar: se omite el envío del scorecard")
+        return
+    try:
+        send_email(settings, *built)
+        logger.info("Scorecard enviado al reclutador (%s)", built[0])
+    except Exception:  # noqa: BLE001
+        logger.exception("No se pudo enviar el scorecard por email")
+
+
+# ── Confirmación de la reunión agendada (candidato + reclutador) ──────────────────
+
+def _meeting_when(meeting: dict) -> str:
+    """Fecha/hora legible de la reunión (a partir de scheduled_at ISO)."""
+    from datetime import datetime
+
+    from integrations.scheduling import human_slot_long
+
+    raw = meeting.get("scheduled_at")
+    try:
+        dt = raw if isinstance(raw, datetime) else datetime.fromisoformat(str(raw))
+        return human_slot_long(dt)
+    except Exception:  # noqa: BLE001
+        return str(raw or "")
+
+
+def build_meeting_email(
+    settings: Settings, vacancy: dict, candidate: dict, meeting: dict, recruiter: dict
+) -> tuple[list[str], str, str, str] | None:
+    """(recipients, subject, text, html) de la confirmación de reunión, o None si no aplica."""
+    recipients = [e for e in {meeting.get("candidate_email", ""), meeting.get("recruiter_email", "")} if e]
+    if not (settings.smtp_host and settings.smtp_from and recipients):
+        return None
+
+    when = _meeting_when(meeting)
+    link = meeting.get("meet_link") or ""
+    title = vacancy.get("title", "")
+    name = candidate.get("name") or "Candidato"
+    rec_name = recruiter.get("name") or "el equipo de Talento"
+    cand_email = meeting.get("candidate_email") or "—"
+    cand_phone = meeting.get("candidate_phone") or "—"
+    rec_email = meeting.get("recruiter_email") or recruiter.get("email") or "—"
+    rec_phone = meeting.get("recruiter_phone") or recruiter.get("phone") or "—"
+    subject = f"Entrevista agendada · {title} · {when}"
+
+    text = "\n".join([
+        f"Entrevista agendada — {title}",
+        f"Fecha y hora: {when}",
+        f"Enlace de la reunión: {link}",
+        "",
+        f"Candidato: {name} · {cand_email} · {cand_phone}",
+        f"Reclutador: {rec_name} · {rec_email} · {rec_phone}",
+    ])
+    html = f"""<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;color:#111;background:#f6f7f9;padding:24px">
+      <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
+        <div style="background:#16a34a;color:#fff;padding:20px 24px">
+          <div style="font-size:13px;opacity:.9">Entrevista agendada</div>
+          <div style="font-size:22px;font-weight:700">{title}</div>
+        </div>
+        <div style="padding:24px;line-height:1.6">
+          <p style="margin:0 0 4px"><b>Fecha y hora:</b> {when}</p>
+          <p style="margin:0 0 4px"><b>Candidato:</b> {name} &middot; {cand_email} &middot; {cand_phone}</p>
+          <p style="margin:0 0 4px"><b>Reclutador:</b> {rec_name} &middot; {rec_email} &middot; {rec_phone}</p>
+          <p style="margin:16px 0 4px"><b>Enlace de la reunión:</b></p>
+          <p style="margin:0"><a href="{link}" style="color:#2563eb">{link}</a></p>
+        </div>
+      </div>
+    </body></html>"""
+
+    return (recipients, subject, text, html)
+
+
+def send_meeting_email(
+    settings: Settings, vacancy: dict, candidate: dict, meeting: dict, recruiter: dict
+) -> None:
+    """Confirmación de la entrevista al candidato + reclutador. No lanza (envío directo).
+
+    El camino robusto con reintentos es notifications.outbox."""
+    built = build_meeting_email(settings, vacancy, candidate, meeting, recruiter)
+    if built is None:
+        logger.info("SMTP/destinatarios sin configurar: se omite el correo de la reunión")
+        return
+    try:
+        send_email(settings, *built)
+        logger.info("Confirmación de entrevista enviada a %s", built[0])
+    except Exception:  # noqa: BLE001
+        logger.exception("No se pudo enviar el correo de la reunión")

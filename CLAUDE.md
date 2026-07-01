@@ -1,0 +1,375 @@
+# CLAUDE.md — Agente de Selección de Talento (`agente_rh`)
+
+Contexto del proyecto para futuras sesiones. Leer antes de tocar el código.
+
+## Qué es
+Agente de selección de talento (FLUJO 1) que conduce una **entrevista conversacional por
+Telegram** (luego WhatsApp), **evalúa** cada respuesta del candidato contra los criterios de la
+vacante y genera un **scorecard con semáforo (🟢/🟡/🔴) + recomendación** para el reclutador.
+Inspirado en "SofIA" de Sifrah (la entrevista que le hicieron a Alberto el 16/06/2026).
+
+Flujo: el reclutador carga una vacante (requisitos, preguntas, criterios) → primer contacto con
+botones **Acepto / No interesado** → entrevista pregunta-por-pregunta con follow-ups si la respuesta
+es vaga → el agente responde dudas del candidato sobre el puesto (RAG) → evaluación → scorecard al
+reclutador (email + dashboard) → notificación al candidato según decisión.
+
+## Origen
+**Fork de `../agente_pro`** (Next.js + FastAPI + bot Telegram + motor RAG + Docker). Se podó lo que
+no aplica: quiz, voz (Piper/Whisper), OCR, upload multi-doc. Se conserva el motor RAG (Chroma + HF
+embeddings) para responder dudas del candidato sobre el puesto.
+
+## Stack
+- **Python 3.12 + uv** (gestor — usar `uv`, nunca pip directo). `uv sync --extra dev`.
+- **Cerebro**: LangGraph (máquina de estados de la entrevista, checkpointer durable en Postgres).
+- **LLM**: compatible-OpenAI vía `src.qa_chain.build_llm` (Groq/Qwen3 o AI Gateway). `.env` OPENAI_*.
+- **Persistencia de negocio**: **Supabase (Postgres)** — vacantes, candidatos, respuestas, scorecards.
+- **RAG (base de conocimiento de la empresa)**: Chroma local + embeddings `intfloat/multilingual-e5-base`
+  + hybrid search (BM25 + vectorial) + cross-encoder liviano. Heredado de agente_pro (`src/`).
+- **Canal**: Telegram (modo polling en el lifespan de FastAPI; cero infra). WhatsApp Cloud API después.
+- **API**: FastAPI (`api/main.py`). **Dashboard**: Next.js 16 (`frontend/`).
+- **Reporte**: email SMTP al reclutador (patrón de `../qrs`).
+
+## Estructura
+- `api/main.py` — FastAPI: lifespan (arranca bot Telegram), CORS, health; endpoints reclutador (Fase 5).
+- `api/telegram_bot.py` — bot Telegram (se reescribe en Fase 3: turno de entrevista + botones inline).
+- `agent/` — **NUEVO** cerebro LangGraph: `state.py`, `graph.py`, `nodes.py`, `prompts.py`.
+- `evaluation/` — **NUEVO** `scorer.py` (respuesta vs criterio) + `scorecard.py` (semáforo + recomendación).
+- `channels/` — **NUEVO** `base.py` (interfaz Channel), `telegram.py`, `whatsapp.py` (stub Fase 6).
+- `db/` — **NUEVO** `client.py` (Supabase) + `repositories.py` (CRUD).
+- `notifications/email.py` — **NUEVO** reporte SMTP al reclutador.
+- `supabase/migrations/` — **NUEVO** esquema SQL + seed de la vacante demo.
+- `src/` — reutilizado de agente_pro: `config.py`, `qa_chain.py` (`build_llm`, RAG), `classifier.py`
+  (`suggest_questions`), `vectorstore.py`, `reranker.py`, `embeddings.py`, `semantic_cache.py`,
+  `registry.py`, `logging_config.py`, `observability.py`.
+- `frontend/` — base Next.js de agente_pro (se adapta a dashboard reclutador en Fase 5).
+
+## Config (`.env`) — ver `.env.example`
+- `OPENAI_*` (LLM), `SUPABASE_URL/SERVICE_KEY`, `DATABASE_URL` (checkpointer LangGraph),
+  `TELEGRAM_BOT_TOKEN`, `SMTP_*` + `RECRUITER_EMAIL`, `INTERVIEW_MAX_FOLLOW_UPS`,
+  `SEMAPHORE_GREEN_MIN`/`SEMAPHORE_YELLOW_MIN`, y bloque RAG (`PERSIST_DIRECTORY`, `EMBEDDING_MODEL`,
+  `CROSS_ENCODER_MODEL`, chunking). Settings en `src/config.py` (pydantic-settings).
+
+## Gotchas (Mac Intel)
+- **torch fijado a 2.2.2** y **onnxruntime <1.21** en `pyproject.toml`: las versiones nuevas dejaron
+  de publicar wheels para macOS x86_64. No subir sin verificar wheel Intel.
+- torch tarda ~90 s en importar (sin GPU). Cross-encoder: usar el **liviano** (ya configurado).
+
+## Estado / bitácora
+- **2026-06-17 — Fase 0 (Fork & poda)**: forkeado de agente_pro; podado quiz/voz/OCR/upload; `git init`
+  propio (el workspace estaba enraizado en HOME); `pyproject.toml` con uv (núcleo + RAG, pins Intel);
+  `config.py` extendido (Supabase/SMTP/entrevista); `api/main.py` reescrito a skeleton limpio;
+  estructura `agent/ evaluation/ channels/ db/ notifications/ supabase/migrations/` creada.
+- **2026-06-17 — Fase 1 (Datos)**: `supabase/migrations/0001_init.sql` (7 tablas) + `0002_seed_demo.sql`
+  (vacante "Analista de Automatizaciones e IA" con las 6 preguntas reales). `db/client.py` + `db/repositories.py`.
+  DB elegida: **Supabase local (Docker)** — la CLI aplica las migraciones de `supabase/migrations/`.
+- **2026-06-17 — Fase 2 (Motor + evaluación)**: `agent/{llm,state,prompts,nodes,graph}.py` + `evaluation/{scorer,scorecard}.py`.
+  Grafo LangGraph de un nodo con runner durable (Memory para tests, Postgres para prod). LLM inyectable
+  (fake en tests). `scripts/demo.py` (--alberto / interactivo). **tests/test_interview.py 5/5 verde**.
+- **2026-06-17 — Fase 3 (Telegram, código)**: `channels/{base,telegram,whatsapp}.py` + `agent/service.py`
+  (núcleo agnóstico que proyecta el estado a Supabase y notifica al reclutador) + `api/telegram_bot.py`
+  reescrito (handlers PTB + botones inline Acepto/No interesado, trabajo síncrono en hilo).
+  **Pendiente verificar en vivo** (necesita Supabase corriendo + token Telegram + key LLM):
+  PostgresSaver.setup(), upsert on_conflict de supabase-py, polling del bot.
+- **2026-06-17 — Fase 4 (Reporte)**: `notifications/email.py` (scorecard HTML+texto al reclutador, SMTP
+  patrón qrs; ya cableado como notifier en el bot) + `notifications/candidate.py` (notificación
+  avanza/rechaza al candidato vía API HTTP de Telegram, para que la dispare el dashboard). Render verificado.
+- **2026-06-17 — Verificación en vivo (backend)**: Supabase local (Docker, CLI binario en
+  `~/.local/share/supabase`; storage+analytics+vector DESACTIVADOS en config.toml por health checks
+  fallidos en Mac Intel). Migración `0003_grants.sql` (service_role necesita GRANTs aunque saltee RLS).
+  Service key = SERVICE_ROLE_KEY (JWT). Flujo completo verificado contra DB real (checkpointer Postgres
+  + proyección a Supabase). **Demo con Groq real (qwen3-32b): scorecard 90/100 🟢 con justificaciones
+  reales y follow-up real.** Bot Telegram arrancado en polling (health ok). `build_default_llm` ya no
+  importa qa_chain (arranque sin torch).
+- **2026-06-17 — Fase 5 (Dashboard)**: endpoints reclutador en `api/main.py` (vacantes CRUD, candidatos
+  con semáforo, detalle scorecard, decisión avanzar/rechazar→notify). Frontend Next.js 16: `lib/api.ts`,
+  `components/Shell.tsx`, `app/page.tsx` (vacantes + alta), `app/vacantes/[id]` (candidatos+semáforo),
+  `app/candidatos/[id]` (scorecard+transcripción+avanzar/rechazar). Podados componentes RAG/quiz/voz.
+  3 rutas compilan (HTTP 200), detalle devuelve scorecard real. **MVP end-to-end completo.**
+- **2026-06-17 — Detalle del puesto**: migración `0004_position_details.sql` (columna `details_message`
+  + aviso real de Sifrah); el bot lo envía tras *Acepto* y el dashboard lo muestra formateado (parser sin emojis).
+- **2026-06-17 — Pre-filtro automático de postulantes (sourcing + CV gate + revalidación + métricas)**:
+  migraciones `0005_prescreening.sql` (candidates: source/cv_profile/prescreen/documents; vacancy_questions:
+  cv_field; tabla `llm_usage`) + `0006_seed_question_cv_fields.sql`. `integrations/sourcing.py`
+  (SimulatedConnector + fixture Bumeran) → `evaluation/prescreen.py` (gate del CV con fallback heurístico) →
+  `agent/sourcing_service.py` (importa, pre-filtra, contacta a los aptos; Telegram solo entrega a chats que
+  hicieron /start, resto = contacto simulado). Motor: fase `awaiting_docs` (pide **CUL** real por Telegram,
+  `_on_document` lo descarga a `uploads/`) + revalidación (preguntas con `cv_field` se reformulan "Según tu
+  CV: «…»") + `cv_context` en el scoring. Tokens: `MeteredLLM` + `complete_staged` por etapa → `llm_usage` →
+  endpoints `/metrics`. Frontend: botón "Sincronizar postulantes", panel de embudo+tokens, dos puntajes por
+  candidato (gate CV + entrevista), secciones Perfil CV/Pre-filtro/Documentos, métricas globales en la home.
+  **Verificado contra DB real + Groq**: sync 3 importados → 1 apto (Daniela 92 pass→invited) / 2 reject;
+  tokens registrados (prescreen 3871). **38/38 tests verde; tsc OK; 3 rutas HTTP 200.**
+- **2026-06-17 — Contacto controlado + estados por fase**: el `sync` ya NO auto-contacta; deja aptos en
+  `prescreen_passed` ("Apto · por contactar") con **idempotencia** (re-sync no retrocede ni re-contacta a
+  quien ya pasó de fase). Nuevo `auto_contact_on_pass` (config, default off). `InterviewService.initiate_contact`
+  + endpoint `POST /api/candidates/{id}/contact` (idempotente: solo desde `prescreen_passed`, 409 si no;
+  resuelve chat real o redirige a `DEMO_TELEGRAM_CHAT_ID` liberándolo de otro candidato; envía saludo +
+  botones por el bot vivo vía `run_coroutine_threadsafe`; marca `invited`). Conector ya no fabrica chats
+  (el redirect demo se hace al contactar). Frontend: badge de fase + botón **Contactar** en aptos (lista) y
+  **stepper de fases** + botón "Contactar por Telegram" idempotente (detalle). **41/41 tests; tsc OK;
+  verificado: sync deja Daniela `prescreen_passed` (contacted=0), contactar a no-apto → 409.**
+- **2026-06-17 — CUL diferido (fuera del flujo de aceptación)**: se quitó el paso del Certificado Único
+  Laboral del consentimiento (queda como mejora futura "más adelante"). Al **Acepto** va directo a
+  detalle del puesto + primera pregunta; la revalidación se hace con la serie de preguntas (cv_field).
+  Removido: fase `awaiting_docs`, prompts CUL, handler de documentos de Telegram, plumbing de `document`
+  en service/graph/channels/state; sección "Documentos" del frontend. `documents` (columna) y
+  `add_candidate_document` quedan latentes para reusar luego. **40/40 tests; tsc OK.**
+- **2026-06-17 — Fix transcripción + felicitaciones al cumplir perfil**: (1) BUG: las conversaciones se
+  identifican por `langgraph_thread_id` (=canal:chat) único; el override de demo reasignaba el chat a otro
+  candidato cuyo thread ya tenía conversación, así los mensajes se atribuían al ocupante anterior (Hola) y
+  el nuevo (Daniela) quedaba sin conversación → transcripción 0. Fix: `_claim_chat` ahora **purga** la
+  conversación + checkpoint del thread reasignado (`repositories.delete_thread_conversations` +
+  `delete_langgraph_checkpoint`) antes de asignarlo, garantizando atribución correcta. (2) `_finalize`:
+  si el scorecard es **verde** (cumple perfil), envía `QUALIFIED_NEXT_STEPS` (felicitaciones + anuncio de
+  pedir hoja de vida/CUL) y luego `CLOSING_THANKS`. **Verificado por simulación service-level (LLM fake,
+  sin Telegram): conversación de Daniela con 19 mensajes, revalidación + felicitaciones + cierre, verde 92.**
+- **2026-06-17 — Recepción de documentos (CV + CUL) post-calificación**: al cumplir el perfil (verde),
+  `_finalize` pasa a fase `awaiting_docs` y pide en orden la **hoja de vida (CV)** y el **Certificado
+  Único Laboral (CUL)** (`DOC_SEQUENCE`). El candidato sube el PDF por Telegram (`_on_document` lo descarga
+  a `uploads/`), el motor lo marca (`save_document`) y el servicio lo persiste en `candidates.documents`
+  (`add_candidate_document`); se puede *omitir*. Al recibir/omitir ambos → `CLOSING_THANKS` + `finished`.
+  El scorecard se guarda y notifica apenas existe (no espera los documentos). Frontend: sección
+  "Documentos" en el detalle (CV/CUL recibido/pendiente). **42/42 tests; tsc OK; verificado por simulación:
+  CV+CUL guardados en el candidato, secuencia y cierre correctos.**
+- **2026-06-17 — Descarga de documentos desde el dashboard**: `_persist_save_document` ahora guarda
+  `local_path`; nuevo endpoint `GET /api/candidates/{id}/documents/{tipo}` que sirve el PDF con
+  `FileResponse` (streaming, baja memoria), con fallback por `filename` bajo `uploads/**` para docs
+  previos y guarda anti path-traversal (debe estar dentro de `uploads/`). Frontend: el nombre del
+  CV/CUL en "Documentos" es un enlace que abre el PDF en pestaña nueva (`api.documentUrl`). **Verificado:
+  CV/CUL → 200 application/pdf (PDF válido), tipo inexistente → 404; tsc OK.**
+- **2026-06-17 — Gráfico de radar (perfil por criterio)**: en el detalle del candidato, un radar SVG
+  (sin librerías) grafica el puntaje 0-100 de cada criterio del scorecard (datos que vienen de las
+  respuestas por Telegram), con polígono punteado del **umbral para avanzar** (`green_min`). Backend:
+  `get_candidate_detail` devuelve `thresholds` (de `semaphore_thresholds`). Ejes numerados 1..N que
+  mapean a las tarjetas "Evaluación por criterio" (ahora con badge numérico). **tsc OK; render 200.**
+- **2026-06-17 — Etiquetas (palabras clave) en el radar**: migración `0007_question_labels.sql` (columna
+  `label` en `vacancy_questions` + seed demo: Formación/Experiencia/Disponibilidad/Dominio técnico/Caso
+  real/Salario). `label` se propaga por el motor (`_to_qspec`→QuestionSpec→AnswerRecord→`_per_criterion`)
+  y `get_candidate_detail` hace **backfill** por posición para scorecards ya guardados. Radar muestra la
+  palabra clave en cada vértice (anclaje izq/centro/der, viewBox más ancho) y las tarjetas de criterio
+  la usan como título. **tsc OK; API devuelve labels; render 200.**
+- **2026-06-17 — Auto-contacto programado + página Configuración**: migración `0008_app_settings.sql`
+  (tabla `app_settings` key/value + seed `auto_contact` {enabled:false, times:[11:00,15:00],
+  timezone:America/Lima}). `repositories.get_app_setting/set_app_setting`. `api/main.py`: endpoints
+  `GET/PUT /api/settings/auto-contact`; `_scheduler_loop` (asyncio en lifespan, tick 30 s, lee config de
+  DB cada tick, dispara una vez por slot/día, corre el batch en hilo) que contacta a los `prescreen_passed`
+  de vacantes abiertas reusando `_contact_candidate` (idempotente). `_now_local` (zoneinfo con fallback
+  UTC-5). Frontend: ícono ⚙ en el header → `app/configuracion/page.tsx` (toggle + horarios + zona).
+  Default **desactivado**. **tsc OK; GET/PUT 200; hora Lima OK; sin dependencias nuevas.**
+- **2026-06-19 — Manejo de inactividad del candidato (recordatorios + cierre "No respondió")**: migración
+  `0009_inactivity.sql` (columnas `last_activity_at` + `reminders_sent` en `conversations` + seed
+  `app_settings.inactivity` {enabled:true, reminder_minutes:2, max_reminders:2}). Motor: `pending_timeout` +
+  `closed_reason` en el estado; `runner.send(timeout=True)` → `nodes.handle_turn`/`_handle_timeout`
+  (interviewing→`closed`+`closed_reason=no_response`+`CLOSING_INACTIVITY`; awaiting_docs→`finished`+
+  `CLOSING_DOCS_PENDING`, sin penalizar). Prompts `REMINDER_INTERVIEW/REMINDER_DOCS/CLOSING_*`.
+  `service.finalize_inactive(thread_id)` + reseteo de `last_activity_at`/`reminders_sent` en `process()` e
+  `initiate_contact()`; `_sync_business` mapea `no_response` vs `declined`. `repositories.list_conversations_by_states`.
+  `api/main.py`: helper puro **`_inactivity_decision`** (wait/remind/finalize), `_inactivity_sweep` (barrido en
+  el `_scheduler_loop`, tick 30 s, recuerda y cierra; reusa `_bot_send` vía `run_coroutine_threadsafe`),
+  endpoints `GET/PUT /api/settings/inactivity`. Frontend: `InactivityConfig` + tarjeta "Inactividad" en
+  Configuración; estado `no_response` ("No respondió", rojo, off-path) en `statusLabel`/`phaseMeta`.
+  Default **activado**. **49/49 tests verde (test_inactivity.py nuevo + 2 timeouts en test_interview.py); tsc OK.**
+  Pendiente: aplicar `0009` (`supabase migration up`) y verificación en vivo por Telegram (Docker estaba abajo).
+- **2026-06-19 — Fase 2: Agendamiento de entrevista (RR.HH. "Continuar" → coordinar horario → reunión
+  Google) + roster de reclutadores**: migración `0010_scheduling.sql` (tabla **`recruiters`** [roster:
+  name/email/company/role/phone/telegram_chat_id/calendar_id/active] + seed Grace Mendieta/SIFRAH;
+  `vacancies.recruiter_id` FK + `meeting_duration_minutes`; tabla `meetings` 1×conversación; seed
+  `app_settings.scheduling` {enabled, provider:simulated, slot_minutes:45, work_days, work 09-18,
+  America/Lima, horizon 7, options 3}; grants). **`integrations/scheduling.py`**: patrón Protocol+factory
+  como sourcing — `SimulatedScheduler` (default, sin credenciales: reclutador libre, Meet falso, "Sheet"
+  local en uploads/), `GoogleScheduler` (lazy: Calendar freebusy + evento `conferenceData` Meet + Sheets
+  append, cuenta de servicio), `get_scheduler(settings)`, helper **puro** `compute_free_slots`. Deps:
+  `google-api-python-client`+`google-auth` (wheels puros, OK Intel). Motor: fases `PHASE_SCHEDULING/SCHEDULED`,
+  `proposed_slots/meeting_slot/recruiter` en estado, `graph.send(start_scheduling=, recruiter=)` →
+  `nodes.start_scheduling` (saludo firmado + 2-3 opciones) y rama de elección (`parse_slot_choice` en
+  `scorer.py`, LLM+heurística) → `PHASE_SCHEDULED`. Servicio: `initiate_scheduling` (freebusy→slots→propuesta),
+  `_finalize_scheduling` (crea reunión + Sheets + `save_meeting` + confirma por Telegram + `notify_meeting`),
+  `_sync_business` mapea scheduling/scheduled; `InterviewService(scheduler, settings, notify_meeting)` cableado
+  en `telegram_bot.py`. Email: `send_meeting_email` (candidato+reclutador). Inactividad: el barrido incluye
+  `scheduling` (recuerda con `SCHEDULING_REMINDER`, **no** auto-cierra). API: `decision` advance→
+  `initiate_scheduling`+envío por bot vivo (si `scheduling.enabled`); `GET /api/candidates/{id}/meeting`;
+  CRUD `GET/POST/PUT /api/recruiters`; `GET/PUT /api/settings/scheduling`; `get_vacancy` devuelve la cartilla
+  del reclutador; `VacancyIn` con `recruiter_id`+`meeting_duration_minutes`. Frontend: tipos `Recruiter/Meeting/
+  SchedulingConfig`, `CvProfile.email`; **panel principal** con roster de RR.HH. (cartillas + alta) y selector
+  de reclutador en alta de vacante; detalle del candidato botón "Continuar → Agendar entrevista" + Card
+  Agendamiento (fecha+enlace); estados `scheduling/scheduled` en statusLabel/phaseMeta/stepper; tarjeta
+  "Agendamiento" en Configuración. Email del candidato tomado del CV (`cv_profile.email`, añadido al fixture).
+  **56/56 tests verde (test_scheduling.py nuevo: compute_free_slots, parse_slot_choice, SimulatedScheduler,
+  fase del motor); tsc OK.** Pendiente: aplicar `0010` y verificación en vivo (Docker abajo); para Google real:
+  `scheduling_provider=google` + `google_credentials_path` + compartir Calendar/Sheet con la cuenta de servicio.
+- **2026-06-19 — Levantado en vivo + datos de contacto en agendamiento + visibilidad del reclutador**:
+  Supabase local arriba (Docker), migraciones `0010`/`0011` aplicadas; backend (uvicorn) + dashboard
+  (Next.js) corriendo; flujo de agendamiento verificado service-level contra DB real con `SimulatedScheduler`.
+  Migración `0011_meeting_contacts.sql` (meetings: `candidate_phone`, `recruiter_phone`, `recruiter_name`).
+  Fixture Bumeran + `sourcing.py` ahora traen `email`+`phone` al `cv_profile`. `_finalize_scheduling` arma la
+  **descripción del evento** con nombre/correo/teléfono de candidato y reclutador, persiste esos campos en
+  `meetings` y los añade a la fila de Sheets; `send_meeting_email` y el aviso Telegram al reclutador incluyen
+  los teléfonos. `GET /api/vacancies` enriquece cada vacante con su `recruiter`. Frontend: cartilla de RR.HH.
+  con **email+teléfono** e **edición** (`api.updateRecruiter`) + input teléfono; vacante muestra el
+  **responsable** (lista + cartilla en detalle); card de reunión muestra correos+teléfonos de ambos.
+  Reclutador demo Grace actualizado a `datawithia.oficial@gmail.com` + tel. **56/56 tests; tsc OK; endpoints
+  y reunión verificados con emails reales (candidato albertoruizasto@gmail.com).**
+- **2026-06-19 — Auto-contacto del apto = flujo del producto + regla de horario laboral (9–18, L–V)**:
+  `auto_contact_on_pass` ahora **`True` por defecto** (`src/config.py`): al sincronizar, el sync contacta al
+  instante por Telegram a los aptos nuevos (idempotente; reversible vía `.env`). `.env.example` documenta el
+  bloque sourcing/auto-contacto + agendamiento. **Regla del negocio**: solo se contacta en horario laboral.
+  Helper puro `_within_working_hours(now, work_days, work_start, work_end)` + `_is_working_now(settings)` (lee
+  la ventana de `app_settings.scheduling`: 9–18, L–V, America/Lima). Guardia en `_contact_candidate` (punto
+  único que usan sync inmediato, scheduler y botón manual): fuera de hora devuelve `contacted:false` y deja al
+  candidato en `prescreen_passed` sin marcar `invited`. Barrido nuevo en `_scheduler_loop` (gated por
+  `auto_contact_on_pass`): durante horario laboral contacta a los `prescreen_passed` pendientes (recoge a los
+  que un sync fuera de hora dejó diferidos). **58/58 tests (test_contact.py +2: dentro/fuera de ventana).**
+  **Verificado en vivo contra DB real + Groq + bot**: sync → `{imported:3,passed:1,rejected:2,contacted:1}`,
+  Daniela→`invited` con `sendMessage` 200; fuera de hora (ventana 00:00–00:01) → `/contact` devuelve "Fuera de
+  horario laboral" y queda `prescreen_passed`; al restaurar 9–18 el barrido la contactó sola en ~25 s.
+- **2026-06-30 — Guía técnica/funcional dentro del dashboard**: la guía end-to-end (docs/guia.html, 17
+  secciones: visión funcional, arquitectura, cerebro LangGraph, un turno, evaluación, sourcing,
+  agendamiento, LLM & prompts, APIs, **datos**, config, librerías) pasó de HTML suelto a **página nativa
+  Next.js** en `frontend/src/app/guia/page.tsx` (ruta `/guia`, entrada "Guía" en el nav del `Shell`). Se
+  porta con `scripts`-scratch: extrae el `<style>` y lo **aísla bajo `#guia-doc`** (parser de llaves, sin
+  fugas al resto de la app; vars `--edge/--muted/--accent` locales), retematizado al índigo de la app, y
+  embebe el body con `JSON.stringify` (server component + `dangerouslySetInnerHTML`, doc de solo lectura).
+  El TOC sticky parquea a `top:57px` (debajo de la barra del Shell). **Sección "Base de datos" reescrita**:
+  motor PostgreSQL/Supabase (Docker local ↔ cloud), **doble persistencia** (① negocio vía cliente Supabase
+  `db/client.py`+`repositories.py`, service_role+GRANTs 0003; ② estado LangGraph vía `DATABASE_URL`+
+  `PostgresSaver.setup()`, thread=`canal:chat`), esquema por 12 migraciones, tabla de las 11 tablas de
+  negocio con propósito/escritor. `public/guia.html` eliminado (reemplazado por la ruta). **tsc OK; `/guia`
+  → 200, `/guia.html` → 404; CSS verificado aislado.**
+
+- **2026-06-30 — Auditoría de robustez + Fase 0 (cimientos SaaS)**: auditoría completa del proceso
+  (3 exploraciones paralelas + verificación) con roadmap por fases; entregable en el archivo de plan.
+  **Implementada la Fase 0** (objetivo SaaS multi-empresa): (1) **Multi-tenancy** — migración
+  `0013_auth_tenancy.sql` (tablas `tenants` + `users`; `tenant_id` en `vacancies`/`recruiters` con
+  backfill al tenant `default`; índice `candidates(status)`; grants). (2) **Auth + RBAC** self-contained
+  (sin infra extra) — `api/auth.py`: hash **bcrypt** + **JWT** (PyJWT), roles jerárquicos
+  viewer<recruiter<admin, dependencias `get_current_user`/`require_role`, `authenticate` y
+  `ensure_default_admin` (crea el admin del `.env` al arrancar si no hay usuarios). Endpoints
+  `POST /api/auth/login` + `GET /api/auth/me`; **los 24 endpoints del dashboard** ahora exigen token y
+  se **aíslan por tenant** (`_require_vacancy_in_tenant`/`_require_candidate_in_tenant`; mutaciones de
+  settings/recruiters = admin, operativas = recruiter+). (3) **Scheduler con lock distribuido** — advisory
+  lock de Postgres (`pg_try_advisory_lock`, key 704127) en `_scheduler_loop`: solo un proceso/réplica
+  ejecuta auto-contacto + inactividad; standby con takeover si el activo muere; sin `DATABASE_URL` cae a
+  modo sin-lock. Config: `jwt_secret`/`jwt_expire_minutes`/`admin_*` en `src/config.py` + `.env.example`.
+  Deps: `pyjwt`+`bcrypt`. Frontend: `lib/auth.ts` (sesión en localStorage), `api.ts` adjunta `Bearer` y
+  redirige al login en 401, página `/login`, guard de sesión + logout en `Shell`. **Tests: `test_auth.py`
+  (16) — 76/76 verde; tsc OK.** **Verificado en vivo** (Supabase local + instancia temporal `:8001`):
+  `0013` aplicada + backfill; admin bootstrapeado; sin token→401, login→200, con token→200, credenciales
+  malas→401; RBAC viewer→403 en PUT/200 en GET; aislamiento: tenant ACME no ve ni lee (404) las vacantes
+  del tenant default. **PENDIENTE**: reiniciar el backend `:8000` en vivo (corre código pre-auth) para
+  que la protección aplique; `JWT_SECRET` real en `.env` de prod. **Limitación conocida (Fase 0.1)**: los
+  `app_settings` (auto_contact/inactivity/scheduling) siguen siendo **globales** (no por-tenant); el
+  scheduler es process-wide. Convertir settings a por-tenant queda para la siguiente iteración.
+
+- **2026-06-30 — Fase 1 (No perder candidatos · confiabilidad)**: (1) **Outbox durable** — migración
+  `0014_outbox.sql` (tabla `outbox`: kind/payload/status/attempts/next_attempt_at/last_error + índices +
+  grants). `notifications/outbox.py`: `deliver(kind,payload)` intenta el envío en línea y **encola en
+  fallo**; `drain(settings,now)` (en el scheduler, bajo el advisory lock) reintenta lo vencido con
+  **backoff exponencial** (1m→6h, `backoff_seconds`/`next_state_after_failure` puras) y marca `failed`
+  (**dead-letter**) al agotar `max_attempts` (6). Handlers que **lanzan**: `email.send_email` +
+  `candidate.post_telegram` (nuevas primitivas raising; `email.py` extrae `build_scorecard_email`/
+  `build_meeting_email`, `candidate.py` `can_send_telegram`/`post_telegram`). Call sites cableados:
+  `_build_notifier`/`_build_meeting_notifier` (telegram_bot) y `decide_candidate` (main) ahora pasan por
+  el outbox → **fin del fire-and-forget silencioso** (audit #4/#6). Repos: `enqueue_outbox`/
+  `list_due_outbox`/`update_outbox`/`count_outbox_by_status`. (2) **Reconciliación** (#7) —
+  `_reconciliation_sweep` en el scheduler: alerta estructurada de dead-letters, reuniones sin `meet_link`
+  (Calendar falló, `list_meetings_without_link`) y coordinaciones de horario estancadas sin reunión
+  (`_reconcile_scheduling_stuck`, pura). (3) **Documentos** (#5, parte seguridad) — `channels/documents.py`
+  (`sanitize_filename` anti-traversal, `validate_document` solo-PDF + límite 20 MB); `_on_document` valida
+  antes de descargar y blinda el destino dentro de `uploads/`. **Tests: `test_outbox.py`(9)+`test_documents.py`(6)
+  → 90/90 verde.** **Verificado en vivo** (Supabase real): `0014` aplicada; smoke de outbox `drain` →
+  `{sent:1, dead:1}` (dead-letter attempts=6 con error, ok→sent); backend reiniciado con el drenaje del
+  outbox + reconciliación corriendo cada tick del scheduler. **PENDIENTE (Fase 1 restante)**: almacenamiento
+  **durable** de CVs (hoy `uploads/` local se pierde en redeploy) — requiere Supabase Storage/S3 (deshabilitado
+  local en Intel); dejar como config-gated. Posible mejora de observabilidad: exponer el estado del outbox
+  (pending/failed) en el dashboard (Fase 3).
+
+- **2026-06-30 — Fase 2 (Integridad y cumplimiento)**: migración `0015_integrity_audit_consent.sql`
+  (`scorecards.review_required`, tabla `audit_log`, `candidates.consent_at`, seed `app_settings.retention`).
+  (1) **Integridad de la evaluación** (#10/#11): `scorer.py` — `is_meaningful_answer` (guard de respuesta
+  vacía/solo-símbolos en `nodes._handle_interview`: repregunta con `EMPTY_ANSWER_NUDGE` sin gastar
+  follow-up ni llamar al LLM), `sanitize_answer_for_prompt` (quita delimitadores + cap 4000 chars) y el
+  prompt `EVALUATE_ANSWER_PROMPT` ahora encierra la respuesta del candidato entre `<<<respuesta>>>…<<<fin>>>`
+  con marco **anti-inyección**; `EvalResult.low_confidence` (True en el fallback por fallo del LLM) →
+  `AnswerRecord.low_confidence` → `build_scorecard` calcula `review_required` (+ `low_confidence` por
+  criterio). Frontend: aviso "⚠ Requiere revisión humana" en el veredicto + tipos `review_required`/
+  `low_confidence`. (2) **Auditoría** (#8): `repositories.add_audit_log`/`list_audit_log`; helper `_audit`
+  (no rompe la acción) cableado en decide/contact/vacancy CRUD/recruiter CRUD/settings PUT/erasure;
+  `GET /api/audit` (admin). (3) **Consentimiento + retención** (Ley 29733): `consent_at` se sella una vez al
+  aceptar (`_sync_business`); `GET/PUT /api/settings/retention` (admin); `_retention_sweep` en el scheduler
+  (anonimiza PII de descartados > N días: nombre/chat/CV/documentos + borra transcripción; `_retention_purgeable`
+  puro; default OFF); **erasure** `DELETE /api/candidates/{id}` (admin, auditado, cascada + checkpoint).
+  **Tests: `test_integrity.py`(9) → 99/99 verde; tsc OK.** **Verificado en vivo** (Supabase real): `0015`
+  aplicada; audit write/read; `/api/audit` 200, `/api/settings/retention` 200 (default OFF), erasure recruiter
+  → 403; FakeLLM de `test_interview` ajustado al nuevo formato del prompt. **PENDIENTE (menor)**: la
+  retención mide antigüedad por `created_at` (proxy) — evaluar `updated_at`/fecha de decisión; UI de
+  auditoría/erasure en el dashboard (hoy solo API).
+
+- **2026-06-30 — Cierre Fase 1: almacenamiento DURABLE de documentos (CV/CUL)**: migración
+  `0016_document_storage.sql` (tabla `candidate_documents`: `candidate_id` FK cascade, `type`,
+  `filename`, `mime`, `size_bytes`, `content_b64`, unique(candidate_id,type)). El bot descarga el PDF a
+  `uploads/` (staging, ya endurecido) y el **servicio** lo lee y guarda **el contenido en Postgres**
+  (`_read_document_b64` + `repositories.save_document_content`, idempotente por candidato+tipo); metadata
+  sigue en `candidates.documents` con flag `stored` (db|disk|none). El endpoint de descarga
+  (`GET /api/candidates/{id}/documents/{tipo}`) sirve **desde la DB** (Response bytes, base64-decode) con
+  **fallback a disco** para docs previos. Retención/erasure borran también el contenido durable
+  (`delete_candidate_documents` en el barrido; FK cascade en el erasure). Ventaja: sobrevive redeploys y el
+  borrado no deja objetos huérfanos (sin S3/Storage, que están off en Intel; migrar a object store queda
+  como optimización de escala). **Tests: `test_storage.py`(4) → 103/103 verde.** **Verificado en vivo**
+  (Supabase real): `0016` aplicada, round-trip DB íntegro (36 B), cascada al borrar candidato elimina el
+  documento; backend reiniciado sano. **Gotcha**: tras aplicar DDL por psql directo, PostgREST no ve la
+  tabla hasta `NOTIFY pgrst, 'reload schema'` (el CLI `supabase migration up`/`start` recarga solo).
+
+- **2026-07-01 — Fase 3 (Observabilidad operativa en el dashboard)**: expone en la UI el estado operativo
+  que hasta ahora solo vivía en la API/DB (cierra los punteros "(Fase 3)" de la auditoría; sin migraciones).
+  (1) **Salud del outbox**: `repositories.count_outbox_by_status(tenant_id=None)` ahora acepta filtro por
+  tenant (el caller de reconciliación sigue global), + `list_outbox(tenant_id, statuses, limit)` y
+  `get_outbox(id)`. Endpoints admin `GET /api/outbox` (`{counts, items}` de pending+failed, aislado por
+  tenant) y `POST /api/outbox/{id}/retry` (reencola un dead-letter/pendiente: status→pending +
+  next_attempt_at=now para el próximo `drain`; 404 cross-tenant, 409 si ya `sent`; auditado `outbox.retry`).
+  (2) **UI**: página nueva `/observabilidad` (admin-only, entrada de nav en `Shell` gated por `role==="admin"`):
+  chips pending/failed/sent + lista de envíos detenidos con motivo/intentos y botón **Reintentar**; bitácora
+  de auditoría (`GET /api/audit`, últimas 100 con quién/qué/cuándo, labels legibles). (3) **Erasure UI**:
+  "Zona de peligro" admin-only en el detalle del candidato → `api.eraseCandidate` (DELETE, con `window.confirm`)
+  y redirect a la vacante. Frontend: `api.ts` tipos `AuditEntry/OutboxItem/OutboxHealth` + métodos
+  `getAudit/getOutbox/retryOutbox/eraseCandidate`. **Tests: `test_observability.py`(5: RBAC, aislamiento por
+  tenant, retry requeue/404/409) → 108/108 verde; tsc OK.** **Verificado en vivo** (2026-07-01): Supabase
+  local arriba, `/api/outbox` y `/api/audit` responden; `outbox drain` smoke previo.
+
+- **2026-07-01 — Fase 0.1 (settings POR-TENANT)**: cierra la limitación de la Fase 0 (los `app_settings`
+  auto_contact/inactivity/scheduling/retention eran **globales**; el scheduler era process-wide con config
+  única). Migración `0017_app_settings_tenant.sql`: añade `tenant_id` a `app_settings`, la PK pasa de `key`
+  a compuesta **(tenant_id, key)**, backfill de las filas globales previas al tenant `default` (el mismo de
+  0013); un tenant sin fila cae a los `_DEFAULT_*` del código. `repositories.get_app_setting(key, default,
+  tenant_id)` / `set_app_setting(key, value, tenant_id)` (upsert on_conflict=`tenant_id,key`) + `list_tenants()`.
+  **Endpoints** de settings (auto-contact/inactivity/scheduling/retention GET+PUT) y `decide_candidate` ahora
+  leen/escriben con `user["tenant_id"]`. **Scheduler por-tenant**: `_is_working_now(settings, tenant_id)` y el
+  gate de `_contact_candidate` usan `vacancy["tenant_id"]`; el auto-contacto por horarios itera
+  `repo.list_tenants()` (cada empresa con su zona/horas; slot de dedupe `{tid}|{fecha}|{hh:mm}`); el
+  auto-contacto del producto delega el gate de horario a cada candidato (quita el gate global). Los barridos
+  `_inactivity_sweep`/`_retention_sweep` resuelven el tenant de cada ítem con `_vacancy_tenant_map()`
+  ({vacancy_id→tenant_id}) + `_tenant_cfg_resolver(key, default)` (caché una lectura por tenant/barrido);
+  `_contact_prescreen_passed(settings, tenant_id=None)`. `agent/service.py` (`initiate_scheduling`) lee el
+  scheduling del `vacancy.tenant_id`. **Tests: `test_tenant_settings.py`(4: endpoints leen/escriben su tenant,
+  resolver aísla+cachea, vacancy_tenant_map) → 112/112 verde; tsc OK.** **Verificado en vivo** (Supabase real):
+  `0017` aplicada (PK compuesta, tenant_id NOT NULL, 4 filas backfilleadas a `default`); PostgREST recargado;
+  aislamiento probado con 2 tenants (ACME PUT auto-contact 08:00/activo NO tocó al `default` 11:00-15:00/apagado;
+  cascade al borrar el tenant limpió su fila). Gotcha ya conocido: tras el DDL, `NOTIFY pgrst, 'reload schema'`.
+  **Nota**: el scheduler sigue siendo un proceso con advisory lock; ahora aplica config por-tenant dentro del tick.
+
+## Cómo correr (resumen)
+1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
+2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.
+3. Backend+bot: `uv run uvicorn api.main:app --port 8000 --reload`.
+4. Dashboard: `cd frontend && npm install && npm run dev` → http://localhost:3000.
+5. Demo sin infra: `uv run python scripts/demo.py --alberto`.
+
+## Pendiente (por fases)
+- Fase 1: migraciones SQL + seed vacante demo + `db/`; checkpointer PostgresSaver sobre Supabase.
+- Fase 2: motor LangGraph + evaluación; tests con las respuestas reales de Alberto.
+- Fase 3: bot Telegram (turno de entrevista + botones Acepto/No interesado).
+- Fase 4: scorecard final + email al reclutador.
+- Fase 5: dashboard reclutador (Next.js).
+- Fase 6 (post-MVP): adapter WhatsApp Cloud API; recepción/parseo de CV.
+
+## Convenciones del usuario
+Código en inglés, chat en español, `uv` (no pip), commits convencionales (`feat:`, `fix:`...).

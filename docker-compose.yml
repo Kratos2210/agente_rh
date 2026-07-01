@@ -1,0 +1,51 @@
+# Levanta toda la app con un comando:  docker compose up --build
+# Luego abrí  http://localhost:3000
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    # Variables (LLM key, dominio, etc.). Copiá .env.example a .env y completalo.
+    env_file: .env
+    volumes:
+      # Cache de modelos HuggingFace (embeddings + reranker): se descargan la 1ª
+      # vez y quedan acá para que los reinicios sean rápidos.
+      - hf-cache:/models
+      # DATOS DEL CLIENTE — persisten entre actualizaciones (rebuild de imagen):
+      # índice vectorial, documentos subidos, hilos e historial (SQLite).
+      # En el 1er arranque se siembran con los datos de demo de la imagen; después
+      # quedan en el volumen y un `up --build` con código nuevo NO los pisa.
+      - chroma-data:/app/chroma_db
+      - app-data:/app/data
+    expose:
+      - "8000"
+    # ports: ["8000:8000"]   # descomentá solo si querés depurar el backend directo
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    environment:
+      - BACKEND_URL=http://backend:8000
+    expose:
+      - "3000"
+    depends_on:
+      - backend
+
+  # Reverse proxy: única entrada en http://localhost:3000. Rutea /api/* al backend
+  # (streaming SSE OK) y el resto al frontend. El proxy interno de Next.js corta el
+  # streaming en producción, por eso no se expone el frontend directo.
+  proxy:
+    image: caddy:2-alpine
+    ports:
+      - "3000:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  hf-cache:
+  chroma-data:
+  app-data:

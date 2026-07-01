@@ -1,0 +1,69 @@
+[project]
+name = "agente-rh"
+version = "0.1.0"
+description = "Agente de Selección de Talento — entrevista conversacional por Telegram/WhatsApp, evaluación automática y scorecard para el reclutador."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # LLM (compatible OpenAI: Groq/Qwen3, AI Gateway, etc.)
+    "langchain-openai>=0.2.0",
+    "langchain-core>=0.3.0",
+    # Motor de entrevista (máquina de estados durable)
+    "langgraph>=0.2.0",
+    "langgraph-checkpoint-postgres>=2.0.0",
+    "psycopg[binary]>=3.2.0",
+    # Persistencia de negocio (Supabase Postgres)
+    "supabase>=2.7.0",
+    # Canal
+    "python-telegram-bot>=21.0",
+    # API
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9",
+    # Auth del dashboard (Fase 0): JWT (PyJWT) + hash de contraseñas (bcrypt).
+    # Wheels puros/con wheel Intel → OK en macOS x86_64.
+    "pyjwt>=2.9.0",
+    "bcrypt>=4.2.0",
+    # Config + utilidades
+    "pydantic-settings>=2.4.0",
+    "python-dotenv>=1.0.1",
+    "pypdf>=4.3.1",
+    "httpx>=0.27.0",
+    # Agendamiento de entrevista: Google Calendar (free/busy + evento Meet) y Sheets.
+    # Wheels puros (sin binarios nativos) → OK en macOS Intel. Solo se usan si el
+    # proveedor de agendamiento es "google"; el default "simulated" no los importa.
+    "google-api-python-client>=2.100.0",
+    "google-auth>=2.30.0",
+    # OAuth de usuario (Gmail personal): flujo de autorización one-time para generar
+    # enlaces Meet reales e invitaciones; la cuenta de servicio no puede en Gmail personal.
+    "google-auth-oauthlib>=1.2.0",
+    # RAG: base de conocimiento de la empresa (Chroma local + embeddings HuggingFace)
+    # para que el agente responda dudas del candidato sobre el puesto citando documentos.
+    "langchain>=0.3.0",
+    "langchain-community>=0.3.0",
+    "langchain-chroma>=0.1.2",
+    "langchain-huggingface>=0.1.0",
+    "langchain-text-splitters>=0.3.0",
+    "chromadb>=0.5.0",
+    # chromadb arrastra onnxruntime; las versiones >=1.21 dejaron de publicar wheel
+    # para macOS Intel (x86_64). Fijamos a la última con wheel compatible.
+    "onnxruntime<1.21",
+    "rank-bm25>=0.2.2",
+    "sentence-transformers>=3.0.1",
+    # transformers 5.x tiene un bug de import con sentence-transformers; fijamos 4.x.
+    "transformers>=4.41,<5",
+    # torch 2.2.2 es la última build con wheel para macOS Intel (x86_64); las >=2.3
+    # solo publican arm64. Requiere numpy 1.x.
+    "torch==2.2.2",
+    "numpy>=1.26.0,<2",
+    "docx2txt>=0.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

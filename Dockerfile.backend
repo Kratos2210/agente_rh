@@ -1,0 +1,36 @@
+# Backend RAG (FastAPI + torch CPU + Piper). Imagen Linux → corre en cualquier
+# SO con Docker (Windows incluido), sin el pin torch 2.2.2 de Mac Intel.
+FROM python:3.12-slim
+
+# libgomp1: OpenMP que necesitan torch y onnxruntime (Piper) en runtime.
+# tesseract-ocr (+ español) y ghostscript: OCR de PDFs escaneados (ocrmypdf).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgomp1 tesseract-ocr tesseract-ocr-spa ghostscript \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/models
+
+WORKDIR /app
+
+# uv para instalar dependencias (más rápido que pip).
+RUN pip install --no-cache-dir uv
+
+# torch CPU de Linux ANTES del resto: evita arrastrar el wheel CUDA (~2 GB).
+RUN uv pip install --system torch --index-url https://download.pytorch.org/whl/cpu
+
+# Dependencias de runtime: requirements.txt SIN la sección de desarrollo
+# (pytest/ragas/datasets) para una imagen más liviana y sin conflictos de ragas.
+COPY requirements.txt .
+RUN sed '/# Desarrollo/,$d' requirements.txt > requirements-runtime.txt \
+    && uv pip install --system -r requirements-runtime.txt
+
+# Código del backend + datos (voz Piper, índice y documentos de demo).
+COPY api/ ./api/
+COPY src/ ./src/
+COPY data/ ./data/
+COPY chroma_db/ ./chroma_db/
+
+EXPOSE 8000
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
