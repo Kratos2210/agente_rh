@@ -10,6 +10,7 @@ from __future__ import annotations
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from html import escape as _esc
 from typing import Any
 
 from evaluation.scorecard import semaphore_emoji
@@ -30,32 +31,39 @@ def _render_html(vacancy: dict, candidate: dict, scorecard: dict) -> str:
     semaphore = scorecard.get("semaphore", "")
     color = _SEMAPHORE_COLOR.get(semaphore, "#6b7280")
     label = _SEMAPHORE_LABEL.get(semaphore, "—")
+    # Seguridad (audit F3): escapar TODO dato dinámico interpolado en el HTML. Las
+    # justificaciones/resumen/recomendación las genera el LLM y el nombre/vacante vienen del
+    # CV/reclutador: sin escapar, un `<`/`>`/markup rompería o inyectaría el HTML del correo.
     rows = "".join(
         f"""<tr>
-              <td style="padding:8px;border-bottom:1px solid #eee;font-weight:600;text-align:center">{_score_txt(c.get('score'))}</td>
+              <td style="padding:8px;border-bottom:1px solid #eee;font-weight:600;text-align:center">{_esc(_score_txt(c.get('score')))}</td>
               <td style="padding:8px;border-bottom:1px solid #eee">
-                <div style="font-weight:600">{c.get('criterion','')}</div>
-                <div style="color:#555;font-size:13px;margin-top:2px">{c.get('justification','')}</div>
+                <div style="font-weight:600">{_esc(str(c.get('criterion','')))}</div>
+                <div style="color:#555;font-size:13px;margin-top:2px">{_esc(str(c.get('justification','')))}</div>
               </td>
             </tr>"""
         for c in scorecard.get("per_criterion", [])
     )
-    name = candidate.get("name") or "Candidato"
+    name = _esc(str(candidate.get("name") or "Candidato"))
+    title = _esc(str(vacancy.get("title", "")))
+    total = _esc(str(scorecard.get("total_score", "")))
+    summary = _esc(str(scorecard.get("summary", "")))
+    recommendation = _esc(str(scorecard.get("recommendation", "")))
     return f"""<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;color:#111;background:#f6f7f9;padding:24px">
       <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
         <div style="background:{color};color:#fff;padding:20px 24px">
           <div style="font-size:13px;opacity:.9">Scorecard de selección</div>
-          <div style="font-size:22px;font-weight:700">{semaphore_emoji(semaphore)} {label} · {scorecard.get('total_score','')}/100</div>
+          <div style="font-size:22px;font-weight:700">{semaphore_emoji(semaphore)} {label} · {total}/100</div>
         </div>
         <div style="padding:24px">
           <p style="margin:0 0 4px"><b>Candidato:</b> {name}</p>
-          <p style="margin:0 0 4px"><b>Vacante:</b> {vacancy.get('title','')}</p>
+          <p style="margin:0 0 4px"><b>Vacante:</b> {title}</p>
           <h3 style="margin:20px 0 8px">Evaluación por criterio</h3>
           <table style="width:100%;border-collapse:collapse;font-size:14px">{rows}</table>
           <h3 style="margin:20px 0 8px">Resumen</h3>
-          <p style="margin:0;color:#333;line-height:1.5">{scorecard.get('summary','')}</p>
+          <p style="margin:0;color:#333;line-height:1.5">{summary}</p>
           <h3 style="margin:20px 0 8px">Recomendación</h3>
-          <p style="margin:0;color:#333;line-height:1.5;font-weight:600">{scorecard.get('recommendation','')}</p>
+          <p style="margin:0;color:#333;line-height:1.5;font-weight:600">{recommendation}</p>
         </div>
       </div>
     </body></html>"""
@@ -175,18 +183,25 @@ def build_meeting_email(
         f"Candidato: {name} · {cand_email} · {cand_phone}",
         f"Reclutador: {rec_name} · {rec_email} · {rec_phone}",
     ])
+    # Seguridad (audit F3): escapar los datos dinámicos antes de interpolarlos en el HTML
+    # (nombre/vacante/contactos vienen del CV/reclutador). `_esc` escapa también las comillas,
+    # así el `link` no puede romper el atributo href.
+    h_title, h_when, h_name = _esc(title), _esc(when), _esc(name)
+    h_cand_email, h_cand_phone = _esc(cand_email), _esc(cand_phone)
+    h_rec_name, h_rec_email, h_rec_phone = _esc(rec_name), _esc(rec_email), _esc(rec_phone)
+    h_link = _esc(link)
     html = f"""<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;color:#111;background:#f6f7f9;padding:24px">
       <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
         <div style="background:#16a34a;color:#fff;padding:20px 24px">
           <div style="font-size:13px;opacity:.9">Entrevista agendada</div>
-          <div style="font-size:22px;font-weight:700">{title}</div>
+          <div style="font-size:22px;font-weight:700">{h_title}</div>
         </div>
         <div style="padding:24px;line-height:1.6">
-          <p style="margin:0 0 4px"><b>Fecha y hora:</b> {when}</p>
-          <p style="margin:0 0 4px"><b>Candidato:</b> {name} &middot; {cand_email} &middot; {cand_phone}</p>
-          <p style="margin:0 0 4px"><b>Reclutador:</b> {rec_name} &middot; {rec_email} &middot; {rec_phone}</p>
+          <p style="margin:0 0 4px"><b>Fecha y hora:</b> {h_when}</p>
+          <p style="margin:0 0 4px"><b>Candidato:</b> {h_name} &middot; {h_cand_email} &middot; {h_cand_phone}</p>
+          <p style="margin:0 0 4px"><b>Reclutador:</b> {h_rec_name} &middot; {h_rec_email} &middot; {h_rec_phone}</p>
           <p style="margin:16px 0 4px"><b>Enlace de la reunión:</b></p>
-          <p style="margin:0"><a href="{link}" style="color:#2563eb">{link}</a></p>
+          <p style="margin:0"><a href="{h_link}" style="color:#2563eb">{h_link}</a></p>
         </div>
       </div>
     </body></html>"""
