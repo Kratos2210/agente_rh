@@ -1,16 +1,583 @@
-// Guia tecnica y funcional del Agente de Seleccion — pagina nativa Next.js (App Router).
-// El contenido es un documento estatico de solo lectura; los estilos van aislados bajo
-// #guia-doc para no filtrarse al resto del dashboard. Generado desde docs/guia.html.
+// Guía técnica y funcional del Agente de Selección — página nativa Next.js (App Router).
+// Documento estático de solo lectura; los estilos van aislados bajo #guia-doc para no
+// filtrarse al resto del dashboard. El cuerpo se escribe como template literal (HTML
+// legible, sin escapes) para que cualquiera pueda mantenerlo. Reescrito v3 (2026-07-01):
+// lenguaje accesible ("En simple" por sección) + estado actualizado (seguridad, RLS,
+// rotación JWT, confiabilidad, degradación del scheduler).
 import { Shell } from "@/components/Shell";
 
 export const metadata = {
   title: "Guía · hira",
-  description: "Guía técnica y funcional end-to-end del Agente de Selección de Talento.",
+  description: "Guía end-to-end del Agente de Selección de Talento, explicada para cualquier persona.",
 };
 
-const GUIA_CSS = "#guia-doc{--bg:#0a0e16; --surface:#0f1524; --surface2:#141b2d; --edge:#232c40; --edge2:#313b54;\n    --ink:#e8edf6; --muted:#7e8aa0; --accent:#8b8cfa; --accent2:#34d399;\n    --green:#34d399; --amber:#fbbf24; --red:#f87171; --violet:#a78bfa; --pink:#f472b6;\n    --maxw:1140px;}\n#guia-doc *{box-sizing:border-box}\n#guia-doc{scroll-behavior:smooth}\n#guia-doc{margin:0;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif;\n       background:var(--bg);color:var(--ink);line-height:1.62;font-size:15.5px}\n#guia-doc a{color:var(--accent);text-decoration:none}\n#guia-doc a:hover{text-decoration:underline}\n#guia-doc code{background:var(--surface2);border:1px solid var(--edge);border-radius:6px;padding:1px 6px;\n       font-family:ui-monospace,\"SF Mono\",Menlo,Consolas,monospace;font-size:.84em;color:#cfe0ff}\n#guia-doc .wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px}\n#guia-doc header.hero{background:radial-gradient(1200px 400px at 70% -10%,rgba(139,140,250,.18),transparent),\n       linear-gradient(135deg,#141b2d 0%,#0a0e16 65%);border-bottom:1px solid var(--edge);padding:54px 22px 38px}\n#guia-doc .appbar{display:flex;align-items:center;gap:16px;padding:12px 22px;\n       background:rgba(10,14,22,.82);backdrop-filter:blur(16px);border-bottom:1px solid var(--edge)}\n#guia-doc .appbar .brand{display:flex;align-items:center;gap:11px;text-decoration:none}\n#guia-doc .appbar .logo{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;\n       background:linear-gradient(135deg,var(--accent),#6366f1);box-shadow:0 6px 18px rgba(139,140,250,.28)}\n#guia-doc .appbar .logo span{width:12px;height:12px;border:2.5px solid #fff;border-radius:50%;border-right-color:transparent}\n#guia-doc .appbar .name{font-size:16px;font-weight:800;letter-spacing:-.03em;color:var(--ink);line-height:1}\n#guia-doc .appbar .sub{font-size:9px;color:var(--muted);font-weight:700;letter-spacing:.14em;margin-top:2px}\n#guia-doc .appbar .back{margin-left:auto;display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:10px;\n       background:var(--surface2);border:1px solid var(--edge2);color:#c7d0e2;font-size:13px;font-weight:600}\n#guia-doc .appbar .back:hover{text-decoration:none;border-color:var(--accent);color:var(--ink)}\n#guia-doc .hero .tag{color:var(--accent2);font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:.76rem}\n#guia-doc .hero h1{font-size:2.3rem;margin:6px 0 8px;letter-spacing:-.02em}\n#guia-doc .hero p{color:var(--muted);max-width:820px;font-size:1.05rem}\n#guia-doc .pill{display:inline-block;font-size:.72rem;padding:3px 10px;border-radius:999px;border:1px solid var(--edge2);\n       background:var(--surface2);color:#bcd0f0;margin:3px 5px 3px 0}\n#guia-doc nav.toc{position:sticky;top:57px;z-index:30;background:rgba(10,15,28,.93);backdrop-filter:blur(10px);\n       border-bottom:1px solid var(--edge)}\n#guia-doc nav.toc .wrap{display:flex;gap:5px;flex-wrap:wrap;padding:9px 22px}\n#guia-doc nav.toc a{color:var(--muted);font-size:.8rem;padding:5px 10px;border-radius:999px;border:1px solid transparent}\n#guia-doc nav.toc a:hover{color:var(--ink);background:var(--surface2);border-color:var(--edge);text-decoration:none}\n#guia-doc section{padding:42px 0;border-bottom:1px solid var(--edge)}\n#guia-doc h2{font-size:1.6rem;margin:0 0 6px;letter-spacing:-.01em}\n#guia-doc h2 .num{display:inline-block;min-width:34px;height:34px;line-height:34px;text-align:center;border-radius:9px;\n       background:linear-gradient(135deg,var(--accent),#2f6fe0);color:#fff;font-size:1rem;margin-right:12px}\n#guia-doc .lead{color:var(--muted);margin:6px 0 20px;max-width:860px}\n#guia-doc h3{font-size:1.14rem;margin:26px 0 8px;color:#dbe6fb}\n#guia-doc h4{font-size:.98rem;margin:16px 0 6px;color:var(--accent2)}\n#guia-doc .card{background:var(--surface);border:1px solid var(--edge);border-radius:14px;padding:18px 20px;margin:14px 0}\n#guia-doc .grid{display:grid;gap:14px}\n#guia-doc .g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}\n#guia-doc .g3{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}\n#guia-doc .g4{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}\n#guia-doc table{width:100%;border-collapse:collapse;margin:12px 0;font-size:.9rem}\n#guia-doc th, #guia-doc td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--edge);vertical-align:top}\n#guia-doc th{color:var(--accent2);font-size:.74rem;text-transform:uppercase;letter-spacing:.04em}\n#guia-doc tr:hover td{background:rgba(24,35,58,.5)}\n#guia-doc .mono{font-family:ui-monospace,Menlo,Consolas,monospace}\n#guia-doc .kpi{font-size:1.7rem;font-weight:800;line-height:1.1}\n#guia-doc .kpi-lbl{color:var(--muted);font-size:.78rem;margin-top:3px}\n#guia-doc .badge{display:inline-block;padding:1px 8px;border-radius:6px;font-size:.73rem;font-weight:600;white-space:nowrap}\n#guia-doc .b-green{background:rgba(22,163,74,.15);color:#5fd38a;border:1px solid rgba(22,163,74,.4)}\n#guia-doc .b-amber{background:rgba(217,119,6,.15);color:#f0b65f;border:1px solid rgba(217,119,6,.4)}\n#guia-doc .b-red{background:rgba(220,38,38,.15);color:#f08a8a;border:1px solid rgba(220,38,38,.4)}\n#guia-doc .b-violet{background:rgba(167,139,250,.15);color:#c9b8ff;border:1px solid rgba(167,139,250,.4)}\n#guia-doc .b-blue{background:rgba(79,140,255,.15);color:#9dc0ff;border:1px solid rgba(79,140,255,.4)}\n#guia-doc .note{background:linear-gradient(90deg,rgba(79,140,255,.1),transparent);border:1px solid var(--edge);\n       border-left:3px solid var(--accent);border-radius:10px;padding:12px 16px;margin:14px 0;font-size:.92rem;color:#cfe0ff}\n#guia-doc .warn{background:linear-gradient(90deg,rgba(217,119,6,.12),transparent);border:1px solid var(--edge);\n       border-left:3px solid var(--amber);border-radius:10px;padding:12px 16px;margin:14px 0;font-size:.92rem;color:#f3d9b0}\n#guia-doc pre{background:#070b15;border:1px solid var(--edge);border-radius:12px;padding:15px 16px;overflow:auto;\n      font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.8rem;color:#cfe0ff;line-height:1.5}\n#guia-doc pre .c{color:#6b86b8}\n#guia-doc .pre .k{color:#f0b65f}\n#guia-doc .fig{background:var(--surface);border:1px solid var(--edge);border-radius:14px;padding:18px;margin:16px 0;overflow:auto}\n#guia-doc .fig figcaption{color:var(--muted);font-size:.84rem;margin-top:10px;text-align:center}\n#guia-doc svg{display:block;margin:0 auto;max-width:100%;height:auto}\n#guia-doc .legend{display:flex;flex-wrap:wrap;gap:14px;margin:8px 0;font-size:.82rem;color:var(--muted)}\n#guia-doc .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:middle}\n#guia-doc .glo dt{font-weight:700;color:var(--accent2);margin-top:12px}\n#guia-doc .glo dd{margin:2px 0 0;color:var(--muted)}\n#guia-doc ul.tight{margin:6px 0;padding-left:20px}\n#guia-doc ul.tight li{margin:3px 0}\n#guia-doc .chip-row{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}\n#guia-doc .file{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.82rem;color:#9dc0ff}\n#guia-doc .imp{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px dashed var(--edge)}\n#guia-doc .imp .pr{flex:0 0 auto;width:74px}\n#guia-doc footer{padding:32px 22px;color:var(--muted);font-size:.85rem;text-align:center}\n#guia-doc .toggle{cursor:pointer;color:var(--accent);font-size:.85rem}\n#guia-doc details{margin:8px 0}\n#guia-doc summary{cursor:pointer;color:var(--accent2);font-weight:600}";
+const GUIA_CSS = "#guia-doc{--bg:#0a0e16; --surface:#0f1524; --surface2:#141b2d; --edge:#232c40; --edge2:#313b54;\n    --ink:#e8edf6; --muted:#7e8aa0; --accent:#8b8cfa; --accent2:#34d399;\n    --green:#34d399; --amber:#fbbf24; --red:#f87171; --violet:#a78bfa; --pink:#f472b6;\n    --maxw:1140px;}\n#guia-doc *{box-sizing:border-box}\n#guia-doc{scroll-behavior:smooth}\n#guia-doc{margin:0;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif;\n       background:var(--bg);color:var(--ink);line-height:1.62;font-size:15.5px}\n#guia-doc a{color:var(--accent);text-decoration:none}\n#guia-doc a:hover{text-decoration:underline}\n#guia-doc code{background:var(--surface2);border:1px solid var(--edge);border-radius:6px;padding:1px 6px;\n       font-family:ui-monospace,\"SF Mono\",Menlo,Consolas,monospace;font-size:.84em;color:#cfe0ff}\n#guia-doc .wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px}\n#guia-doc header.hero{background:radial-gradient(1200px 400px at 70% -10%,rgba(139,140,250,.18),transparent),\n       linear-gradient(135deg,#141b2d 0%,#0a0e16 65%);border-bottom:1px solid var(--edge);padding:54px 22px 38px}\n#guia-doc .appbar{display:flex;align-items:center;gap:16px;padding:12px 22px;\n       background:rgba(10,14,22,.82);backdrop-filter:blur(16px);border-bottom:1px solid var(--edge)}\n#guia-doc .appbar .brand{display:flex;align-items:center;gap:11px;text-decoration:none}\n#guia-doc .appbar .logo{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;\n       background:linear-gradient(135deg,var(--accent),#6366f1);box-shadow:0 6px 18px rgba(139,140,250,.28)}\n#guia-doc .appbar .logo span{width:12px;height:12px;border:2.5px solid #fff;border-radius:50%;border-right-color:transparent}\n#guia-doc .appbar .name{font-size:16px;font-weight:800;letter-spacing:-.03em;color:var(--ink);line-height:1}\n#guia-doc .appbar .sub{font-size:9px;color:var(--muted);font-weight:700;letter-spacing:.14em;margin-top:2px}\n#guia-doc .appbar .back{margin-left:auto;display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:10px;\n       background:var(--surface2);border:1px solid var(--edge2);color:#c7d0e2;font-size:13px;font-weight:600}\n#guia-doc .appbar .back:hover{text-decoration:none;border-color:var(--accent);color:var(--ink)}\n#guia-doc .hero .tag{color:var(--accent2);font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:.76rem}\n#guia-doc .hero h1{font-size:2.3rem;margin:6px 0 8px;letter-spacing:-.02em}\n#guia-doc .hero p{color:var(--muted);max-width:820px;font-size:1.05rem}\n#guia-doc .pill{display:inline-block;font-size:.72rem;padding:3px 10px;border-radius:999px;border:1px solid var(--edge2);\n       background:var(--surface2);color:#bcd0f0;margin:3px 5px 3px 0}\n#guia-doc nav.toc{position:sticky;top:57px;z-index:30;background:rgba(10,15,28,.93);backdrop-filter:blur(10px);\n       border-bottom:1px solid var(--edge)}\n#guia-doc nav.toc .wrap{display:flex;gap:5px;flex-wrap:wrap;padding:9px 22px}\n#guia-doc nav.toc a{color:var(--muted);font-size:.8rem;padding:5px 10px;border-radius:999px;border:1px solid transparent}\n#guia-doc nav.toc a:hover{color:var(--ink);background:var(--surface2);border-color:var(--edge);text-decoration:none}\n#guia-doc section{padding:42px 0;border-bottom:1px solid var(--edge)}\n#guia-doc h2{font-size:1.6rem;margin:0 0 6px;letter-spacing:-.01em}\n#guia-doc h2 .num{display:inline-block;min-width:34px;height:34px;line-height:34px;text-align:center;border-radius:9px;\n       background:linear-gradient(135deg,var(--accent),#2f6fe0);color:#fff;font-size:1rem;margin-right:12px}\n#guia-doc .lead{color:var(--muted);margin:6px 0 20px;max-width:860px}\n#guia-doc h3{font-size:1.14rem;margin:26px 0 8px;color:#dbe6fb}\n#guia-doc h4{font-size:.98rem;margin:16px 0 6px;color:var(--accent2)}\n#guia-doc .card{background:var(--surface);border:1px solid var(--edge);border-radius:14px;padding:18px 20px;margin:14px 0}\n#guia-doc .grid{display:grid;gap:14px}\n#guia-doc .g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}\n#guia-doc .g3{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}\n#guia-doc .g4{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}\n#guia-doc table{width:100%;border-collapse:collapse;margin:12px 0;font-size:.9rem}\n#guia-doc th, #guia-doc td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--edge);vertical-align:top}\n#guia-doc th{color:var(--accent2);font-size:.74rem;text-transform:uppercase;letter-spacing:.04em}\n#guia-doc tr:hover td{background:rgba(24,35,58,.5)}\n#guia-doc .mono{font-family:ui-monospace,Menlo,Consolas,monospace}\n#guia-doc .kpi{font-size:1.7rem;font-weight:800;line-height:1.1}\n#guia-doc .kpi-lbl{color:var(--muted);font-size:.78rem;margin-top:3px}\n#guia-doc .badge{display:inline-block;padding:1px 8px;border-radius:6px;font-size:.73rem;font-weight:600;white-space:nowrap}\n#guia-doc .b-green{background:rgba(22,163,74,.15);color:#5fd38a;border:1px solid rgba(22,163,74,.4)}\n#guia-doc .b-amber{background:rgba(217,119,6,.15);color:#f0b65f;border:1px solid rgba(217,119,6,.4)}\n#guia-doc .b-red{background:rgba(220,38,38,.15);color:#f08a8a;border:1px solid rgba(220,38,38,.4)}\n#guia-doc .b-violet{background:rgba(167,139,250,.15);color:#c9b8ff;border:1px solid rgba(167,139,250,.4)}\n#guia-doc .b-blue{background:rgba(79,140,255,.15);color:#9dc0ff;border:1px solid rgba(79,140,255,.4)}\n#guia-doc .note{background:linear-gradient(90deg,rgba(79,140,255,.1),transparent);border:1px solid var(--edge);\n       border-left:3px solid var(--accent);border-radius:10px;padding:12px 16px;margin:14px 0;font-size:.92rem;color:#cfe0ff}\n#guia-doc .warn{background:linear-gradient(90deg,rgba(217,119,6,.12),transparent);border:1px solid var(--edge);\n       border-left:3px solid var(--amber);border-radius:10px;padding:12px 16px;margin:14px 0;font-size:.92rem;color:#f3d9b0}\n#guia-doc pre{background:#070b15;border:1px solid var(--edge);border-radius:12px;padding:15px 16px;overflow:auto;\n      font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.8rem;color:#cfe0ff;line-height:1.5}\n#guia-doc pre .c{color:#6b86b8}\n#guia-doc .pre .k{color:#f0b65f}\n#guia-doc .fig{background:var(--surface);border:1px solid var(--edge);border-radius:14px;padding:18px;margin:16px 0;overflow:auto}\n#guia-doc .fig figcaption{color:var(--muted);font-size:.84rem;margin-top:10px;text-align:center}\n#guia-doc svg{display:block;margin:0 auto;max-width:100%;height:auto}\n#guia-doc .legend{display:flex;flex-wrap:wrap;gap:14px;margin:8px 0;font-size:.82rem;color:var(--muted)}\n#guia-doc .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:middle}\n#guia-doc .glo dt{font-weight:700;color:var(--accent2);margin-top:12px}\n#guia-doc .glo dd{margin:2px 0 0;color:var(--muted)}\n#guia-doc ul.tight{margin:6px 0;padding-left:20px}\n#guia-doc ul.tight li{margin:3px 0}\n#guia-doc .chip-row{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}\n#guia-doc .file{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.82rem;color:#9dc0ff}\n#guia-doc .imp{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px dashed var(--edge)}\n#guia-doc .imp .pr{flex:0 0 auto;width:74px}\n#guia-doc footer{padding:32px 22px;color:var(--muted);font-size:.85rem;text-align:center}\n#guia-doc .toggle{cursor:pointer;color:var(--accent);font-size:.85rem}\n#guia-doc details{margin:8px 0}\n#guia-doc summary{cursor:pointer;color:var(--accent2);font-weight:600}\n#guia-doc .flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:8px;margin:14px 0}\n#guia-doc .flow .step{flex:1 1 150px;background:var(--surface2);border:1px solid var(--edge2);border-radius:11px;padding:11px 13px;font-size:.86rem}\n#guia-doc .flow .step b{display:block;color:#dbe6fb;margin-bottom:2px}\n#guia-doc .flow .arr{align-self:center;color:var(--accent);font-weight:800}\n#guia-doc .simple{background:linear-gradient(90deg,rgba(52,211,153,.12),transparent);border:1px solid var(--edge);\n       border-left:3px solid var(--accent2);border-radius:10px;padding:11px 16px;margin:10px 0 18px;font-size:.95rem;color:#c6f0dd}";
 
-const GUIA_HTML = "<header class=\"hero\">\n  <div class=\"wrap\">\n    <div class=\"tag\">Datawith.AI · Referencia técnica &amp; funcional · v2</div>\n    <h1>Agente de Selección de Talento — Guía End-to-End</h1>\n    <p>Documento integral para <b>revisar todo lo construido</b> (qué hay, cómo encaja, qué APIs consume,\n    qué agentes y prompts usa) e <b>identificar mejoras</b>. Combina la mirada <b>funcional</b> (qué hace\n    para RR.HH. y el candidato) con la <b>técnica</b> (capas, archivos, flujos, datos), apoyada en\n    diagramas visuales.</p>\n    <div style=\"margin-top:14px\">\n      <span class=\"pill\">Python 3.12 · uv</span><span class=\"pill\">LangGraph (durable)</span>\n      <span class=\"pill\">FastAPI</span><span class=\"pill\">Next.js 16 + React</span>\n      <span class=\"pill\">Supabase / PostgreSQL</span><span class=\"pill\">Telegram Bot</span>\n      <span class=\"pill\">LLM: Groq · Qwen3-32B</span><span class=\"pill\">Google Calendar + Sheets</span>\n      <span class=\"pill\">RAG: Chroma + e5</span><span class=\"pill\">56 tests</span>\n    </div>\n  </div>\n</header>\n\n<nav class=\"toc\"><div class=\"wrap\">\n  <a href=\"#resumen\">0 · Resumen</a>\n  <a href=\"#funcional\">1 · Visión funcional</a>\n  <a href=\"#arquitectura\">2 · Arquitectura</a>\n  <a href=\"#modulos\">3 · Módulos</a>\n  <a href=\"#cerebro\">4 · Cerebro &amp; estados</a>\n  <a href=\"#turno\">5 · Un turno (secuencia)</a>\n  <a href=\"#evaluacion\">6 · Evaluación</a>\n  <a href=\"#sourcing\">7 · Sourcing &amp; pre-filtro</a>\n  <a href=\"#agendamiento\">8 · Agendamiento</a>\n  <a href=\"#llm\">9 · LLM &amp; prompts</a>\n  <a href=\"#apis\">10 · APIs</a>\n  <a href=\"#datos\">11 · Datos</a>\n  <a href=\"#config\">12 · Config</a>\n  <a href=\"#libs\">13 · Librerías</a>\n  <a href=\"#run\">14 · Levantar</a>\n  <a href=\"#mejoras\">15 · Mejoras</a>\n  <a href=\"#glosario\">16 · Glosario</a>\n</div></nav>\n\n<main class=\"wrap\">\n\n<!-- 0 -->\n<section id=\"resumen\">\n  <h2><span class=\"num\">0</span>Resumen ejecutivo</h2>\n  <p class=\"lead\">Un asistente de IA que conduce la <b>entrevista de selección por Telegram</b>, evalúa al\n  candidato contra los criterios de la vacante, entrega a RR.HH. un <b>scorecard con semáforo</b> y,\n  tras la aprobación, <b>coordina y agenda la entrevista final</b> (Google Calendar + Meet + Sheets),\n  notificando por correo y Telegram. Inspirado en \"SofIA\" de Sifrah.</p>\n  <div class=\"grid g4\">\n    <div class=\"card\"><div class=\"kpi\">9</div><div class=\"kpi-lbl\">capas de arquitectura</div></div>\n    <div class=\"card\"><div class=\"kpi\">6</div><div class=\"kpi-lbl\">etapas de LLM (con conteo de tokens)</div></div>\n    <div class=\"card\"><div class=\"kpi\">7</div><div class=\"kpi-lbl\">fases de la conversación</div></div>\n    <div class=\"card\"><div class=\"kpi\">11</div><div class=\"kpi-lbl\">tablas PostgreSQL</div></div>\n    <div class=\"card\"><div class=\"kpi\">23</div><div class=\"kpi-lbl\">endpoints REST</div></div>\n    <div class=\"card\"><div class=\"kpi\">12</div><div class=\"kpi-lbl\">migraciones SQL</div></div>\n    <div class=\"card\"><div class=\"kpi\">58</div><div class=\"kpi-lbl\">parámetros de configuración</div></div>\n    <div class=\"card\"><div class=\"kpi\">56</div><div class=\"kpi-lbl\">tests automatizados (verde)</div></div>\n  </div>\n  <div class=\"note\">🧭 <b>Principio rector:</b> el <b>cerebro</b> (qué decir) es lógica <b>pura y testeable</b>\n  (sin red ni base de datos); el <b>servicio</b> es quien produce los efectos (enviar, guardar, agendar).\n  Las integraciones externas tienen siempre una <b>versión simulada</b> para correr y testear sin credenciales.</div>\n</section>\n\n<!-- 1 -->\n<section id=\"funcional\">\n  <h2><span class=\"num\">1</span>Visión funcional — el viaje completo</h2>\n  <p class=\"lead\">Dos actores: el <b>candidato</b> (chatea por Telegram) y <b>RR.HH.</b> (usa el dashboard web).\n  El siguiente diagrama muestra el recorrido completo y quién dispara cada paso.</p>\n\n  <figure class=\"fig\">\n  <svg viewBox=\"0 0 1060 430\" role=\"img\" aria-label=\"Viaje del candidato\">\n    <defs>\n      <marker id=\"ar\" markerWidth=\"9\" markerHeight=\"9\" refX=\"7\" refY=\"3\" orient=\"auto\">\n        <path d=\"M0,0 L7,3 L0,6 Z\" fill=\"#4f8cff\"/></marker>\n      <marker id=\"arg\" markerWidth=\"9\" markerHeight=\"9\" refX=\"7\" refY=\"3\" orient=\"auto\">\n        <path d=\"M0,0 L7,3 L0,6 Z\" fill=\"#22d3a8\"/></marker>\n    </defs>\n    <!-- swimlane labels -->\n    <text x=\"14\" y=\"58\" fill=\"#97a6c0\" font-size=\"12\" font-weight=\"700\">SISTEMA</text>\n    <text x=\"14\" y=\"168\" fill=\"#97a6c0\" font-size=\"12\" font-weight=\"700\">CANDIDATO</text>\n    <text x=\"14\" y=\"300\" fill=\"#97a6c0\" font-size=\"12\" font-weight=\"700\">RR.HH.</text>\n    <line x1=\"120\" y1=\"20\" x2=\"120\" y2=\"410\" stroke=\"#26324a\"/>\n    <!-- boxes helper via groups -->\n    <!-- row sistema -->\n    <g font-size=\"12\" fill=\"#e8eef9\">\n      <rect x=\"140\" y=\"34\" width=\"120\" height=\"44\" rx=\"8\" fill=\"#18233a\" stroke=\"#4f8cff\"/>\n      <text x=\"200\" y=\"52\" text-anchor=\"middle\" font-weight=\"700\">1 · Sourcing</text>\n      <text x=\"200\" y=\"68\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">importa postulantes</text>\n\n      <rect x=\"300\" y=\"34\" width=\"120\" height=\"44\" rx=\"8\" fill=\"#18233a\" stroke=\"#4f8cff\"/>\n      <text x=\"360\" y=\"52\" text-anchor=\"middle\" font-weight=\"700\">2 · Pre-filtro CV</text>\n      <text x=\"360\" y=\"68\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">IA puntúa el CV</text>\n\n      <rect x=\"460\" y=\"34\" width=\"120\" height=\"44\" rx=\"8\" fill=\"#18233a\" stroke=\"#4f8cff\"/>\n      <text x=\"520\" y=\"52\" text-anchor=\"middle\" font-weight=\"700\">6 · Scorecard</text>\n      <text x=\"520\" y=\"68\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">🟢🟡🔴 + email</text>\n\n      <rect x=\"780\" y=\"34\" width=\"140\" height=\"44\" rx=\"8\" fill=\"#18233a\" stroke=\"#22d3a8\"/>\n      <text x=\"850\" y=\"52\" text-anchor=\"middle\" font-weight=\"700\">8 · Agendamiento</text>\n      <text x=\"850\" y=\"68\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">Calendar+Meet+Sheets</text>\n    </g>\n    <!-- row candidato -->\n    <g font-size=\"12\" fill=\"#e8eef9\">\n      <rect x=\"300\" y=\"146\" width=\"120\" height=\"44\" rx=\"8\" fill=\"#1a2438\" stroke=\"#a78bfa\"/>\n      <text x=\"360\" y=\"164\" text-anchor=\"middle\" font-weight=\"700\">3 · Contacto</text>\n      <text x=\"360\" y=\"180\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">saludo + botones</text>\n\n      <rect x=\"460\" y=\"146\" width=\"120\" height=\"44\" rx=\"8\" fill=\"#1a2438\" stroke=\"#a78bfa\"/>\n      <text x=\"520\" y=\"164\" text-anchor=\"middle\" font-weight=\"700\">4 · Entrevista</text>\n      <text x=\"520\" y=\"180\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">preguntas + repreguntas</text>\n\n      <rect x=\"780\" y=\"146\" width=\"140\" height=\"44\" rx=\"8\" fill=\"#1a2438\" stroke=\"#a78bfa\"/>\n      <text x=\"850\" y=\"164\" text-anchor=\"middle\" font-weight=\"700\">Confirma horario</text>\n      <text x=\"850\" y=\"180\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">elige opción 1·2·3</text>\n    </g>\n    <!-- row rrhh -->\n    <g font-size=\"12\" fill=\"#e8eef9\">\n      <rect x=\"620\" y=\"278\" width=\"130\" height=\"44\" rx=\"8\" fill=\"#142235\" stroke=\"#22d3a8\"/>\n      <text x=\"685\" y=\"296\" text-anchor=\"middle\" font-weight=\"700\">7 · Decisión</text>\n      <text x=\"685\" y=\"312\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">Continuar / Rechazar</text>\n    </g>\n    <!-- arrows -->\n    <path d=\"M260,56 L298,56\" stroke=\"#4f8cff\" fill=\"none\" marker-end=\"url(#ar)\"/>\n    <path d=\"M360,80 L360,144\" stroke=\"#4f8cff\" fill=\"none\" marker-end=\"url(#ar)\"/>\n    <path d=\"M420,168 L458,168\" stroke=\"#a78bfa\" fill=\"none\" marker-end=\"url(#ar)\"/>\n    <path d=\"M540,146 Q540,110 520,80\" stroke=\"#a78bfa\" fill=\"none\" marker-end=\"url(#ar)\"/>\n    <path d=\"M520,80 L520,80\" />\n    <path d=\"M520,78 L520,32\" stroke=\"#4f8cff\" fill=\"none\"/>\n    <path d=\"M540,80 C560,150 640,210 670,276\" stroke=\"#22d3a8\" fill=\"none\" marker-end=\"url(#arg)\"/>\n    <path d=\"M750,296 C820,280 850,220 850,192\" stroke=\"#22d3a8\" fill=\"none\" marker-end=\"url(#arg)\"/>\n    <path d=\"M850,144 L850,80\" stroke=\"#22d3a8\" fill=\"none\" marker-end=\"url(#arg)\"/>\n    <text x=\"250\" y=\"120\" fill=\"#97a6c0\" font-size=\"10\">apto→contactar</text>\n    <text x=\"690\" y=\"240\" fill=\"#22d3a8\" font-size=\"10\">scorecard→RR.HH.</text>\n  </svg>\n  <figcaption>Flujo end-to-end por carriles (sistema / candidato / RR.HH.). El sistema importa y filtra;\n  el candidato conversa; RR.HH. decide; el sistema agenda.</figcaption>\n  </figure>\n\n  <h3>Pantallas del dashboard (RR.HH.)</h3>\n  <div class=\"grid g2\">\n    <div class=\"card\"><h4>🏠 Inicio <span class=\"file\">app/page.tsx</span></h4>\n      Métricas globales (embudo + tokens), <b>roster de RR.HH.</b> con cartillas, lista de vacantes y alta de vacante (con selector de reclutador).</div>\n    <div class=\"card\"><h4>📄 Vacante <span class=\"file\">app/vacantes/[id]/page.tsx</span></h4>\n      Candidatos con semáforo, embudo y tokens de la vacante, botón \"Sincronizar postulantes\", botón \"Contactar\".</div>\n    <div class=\"card\"><h4>👤 Candidato <span class=\"file\">app/candidatos/[id]/page.tsx</span></h4>\n      Stepper de fase, perfil CV, pre-filtro, scorecard, <b>radar por criterio</b>, documentos, decisión <b>Continuar→Agendar</b>, y la <b>card de la reunión</b>.</div>\n    <div class=\"card\"><h4>⚙️ Configuración <span class=\"file\">app/configuracion/page.tsx</span></h4>\n      Auto-contacto (horarios), inactividad (recordatorios) y agendamiento (proveedor, horario, opciones).</div>\n  </div>\n</section>\n\n<!-- 2 -->\n<section id=\"arquitectura\">\n  <h2><span class=\"num\">2</span>Arquitectura por capas</h2>\n  <p class=\"lead\">9 capas con responsabilidad única. Las flechas indican dependencia/uso. El color agrupa\n  por naturaleza: <span class=\"badge b-blue\">interfaz</span> · <span class=\"badge b-violet\">cerebro</span> ·\n  <span class=\"badge b-amber\">evaluación</span> · <span class=\"badge b-green\">datos/externos</span>.</p>\n\n  <figure class=\"fig\">\n  <svg viewBox=\"0 0 1040 560\" role=\"img\" aria-label=\"Arquitectura por capas\">\n    <defs>\n      <marker id=\"a2\" markerWidth=\"9\" markerHeight=\"9\" refX=\"7\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L7,3 L0,6 Z\" fill=\"#5b6c8c\"/></marker>\n    </defs>\n    <!-- actors -->\n    <g font-size=\"12\">\n      <rect x=\"60\" y=\"20\" width=\"180\" height=\"40\" rx=\"8\" fill=\"#1a2438\" stroke=\"#a78bfa\"/>\n      <text x=\"150\" y=\"45\" text-anchor=\"middle\" fill=\"#e8eef9\" font-weight=\"700\">Candidato · Telegram</text>\n      <rect x=\"800\" y=\"20\" width=\"180\" height=\"40\" rx=\"8\" fill=\"#142235\" stroke=\"#22d3a8\"/>\n      <text x=\"890\" y=\"45\" text-anchor=\"middle\" fill=\"#e8eef9\" font-weight=\"700\">RR.HH. · Navegador</text>\n    </g>\n    <!-- interface layer -->\n    <g font-size=\"12\">\n      <rect x=\"40\" y=\"90\" width=\"220\" height=\"54\" rx=\"10\" fill=\"#13203a\" stroke=\"#4f8cff\"/>\n      <text x=\"150\" y=\"112\" text-anchor=\"middle\" fill=\"#e8eef9\" font-weight=\"700\">Canal (Telegram)</text>\n      <text x=\"150\" y=\"130\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">channels/ · api/telegram_bot.py</text>\n      <rect x=\"780\" y=\"90\" width=\"220\" height=\"54\" rx=\"10\" fill=\"#13203a\" stroke=\"#4f8cff\"/>\n      <text x=\"890\" y=\"112\" text-anchor=\"middle\" fill=\"#e8eef9\" font-weight=\"700\">Dashboard (Next.js 16)</text>\n      <text x=\"890\" y=\"130\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">frontend/</text>\n    </g>\n    <!-- API -->\n    <rect x=\"330\" y=\"170\" width=\"380\" height=\"50\" rx=\"10\" fill=\"#13203a\" stroke=\"#4f8cff\"/>\n    <text x=\"520\" y=\"191\" text-anchor=\"middle\" fill=\"#e8eef9\" font-size=\"12\" font-weight=\"700\">API · FastAPI — api/main.py</text>\n    <text x=\"520\" y=\"208\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">23 endpoints · lifespan (bot + planificador 30s) · CORS</text>\n    <!-- Service -->\n    <rect x=\"360\" y=\"248\" width=\"320\" height=\"50\" rx=\"10\" fill=\"#161f33\" stroke=\"#a78bfa\"/>\n    <text x=\"520\" y=\"269\" text-anchor=\"middle\" fill=\"#e8eef9\" font-size=\"12\" font-weight=\"700\">Servicio (orquestador) · agent/service.py</text>\n    <text x=\"520\" y=\"286\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">process · initiate_contact/scheduling · _sync_business</text>\n    <!-- middle row: brain / evaluation / integrations / notifications -->\n    <g font-size=\"11.5\">\n      <rect x=\"60\" y=\"330\" width=\"190\" height=\"58\" rx=\"10\" fill=\"#171a33\" stroke=\"#a78bfa\"/>\n      <text x=\"155\" y=\"352\" text-anchor=\"middle\" fill=\"#e8eef9\" font-weight=\"700\">Cerebro · LangGraph</text>\n      <text x=\"155\" y=\"369\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">agent/ graph·state·nodes</text>\n      <text x=\"155\" y=\"382\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">checkpointer Postgres</text>\n\n      <rect x=\"270\" y=\"330\" width=\"190\" height=\"58\" rx=\"10\" fill=\"#211a14\" stroke=\"#d97706\"/>\n      <text x=\"365\" y=\"352\" text-anchor=\"middle\" fill=\"#e8eef9\" font-weight=\"700\">Evaluación</text>\n      <text x=\"365\" y=\"369\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">prescreen·scorer</text>\n      <text x=\"365\" y=\"382\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">scorecard</text>\n\n      <rect x=\"580\" y=\"330\" width=\"190\" height=\"58\" rx=\"10\" fill=\"#13231d\" stroke=\"#16a34a\"/>\n      <text x=\"675\" y=\"352\" text-anchor=\"middle\" fill=\"#e8eef9\" font-weight=\"700\">Integraciones</text>\n      <text x=\"675\" y=\"369\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">sourcing · scheduling</text>\n      <text x=\"675\" y=\"382\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">(Google · simulado)</text>\n\n      <rect x=\"790\" y=\"330\" width=\"190\" height=\"58\" rx=\"10\" fill=\"#13231d\" stroke=\"#16a34a\"/>\n      <text x=\"885\" y=\"352\" text-anchor=\"middle\" fill=\"#e8eef9\" font-weight=\"700\">Notificaciones</text>\n      <text x=\"885\" y=\"369\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">email (SMTP)</text>\n      <text x=\"885\" y=\"382\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">Telegram</text>\n    </g>\n    <!-- bottom row: LLM / RAG / DB -->\n    <g font-size=\"11.5\">\n      <rect x=\"120\" y=\"430\" width=\"200\" height=\"52\" rx=\"10\" fill=\"#171a33\" stroke=\"#a78bfa\"/>\n      <text x=\"220\" y=\"451\" text-anchor=\"middle\" fill=\"#e8eef9\" font-weight=\"700\">LLM · Groq/Qwen3</text>\n      <text x=\"220\" y=\"468\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">compatible-OpenAI · MeteredLLM</text>\n\n      <rect x=\"420\" y=\"430\" width=\"200\" height=\"52\" rx=\"10\" fill=\"#211a14\" stroke=\"#d97706\"/>\n      <text x=\"520\" y=\"451\" text-anchor=\"middle\" fill=\"#e8eef9\" font-weight=\"700\">RAG · src/</text>\n      <text x=\"520\" y=\"468\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">Chroma + e5 + reranker</text>\n\n      <rect x=\"720\" y=\"430\" width=\"200\" height=\"52\" rx=\"10\" fill=\"#13231d\" stroke=\"#16a34a\"/>\n      <text x=\"820\" y=\"451\" text-anchor=\"middle\" fill=\"#e8eef9\" font-weight=\"700\">Persistencia</text>\n      <text x=\"820\" y=\"468\" text-anchor=\"middle\" fill=\"#97a6c0\" font-size=\"10.5\">Supabase/Postgres · db/</text>\n    </g>\n    <!-- connectors -->\n    <g stroke=\"#5b6c8c\" fill=\"none\" marker-end=\"url(#a2)\">\n      <path d=\"M150,60 L150,88\"/><path d=\"M890,60 L890,88\"/>\n      <path d=\"M150,144 L300,170\"/><path d=\"M880,144 L710,170\"/>\n      <path d=\"M520,220 L520,246\"/>\n      <path d=\"M430,298 L200,328\"/><path d=\"M470,298 L380,328\"/>\n      <path d=\"M600,298 L660,328\"/><path d=\"M650,298 L840,328\"/>\n      <path d=\"M180,388 L210,428\"/><path d=\"M360,388 L500,428\"/>\n      <path d=\"M470,388 L760,428\" /><path d=\"M700,388 L800,428\"/>\n    </g>\n  </svg>\n  <figcaption>El dashboard y el canal entran por la API → Servicio. El Servicio coordina Cerebro,\n  Evaluación, Integraciones y Notificaciones, que se apoyan en LLM, RAG y la base de datos.</figcaption>\n  </figure>\n\n  <div class=\"legend\">\n    <span><i style=\"background:#4f8cff\"></i>Interfaz / API</span>\n    <span><i style=\"background:#a78bfa\"></i>Cerebro / LLM</span>\n    <span><i style=\"background:#d97706\"></i>Evaluación / RAG</span>\n    <span><i style=\"background:#16a34a\"></i>Datos / externos</span>\n  </div>\n</section>\n\n<!-- 3 -->\n<section id=\"modulos\">\n  <h2><span class=\"num\">3</span>Módulos y archivos (qué hace cada uno)</h2>\n  <p class=\"lead\">Mapa archivo-por-archivo del repositorio para ubicarse rápido.</p>\n  <table>\n    <tr><th>Carpeta / archivo</th><th>Responsabilidad</th></tr>\n    <tr><td class=\"file\">api/main.py</td><td>FastAPI: 23 endpoints, lifespan (arranca bot + planificador), barrido de inactividad y auto-contacto, helper <code>_inactivity_decision</code>, <code>_bot_send</code>.</td></tr>\n    <tr><td class=\"file\">api/telegram_bot.py</td><td>Bot PTB (polling): handlers de texto/botón/documento, construye el <code>InterviewService</code> con runner, scheduler, settings y notificadores.</td></tr>\n    <tr><td class=\"file\">channels/{base,telegram,whatsapp}.py</td><td>Interfaz <code>Channel</code> + <code>InboundMessage</code>; envío con botones inline; WhatsApp como stub.</td></tr>\n    <tr><td class=\"file\">agent/service.py</td><td><b>Orquestador.</b> <code>process</code>, <code>initiate_contact</code>, <code>initiate_scheduling</code>, <code>_finalize_scheduling</code>, <code>finalize_inactive</code>, proyección a Supabase (<code>_sync_business</code>).</td></tr>\n    <tr><td class=\"file\">agent/graph.py</td><td>Compila el grafo (un nodo \"turn\"), runner durable (<code>MemorySaver</code>/<code>PostgresSaver</code>), <code>send(text|button|document|timeout|start_scheduling)</code>.</td></tr>\n    <tr><td class=\"file\">agent/state.py</td><td>TypedDict del estado + las 7 fases + <code>new_state</code> + <code>current_question</code>.</td></tr>\n    <tr><td class=\"file\">agent/nodes.py</td><td><b>Lógica conversacional pura</b>: consentimiento, entrevista, follow-ups, documentos, inactividad, agendamiento.</td></tr>\n    <tr><td class=\"file\">agent/prompts.py</td><td>Los 6 prompts de LLM + plantillas de mensajes (saludos, recordatorios, confirmaciones).</td></tr>\n    <tr><td class=\"file\">agent/llm.py</td><td><code>LangChainLLM</code>, <code>MeteredLLM</code> (cuenta tokens por etapa), <code>complete_staged</code>, <code>parse_json_object</code>, <code>build_default_llm</code>.</td></tr>\n    <tr><td class=\"file\">agent/sourcing_service.py</td><td>Orquesta importar → pre-filtrar → (opcional) contactar; <code>SyncReport</code>.</td></tr>\n    <tr><td class=\"file\">evaluation/prescreen.py</td><td>Gate del CV con LLM + fallback heurístico.</td></tr>\n    <tr><td class=\"file\">evaluation/scorer.py</td><td><code>classify_turn</code>, <code>answer_candidate_question</code>, <code>evaluate_answer</code>, <code>parse_slot_choice</code>.</td></tr>\n    <tr><td class=\"file\">evaluation/scorecard.py</td><td>Total ponderado, semáforo, resumen+recomendación con LLM.</td></tr>\n    <tr><td class=\"file\">integrations/sourcing.py</td><td><code>SourcingConnector</code> + <code>SimulatedConnector</code> (fixture Bumeran) + factory.</td></tr>\n    <tr><td class=\"file\">integrations/scheduling.py</td><td><code>SchedulingBackend</code> + <code>SimulatedScheduler</code>/<code>GoogleScheduler</code> + <code>compute_free_slots</code> (puro) + helpers de formato.</td></tr>\n    <tr><td class=\"file\">db/{client,repositories}.py</td><td>Cliente Supabase + CRUD (vacantes, candidatos, conversaciones, mensajes, respuestas, scorecards, reuniones, reclutadores, settings, métricas).</td></tr>\n    <tr><td class=\"file\">notifications/{email,candidate}.py</td><td>Email SMTP (scorecard + reunión) y notificación por Telegram (HTTP directo).</td></tr>\n    <tr><td class=\"file\">src/</td><td>RAG heredado: <code>qa_chain</code>, <code>vectorstore</code>, <code>embeddings</code>, <code>reranker</code>, <code>semantic_cache</code>, <code>config</code>, <code>registry</code>, logging/observabilidad.</td></tr>\n    <tr><td class=\"file\">supabase/migrations/*.sql</td><td>10 migraciones (esquema + seeds + grants), aplicadas al levantar la base.</td></tr>\n    <tr><td class=\"file\">frontend/src/</td><td>Dashboard: <code>lib/api.ts</code> (cliente + tipos), <code>components/Shell.tsx</code>, 4 rutas.</td></tr>\n  </table>\n</section>\n\n<!-- 4 -->\n<section id=\"cerebro\">\n  <h2><span class=\"num\">4</span>El cerebro: máquina de estados durable</h2>\n  <p class=\"lead\">LangGraph modela la conversación como fases. Cada mensaje avanza el estado, que se persiste\n  con un <i>checkpointer</i> en PostgreSQL (hilo = <code>telegram:&lt;chat_id&gt;</code>), de modo que una\n  entrevista es reanudable aunque el servidor se reinicie.</p>\n\n  <figure class=\"fig\">\n  <svg viewBox=\"0 0 1020 360\" role=\"img\" aria-label=\"Máquina de estados\">\n    <defs><marker id=\"sm\" markerWidth=\"9\" markerHeight=\"9\" refX=\"7\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L7,3 L0,6 Z\" fill=\"#7f8db0\"/></marker></defs>\n    <!-- nodes -->\n    <g font-size=\"12\" fill=\"#e8eef9\" text-anchor=\"middle\">\n      <rect x=\"30\" y=\"150\" width=\"120\" height=\"46\" rx=\"23\" fill=\"#1a2438\" stroke=\"#4f8cff\"/><text x=\"90\" y=\"178\">greeting</text>\n      <rect x=\"210\" y=\"150\" width=\"130\" height=\"46\" rx=\"12\" fill=\"#1a2438\" stroke=\"#a78bfa\"/><text x=\"275\" y=\"178\">interviewing</text>\n      <rect x=\"400\" y=\"60\" width=\"140\" height=\"46\" rx=\"12\" fill=\"#211a14\" stroke=\"#d97706\"/><text x=\"470\" y=\"88\">awaiting_docs</text>\n      <rect x=\"400\" y=\"240\" width=\"140\" height=\"46\" rx=\"12\" fill=\"#13231d\" stroke=\"#16a34a\"/><text x=\"470\" y=\"268\">finished</text>\n      <rect x=\"610\" y=\"150\" width=\"130\" height=\"46\" rx=\"12\" fill=\"#211a14\" stroke=\"#d97706\"/><text x=\"675\" y=\"178\">scheduling</text>\n      <rect x=\"810\" y=\"150\" width=\"130\" height=\"46\" rx=\"23\" fill=\"#13231d\" stroke=\"#16a34a\"/><text x=\"875\" y=\"178\">scheduled</text>\n      <rect x=\"210\" y=\"290\" width=\"130\" height=\"44\" rx=\"12\" fill=\"#241318\" stroke=\"#dc2626\"/><text x=\"275\" y=\"317\">closed</text>\n    </g>\n    <!-- transitions -->\n    <g stroke=\"#7f8db0\" fill=\"none\" marker-end=\"url(#sm)\" font-size=\"10.5\">\n      <path d=\"M150,173 L208,173\"/><text x=\"178\" y=\"166\" fill=\"#22d3a8\" text-anchor=\"middle\">Acepto</text>\n      <path d=\"M330,160 C370,120 380,100 398,92\"/><text x=\"372\" y=\"120\" fill=\"#97a6c0\">verde</text>\n      <path d=\"M330,186 C370,220 380,236 398,250\"/><text x=\"360\" y=\"232\" fill=\"#97a6c0\">🟡/🔴</text>\n      <path d=\"M540,86 C575,110 600,140 612,158\"/><text x=\"600\" y=\"120\" fill=\"#97a6c0\">docs ok</text>\n      <path d=\"M540,260 C580,230 600,200 612,182\"/><text x=\"568\" y=\"210\" fill=\"#22d3a8\">RR.HH. Continuar</text>\n      <path d=\"M740,173 L808,173\"/><text x=\"774\" y=\"166\" fill=\"#22d3a8\" text-anchor=\"middle\">elige horario</text>\n      <path d=\"M275,196 L275,288\"/><text x=\"320\" y=\"245\" fill=\"#f08a8a\">No interesado / sin respuesta</text>\n      <path d=\"M90,196 C90,300 150,312 208,312\"/>\n    </g>\n  </svg>\n  <figcaption>Fases y transiciones. Verde = cumple perfil (pide documentos); 🟡/🔴 = termina sin documentos;\n  RR.HH. \"Continuar\" abre <code>scheduling</code>; elegir horario crea la reunión (<code>scheduled</code>).</figcaption>\n  </figure>\n\n  <h3>Campos clave del estado <span class=\"file\">agent/state.py</span></h3>\n  <div class=\"chip-row\">\n    <span class=\"badge b-blue\">phase</span><span class=\"badge b-blue\">consented</span>\n    <span class=\"badge b-blue\">current_idx</span><span class=\"badge b-blue\">follow_ups_used</span>\n    <span class=\"badge b-blue\">answers[]</span><span class=\"badge b-blue\">scorecard</span>\n    <span class=\"badge b-amber\">doc_idx</span><span class=\"badge b-amber\">save_document</span>\n    <span class=\"badge b-green\">proposed_slots[]</span><span class=\"badge b-green\">meeting_slot</span><span class=\"badge b-green\">recruiter</span>\n    <span class=\"badge b-red\">pending_timeout</span><span class=\"badge b-red\">closed_reason</span>\n    <span class=\"badge b-violet\">outbound[]</span><span class=\"badge b-violet\">show_consent_buttons</span>\n  </div>\n</section>\n\n<!-- 5 -->\n<section id=\"turno\">\n  <h2><span class=\"num\">5</span>Anatomía de un turno de entrevista (secuencia)</h2>\n  <p class=\"lead\">Qué ocurre, paso a paso, cuando el candidato envía un mensaje durante la entrevista.\n  El trabajo bloqueante (LLM, DB) corre en un hilo aparte para no congelar el bot.</p>\n\n  <figure class=\"fig\">\n  <svg viewBox=\"0 0 1000 540\" role=\"img\" aria-label=\"Secuencia de un turno\">\n    <defs><marker id=\"mq\" markerWidth=\"9\" markerHeight=\"9\" refX=\"7\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L7,3 L0,6 Z\" fill=\"#4f8cff\"/></marker>\n      <marker id=\"mqr\" markerWidth=\"9\" markerHeight=\"9\" refX=\"1\" refY=\"3\" orient=\"auto\"><path d=\"M7,0 L0,3 L7,6 Z\" fill=\"#22d3a8\"/></marker></defs>\n    <!-- lifelines -->\n    <g font-size=\"11.5\" fill=\"#e8eef9\" text-anchor=\"middle\">\n      <rect x=\"20\" y=\"20\" width=\"120\" height=\"36\" rx=\"8\" fill=\"#1a2438\" stroke=\"#a78bfa\"/><text x=\"80\" y=\"43\">Candidato</text>\n      <rect x=\"200\" y=\"20\" width=\"120\" height=\"36\" rx=\"8\" fill=\"#13203a\" stroke=\"#4f8cff\"/><text x=\"260\" y=\"43\">Bot Telegram</text>\n      <rect x=\"390\" y=\"20\" width=\"120\" height=\"36\" rx=\"8\" fill=\"#161f33\" stroke=\"#a78bfa\"/><text x=\"450\" y=\"43\">Servicio</text>\n      <rect x=\"580\" y=\"20\" width=\"130\" height=\"36\" rx=\"8\" fill=\"#171a33\" stroke=\"#a78bfa\"/><text x=\"645\" y=\"43\">Cerebro + LLM</text>\n      <rect x=\"800\" y=\"20\" width=\"120\" height=\"36\" rx=\"8\" fill=\"#13231d\" stroke=\"#16a34a\"/><text x=\"860\" y=\"43\">Supabase</text>\n    </g>\n    <g stroke=\"#26324a\" stroke-dasharray=\"3 4\">\n      <line x1=\"80\" y1=\"56\" x2=\"80\" y2=\"520\"/><line x1=\"260\" y1=\"56\" x2=\"260\" y2=\"520\"/>\n      <line x1=\"450\" y1=\"56\" x2=\"450\" y2=\"520\"/><line x1=\"645\" y1=\"56\" x2=\"645\" y2=\"520\"/>\n      <line x1=\"860\" y1=\"56\" x2=\"860\" y2=\"520\"/>\n    </g>\n    <!-- messages -->\n    <g font-size=\"10.5\" fill=\"#cfe0ff\">\n      <line x1=\"80\" y1=\"86\" x2=\"258\" y2=\"86\" stroke=\"#4f8cff\" marker-end=\"url(#mq)\"/><text x=\"170\" y=\"80\" text-anchor=\"middle\">mensaje de texto</text>\n      <line x1=\"260\" y1=\"116\" x2=\"448\" y2=\"116\" stroke=\"#4f8cff\" marker-end=\"url(#mq)\"/><text x=\"354\" y=\"110\" text-anchor=\"middle\">process(Inbound) · en hilo</text>\n      <line x1=\"450\" y1=\"146\" x2=\"643\" y2=\"146\" stroke=\"#4f8cff\" marker-end=\"url(#mq)\"/><text x=\"546\" y=\"140\" text-anchor=\"middle\">runner.send(text)</text>\n      <path d=\"M660,176 C720,176 720,200 662,200\" fill=\"none\" stroke=\"#a78bfa\" marker-end=\"url(#mq)\"/><text x=\"745\" y=\"184\" fill=\"#c9b8ff\">LLM: classify</text>\n      <path d=\"M660,230 C720,230 720,254 662,254\" fill=\"none\" stroke=\"#a78bfa\" marker-end=\"url(#mq)\"/><text x=\"752\" y=\"238\" fill=\"#c9b8ff\">LLM: evaluate</text>\n      <text x=\"645\" y=\"288\" text-anchor=\"middle\" fill=\"#97a6c0\">¿follow-up? → repregunta · si no, cierra respuesta</text>\n      <line x1=\"643\" y1=\"320\" x2=\"452\" y2=\"320\" stroke=\"#22d3a8\" marker-end=\"url(#mqr)\"/><text x=\"546\" y=\"314\" text-anchor=\"middle\">estado + outbound</text>\n      <line x1=\"450\" y1=\"352\" x2=\"858\" y2=\"352\" stroke=\"#4f8cff\" marker-end=\"url(#mq)\"/><text x=\"650\" y=\"346\" text-anchor=\"middle\">guarda mensaje · respuesta · estado · tokens</text>\n      <text x=\"450\" y=\"392\" text-anchor=\"middle\" fill=\"#97a6c0\">si fase=finished → build_scorecard + email a RR.HH.</text>\n      <line x1=\"448\" y1=\"424\" x2=\"262\" y2=\"424\" stroke=\"#22d3a8\" marker-end=\"url(#mqr)\"/><text x=\"354\" y=\"418\" text-anchor=\"middle\">TurnResult(messages)</text>\n      <line x1=\"258\" y1=\"456\" x2=\"82\" y2=\"456\" stroke=\"#22d3a8\" marker-end=\"url(#mqr)\"/><text x=\"170\" y=\"450\" text-anchor=\"middle\">siguiente pregunta / repregunta</text>\n    </g>\n    <text x=\"500\" y=\"500\" text-anchor=\"middle\" fill=\"#6b86b8\" font-size=\"10\">Azul = llamada · Verde = retorno · El candidato puede preguntar dudas (RAG) en cualquier turno.</text>\n  </svg>\n  <figcaption>Un turno: el cerebro clasifica (¿respuesta o duda?), evalúa con el LLM, decide repreguntar o\n  avanzar; el servicio persiste todo y, al terminar, genera el scorecard.</figcaption>\n  </figure>\n</section>\n\n<!-- 6 -->\n<section id=\"evaluacion\">\n  <h2><span class=\"num\">6</span>Evaluación y scorecard</h2>\n  <p class=\"lead\">Tres piezas convierten respuestas en una recomendación auditable.</p>\n  <div class=\"grid g3\">\n    <div class=\"card\"><h4>⚖️ scorer.evaluate_answer</h4>\n      Compara la respuesta con el <b>criterio</b> de la pregunta. Devuelve <code>score 0-100</code>,\n      <code>justificación</code>, si <code>needs_follow_up</code> y un <code>ack</code> cordial.\n      Usa el dato del CV como contraste de consistencia.</div>\n    <div class=\"card\"><h4>📐 scorecard.weighted_total</h4>\n      Pondera cada respuesta por su <code>weight</code> y calcula el total. El <b>semáforo</b> sale de los\n      umbrales de la vacante: <span class=\"badge b-green\">≥ green_min</span>\n      <span class=\"badge b-amber\">≥ yellow_min</span> <span class=\"badge b-red\">resto</span>.</div>\n    <div class=\"card\"><h4>📝 scorecard.build_scorecard</h4>\n      Redacta <b>resumen + recomendación</b> (LLM) y arma el detalle por criterio (con etiqueta para el\n      radar). Se guarda y se notifica <b>una sola vez</b>.</div>\n  </div>\n  <h3>Repreguntas (follow-ups)</h3>\n  <p>Si la respuesta es prometedora pero escueta, el evaluador pide ampliar — hasta\n  <code>max_follow_ups</code> veces por pregunta. Las partes se acumulan y se evalúan juntas. Esto imita a\n  un entrevistador real que \"raspa\" un poco más antes de puntuar.</p>\n  <div class=\"note\">📊 El detalle por criterio alimenta el <b>gráfico de radar</b> del dashboard, con el\n  umbral para avanzar dibujado como polígono punteado.</div>\n</section>\n\n<!-- 7 -->\n<section id=\"sourcing\">\n  <h2><span class=\"num\">7</span>Sourcing y pre-filtro de CV</h2>\n  <p class=\"lead\">Antes de gastar una entrevista, la IA filtra los CV. Patrón conector simulado/real.</p>\n  <div class=\"flow\" style=\"display:flex;flex-wrap:wrap;gap:8px;align-items:center\">\n    <div class=\"card\" style=\"margin:0\">Bolsa de empleo<br><span class=\"file\">SimulatedConnector (fixture Bumeran)</span></div>\n    <span style=\"color:#4f8cff;font-size:1.4rem\">→</span>\n    <div class=\"card\" style=\"margin:0\">Pre-filtro IA<br><span class=\"file\">PRESCREEN_CV_PROMPT → pre_score</span></div>\n    <span style=\"color:#4f8cff;font-size:1.4rem\">→</span>\n    <div class=\"card\" style=\"margin:0\">Veredicto<br><span class=\"badge b-green\">pass</span> <span class=\"badge b-amber\">borderline</span> <span class=\"badge b-red\">reject</span></div>\n    <span style=\"color:#4f8cff;font-size:1.4rem\">→</span>\n    <div class=\"card\" style=\"margin:0\">Aptos → <b>prescreen_passed</b><br><span class=\"file\">contacto manual o auto</span></div>\n  </div>\n  <ul class=\"tight\">\n    <li><b>Idempotente:</b> re-sincronizar no retrocede ni recontacta a quien ya avanzó de fase.</li>\n    <li><b>Contacto controlado:</b> manual (botón) o <b>auto-contacto programado</b> por horarios (11:00/15:00, configurable), vía el planificador interno.</li>\n    <li><b>Fallback heurístico</b> si no hay LLM disponible (puntúa por afinidad de carrera/experiencia/skills).</li>\n  </ul>\n</section>\n\n<!-- 8 -->\n<section id=\"agendamiento\">\n  <h2><span class=\"num\">8</span>Agendamiento de entrevista (fase 2)</h2>\n  <p class=\"lead\">Disparado por RR.HH. con \"Continuar\". Coordina contra la <b>disponibilidad real</b> del\n  reclutador y crea la reunión. Con proveedor <b>simulado</b> por defecto (sin credenciales).</p>\n\n  <figure class=\"fig\">\n  <svg viewBox=\"0 0 1020 230\" role=\"img\" aria-label=\"Flujo de agendamiento\">\n    <defs><marker id=\"ag\" markerWidth=\"9\" markerHeight=\"9\" refX=\"7\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L7,3 L0,6 Z\" fill=\"#22d3a8\"/></marker></defs>\n    <g font-size=\"11\" fill=\"#e8eef9\" text-anchor=\"middle\">\n      <rect x=\"20\" y=\"90\" width=\"120\" height=\"50\" rx=\"9\" fill=\"#142235\" stroke=\"#22d3a8\"/><text x=\"80\" y=\"112\">RR.HH.</text><text x=\"80\" y=\"128\" fill=\"#97a6c0\" font-size=\"10\">\"Continuar\"</text>\n      <rect x=\"170\" y=\"90\" width=\"130\" height=\"50\" rx=\"9\" fill=\"#161f33\" stroke=\"#a78bfa\"/><text x=\"235\" y=\"112\">busy_intervals</text><text x=\"235\" y=\"128\" fill=\"#97a6c0\" font-size=\"10\">Calendar free/busy</text>\n      <rect x=\"330\" y=\"90\" width=\"140\" height=\"50\" rx=\"9\" fill=\"#171a33\" stroke=\"#a78bfa\"/><text x=\"400\" y=\"108\">compute_free_slots</text><text x=\"400\" y=\"126\" fill=\"#97a6c0\" font-size=\"10\">puro · 2-3 opciones</text>\n      <rect x=\"500\" y=\"90\" width=\"130\" height=\"50\" rx=\"9\" fill=\"#1a2438\" stroke=\"#a78bfa\"/><text x=\"565\" y=\"112\">propone</text><text x=\"565\" y=\"128\" fill=\"#97a6c0\" font-size=\"10\">Telegram (firmado)</text>\n      <rect x=\"660\" y=\"90\" width=\"120\" height=\"50\" rx=\"9\" fill=\"#1a2438\" stroke=\"#a78bfa\"/><text x=\"720\" y=\"112\">candidato elige</text><text x=\"720\" y=\"128\" fill=\"#97a6c0\" font-size=\"10\">opción 1·2·3</text>\n      <rect x=\"810\" y=\"60\" width=\"190\" height=\"50\" rx=\"9\" fill=\"#13231d\" stroke=\"#16a34a\"/><text x=\"905\" y=\"80\">create_meeting</text><text x=\"905\" y=\"98\" fill=\"#97a6c0\" font-size=\"10\">evento + enlace Meet</text>\n      <rect x=\"810\" y=\"125\" width=\"190\" height=\"50\" rx=\"9\" fill=\"#13231d\" stroke=\"#16a34a\"/><text x=\"905\" y=\"145\">Sheets + email + Telegram</text><text x=\"905\" y=\"163\" fill=\"#97a6c0\" font-size=\"10\">+ guarda en meetings</text>\n    </g>\n    <g stroke=\"#22d3a8\" fill=\"none\" marker-end=\"url(#ag)\">\n      <path d=\"M140,115 L168,115\"/><path d=\"M300,115 L328,115\"/><path d=\"M470,115 L498,115\"/>\n      <path d=\"M630,115 L658,115\"/><path d=\"M780,110 C795,100 800,92 808,86\"/><path d=\"M780,120 C795,130 800,140 808,148\"/>\n    </g>\n  </svg>\n  <figcaption>Disponibilidad → huecos libres → propuesta firmada por el reclutador → elección → reunión\n  (Meet + Sheets) + notificaciones. Modelo del reclutador: <b>roster</b> asignable por vacante.</figcaption>\n  </figure>\n\n  <div class=\"warn\">⚙️ <b>Para Google real:</b> en Configuración cambia el proveedor a <code>google</code>,\n  define <code>google_credentials_path</code> (cuenta de servicio) y comparte el Calendar del reclutador\n  y un Google Sheet con el email de esa cuenta. El <code>SimulatedScheduler</code> usa enlaces Meet falsos\n  y un CSV local (<code>uploads/meetings.csv</code>).</div>\n</section>\n\n<!-- 9 -->\n<section id=\"llm\">\n  <h2><span class=\"num\">9</span>LLM y prompts</h2>\n  <p class=\"lead\">Modelo intercambiable compatible-OpenAI; hoy <b>Qwen3-32B vía Groq</b>. Cada llamada pasa\n  por <code>complete_staged(llm, prompt, etapa)</code> y <code>MeteredLLM</code> contabiliza los tokens por\n  etapa en <code>llm_usage</code>.</p>\n  <table>\n    <tr><th>Etapa</th><th>Prompt</th><th>Entrada → Salida</th></tr>\n    <tr><td><span class=\"badge b-violet\">classify</span></td><td>CLASSIFY_TURN_PROMPT</td><td>pregunta+mensaje → <code>{\"kind\":\"answer|question\"}</code></td></tr>\n    <tr><td><span class=\"badge b-violet\">answer</span></td><td>ANSWER_CANDIDATE_PROMPT</td><td>duda + info empresa → texto (RAG opcional)</td></tr>\n    <tr><td><span class=\"badge b-violet\">prescreen</span></td><td>PRESCREEN_CV_PROMPT</td><td>CV + requisitos → <code>{pre_score, summary, per_requirement[]}</code></td></tr>\n    <tr><td><span class=\"badge b-violet\">evaluate</span></td><td>EVALUATE_ANSWER_PROMPT</td><td>respuesta + criterio → <code>{score, justification, needs_follow_up, ack}</code></td></tr>\n    <tr><td><span class=\"badge b-violet\">scorecard</span></td><td>SCORECARD_PROMPT</td><td>evaluación → <code>{summary, recommendation}</code></td></tr>\n    <tr><td><span class=\"badge b-violet\">schedule</span></td><td>SCHEDULING_PARSE_PROMPT</td><td>opciones + mensaje → <code>{choice}</code></td></tr>\n  </table>\n  <details><summary>Ver ejemplos de prompts (extractos)</summary>\n  <pre><span class=\"c\"># EVALUATE_ANSWER_PROMPT (resumen)</span>\nSos un evaluador de selección riguroso y justo. Evaluá la respuesta contra el criterio.\nPregunta: \"...\"  Criterio: \"...\"  Respuesta: \"...\"\nDevolvé SOLO JSON: {\"score\":0-100, \"justification\":\"...\", \"needs_follow_up\":bool,\n                    \"follow_up_question\":\"...\", \"ack\":\"...\"}\nPautas: 80-100 concreto con ejemplos · 50-79 parcial · 0-49 vago/no cumple.\n\n<span class=\"c\"># SCHEDULING_PROPOSAL (plantilla, no-LLM)</span>\n¡Hola {name}! 👋 Te saluda {recruiter_name} de {company}.\nPostulaste para *{vacancy_title}*... ¿Cuál horario te queda mejor?\n{options}   ← 1·2·3 huecos libres del reclutador</pre>\n  </details>\n  <div class=\"note\">🛡️ <b>Robustez:</b> ante JSON inválido o caída del LLM, cada función degrada a una\n  heurística (p. ej. número suelto = elección de horario; puntaje neutro que pide revisión manual).</div>\n</section>\n\n<!-- 10 -->\n<section id=\"apis\">\n  <h2><span class=\"num\">10</span>APIs — consumidas y expuestas</h2>\n  <h3>Externas que consume</h3>\n  <table>\n    <tr><th>Servicio</th><th>Uso</th><th>Cliente</th></tr>\n    <tr><td>Groq (LLM)</td><td>Las 6 etapas de lenguaje</td><td class=\"file\">langchain-openai</td></tr>\n    <tr><td>Telegram Bot API</td><td>Mensajería con el candidato</td><td class=\"file\">python-telegram-bot + httpx</td></tr>\n    <tr><td>Supabase / PostgreSQL</td><td>Negocio + checkpoints LangGraph</td><td class=\"file\">supabase + psycopg</td></tr>\n    <tr><td>Google Calendar + Sheets</td><td>Disponibilidad, evento Meet, registro</td><td class=\"file\">google-api-python-client</td></tr>\n    <tr><td>SMTP</td><td>Scorecard + confirmación de reunión</td><td class=\"file\">smtplib</td></tr>\n    <tr><td>HuggingFace</td><td>Embeddings del RAG (local)</td><td class=\"file\">sentence-transformers</td></tr>\n  </table>\n  <h3>Endpoints internos (FastAPI)</h3>\n  <table>\n    <tr><th>Método</th><th>Ruta</th><th>Para qué</th></tr>\n    <tr><td>GET</td><td class=\"mono\">/api/health</td><td>Estado</td></tr>\n    <tr><td>GET·POST</td><td class=\"mono\">/api/vacancies</td><td>Listar · crear</td></tr>\n    <tr><td>GET·PUT</td><td class=\"mono\">/api/vacancies/{id}</td><td>Ver (con cartilla reclutador) · editar</td></tr>\n    <tr><td>GET</td><td class=\"mono\">/api/vacancies/{id}/candidates</td><td>Candidatos + semáforo</td></tr>\n    <tr><td>POST</td><td class=\"mono\">/api/vacancies/{id}/sync-applicants</td><td>Importar + pre-filtrar</td></tr>\n    <tr><td>GET</td><td class=\"mono\">/api/vacancies/{id}/metrics · /api/metrics</td><td>Embudo + tokens + costo</td></tr>\n    <tr><td>GET</td><td class=\"mono\">/api/candidates/{id}</td><td>Detalle (scorecard, transcripción, radar)</td></tr>\n    <tr><td>POST</td><td class=\"mono\">/api/candidates/{id}/contact</td><td>Iniciar contacto</td></tr>\n    <tr><td>POST</td><td class=\"mono\">/api/candidates/{id}/decision</td><td><b>Continuar→agendar</b> · Rechazar</td></tr>\n    <tr><td>GET</td><td class=\"mono\">/api/candidates/{id}/meeting</td><td>Reunión agendada</td></tr>\n    <tr><td>GET</td><td class=\"mono\">/api/candidates/{id}/documents/{tipo}</td><td>Descargar CV/CUL (PDF)</td></tr>\n    <tr><td>GET·POST·PUT</td><td class=\"mono\">/api/recruiters</td><td>Roster RR.HH.</td></tr>\n    <tr><td>GET·PUT</td><td class=\"mono\">/api/settings/scheduling · /auto-contact · /inactivity</td><td>Configuración</td></tr>\n  </table>\n</section>\n\n<!-- 11 -->\n<section id=\"datos\">\n  <h2><span class=\"num\">11</span>Base de datos</h2>\n  <p class=\"lead\">El motor es <b>PostgreSQL</b> servido por <b>Supabase</b>: en desarrollo corre local\n  (Docker, vía Supabase CLI) y en producción es Supabase Cloud. El mismo Postgres guarda <b>dos cosas\n  distintas</b> por dos caminos independientes — los datos de negocio (que ves en el dashboard) y el\n  estado durable de cada conversación (que usa el cerebro para no perder el hilo entre mensajes).</p>\n\n  <div class=\"grid g2\">\n    <div class=\"card\">\n      <h4>① Datos de negocio — cliente Supabase</h4>\n      <p style=\"margin:4px 0 8px\">Vacantes, candidatos, conversaciones, respuestas, scorecards, reuniones,\n      métricas. Se leen y escriben con el <b>cliente Supabase</b> (<span class=\"file\">db/client.py</span> →\n      <code>get_supabase()</code>) desde la capa de repositorios (<span class=\"file\">db/repositories.py</span>,\n      CRUD + <code>upsert on_conflict</code>).</p>\n      <ul class=\"tight\">\n        <li>Autentica con la <b>service-role key</b> (<code>SUPABASE_SERVICE_KEY</code>): salta RLS, por eso\n        necesita <code>GRANT</code>s explícitos — migración <span class=\"file\">0003_grants.sql</span>.</li>\n        <li>Cliente cacheado por proceso (<code>lru_cache</code>).</li>\n        <li>Es la fuente que consumen los endpoints REST del dashboard.</li>\n      </ul>\n    </div>\n    <div class=\"card\">\n      <h4>② Estado de la conversación — checkpointer LangGraph</h4>\n      <p style=\"margin:4px 0 8px\">El grafo LangGraph persiste su estado (fase, índice de pregunta,\n      respuestas acumuladas, follow-ups) en Postgres mediante <b>PostgresSaver</b>, por una conexión\n      <b>directa</b> (<code>DATABASE_URL</code>) — no por el cliente Supabase.</p>\n      <ul class=\"tight\">\n        <li>Se conecta con <code>get_database_url()</code> y un pool; <code>PostgresSaver.setup()</code> crea\n        sus propias tablas (<span class=\"file\">checkpoints</span>, <span class=\"file\">checkpoint_writes</span>,\n        <span class=\"file\">checkpoint_blobs</span>) la primera vez.</li>\n        <li>Cada conversación es un <b>thread</b> identificado por <code>langgraph_thread_id</code> =\n        <span class=\"mono\">canal:chat</span> (p. ej. <span class=\"mono\">telegram:12345</span>).</li>\n        <li>En tests/consola se reemplaza por <code>MemorySaver</code> (mismo grafo, sin base de datos).</li>\n      </ul>\n    </div>\n  </div>\n\n  <div class=\"note\">🗂️ <b>Esquema por migraciones.</b> No se toca el Postgres a mano: el esquema vive en\n  <span class=\"file\">supabase/migrations/</span> (<b>12</b> archivos <code>0001…0012</code>, versionados en git)\n  y se aplica con <code>supabase db reset</code> (dev) o <code>supabase migration up</code>. Incluyen el\n  <b>seed</b> de la vacante demo (<span class=\"file\">0002</span>) y los <code>GRANT</code>s de service_role\n  (<span class=\"file\">0003</span>). El borrado es <b>en cascada</b> (FK <code>on delete cascade</code>).</div>\n\n  <h3>Las tablas de negocio (11)</h3>\n  <table>\n    <tr><th>Tabla</th><th>Qué guarda</th><th>Escrita por</th></tr>\n    <tr><td class=\"file\">recruiters</td><td>Roster de RR.HH. (nombre, correo, empresa, chat de Telegram, calendar_id).</td><td>Dashboard</td></tr>\n    <tr><td class=\"file\">vacancies</td><td>La vacante: requisitos, umbrales del semáforo, reclutador responsable, duración de reunión.</td><td>Dashboard</td></tr>\n    <tr><td class=\"file\">vacancy_questions</td><td>Preguntas de la entrevista: criterio, peso, máx. follow-ups, <code>cv_field</code>, <code>label</code>.</td><td>Migración / Dashboard</td></tr>\n    <tr><td class=\"file\">candidates</td><td>El postulante: canal, estado, consentimiento, <code>cv_profile</code>/<code>prescreen</code>/<code>documents</code> (jsonb).</td><td>Sourcing + Servicio</td></tr>\n    <tr><td class=\"file\">conversations</td><td>Una por candidato: <code>langgraph_thread_id</code>, fase, pregunta actual, <code>last_activity_at</code>, <code>reminders_sent</code>.</td><td>Servicio (proyección del estado)</td></tr>\n    <tr><td class=\"file\">messages</td><td>Transcripción turno a turno (rol + texto) para auditar la entrevista.</td><td>Servicio</td></tr>\n    <tr><td class=\"file\">answers</td><td>Respuesta evaluada por pregunta: puntaje, criterio, justificación.</td><td>Evaluación</td></tr>\n    <tr><td class=\"file\">scorecards</td><td>Resultado final: total, semáforo, resumen, recomendación, <code>per_criterion</code> (jsonb).</td><td>Evaluación</td></tr>\n    <tr><td class=\"file\">meetings</td><td>Reunión agendada: fecha, Meet, event_id, fila de Sheet, correos y teléfonos de ambos.</td><td>Agendamiento</td></tr>\n    <tr><td class=\"file\">app_settings</td><td>Config editable en caliente (auto-contacto, inactividad, agendamiento) como key/value jsonb.</td><td>Dashboard / Config</td></tr>\n    <tr><td class=\"file\">llm_usage</td><td>Conteo de tokens por etapa del LLM (para el panel de costos).</td><td>MeteredLLM</td></tr>\n  </table>\n  <p style=\"color:var(--muted);font-size:.86rem;margin-top:6px\">Aparte, el checkpointer de LangGraph crea sus\n  propias tablas (<span class=\"file\">checkpoints*</span>) — no se editan desde la app.</p>\n\n  <h3>Relaciones</h3>\n  <figure class=\"fig\">\n  <svg viewBox=\"0 0 1000 380\" role=\"img\" aria-label=\"Modelo de datos\">\n    <defs><marker id=\"er\" markerWidth=\"8\" markerHeight=\"8\" refX=\"6\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L6,3 L0,6 Z\" fill=\"#5b6c8c\"/></marker></defs>\n    <g font-size=\"11.5\" fill=\"#e8eef9\" text-anchor=\"middle\">\n      <rect x=\"40\" y=\"40\" width=\"150\" height=\"40\" rx=\"8\" fill=\"#13231d\" stroke=\"#16a34a\"/><text x=\"115\" y=\"65\">recruiters</text>\n      <rect x=\"40\" y=\"160\" width=\"150\" height=\"40\" rx=\"8\" fill=\"#13203a\" stroke=\"#4f8cff\"/><text x=\"115\" y=\"185\">vacancies</text>\n      <rect x=\"40\" y=\"280\" width=\"150\" height=\"40\" rx=\"8\" fill=\"#211a14\" stroke=\"#d97706\"/><text x=\"115\" y=\"305\">vacancy_questions</text>\n      <rect x=\"280\" y=\"160\" width=\"150\" height=\"40\" rx=\"8\" fill=\"#171a33\" stroke=\"#a78bfa\"/><text x=\"355\" y=\"185\">candidates</text>\n      <rect x=\"520\" y=\"160\" width=\"150\" height=\"40\" rx=\"8\" fill=\"#171a33\" stroke=\"#a78bfa\"/><text x=\"595\" y=\"185\">conversations</text>\n      <rect x=\"770\" y=\"40\" width=\"150\" height=\"36\" rx=\"8\" fill=\"#1a2438\" stroke=\"#7f8db0\"/><text x=\"845\" y=\"63\">messages</text>\n      <rect x=\"770\" y=\"110\" width=\"150\" height=\"36\" rx=\"8\" fill=\"#1a2438\" stroke=\"#7f8db0\"/><text x=\"845\" y=\"133\">answers</text>\n      <rect x=\"770\" y=\"180\" width=\"150\" height=\"36\" rx=\"8\" fill=\"#13231d\" stroke=\"#16a34a\"/><text x=\"845\" y=\"203\">scorecards</text>\n      <rect x=\"770\" y=\"250\" width=\"150\" height=\"36\" rx=\"8\" fill=\"#13231d\" stroke=\"#16a34a\"/><text x=\"845\" y=\"273\">meetings</text>\n      <rect x=\"520\" y=\"300\" width=\"150\" height=\"36\" rx=\"8\" fill=\"#1c1830\" stroke=\"#7f8db0\"/><text x=\"595\" y=\"323\">app_settings · llm_usage</text>\n    </g>\n    <g stroke=\"#5b6c8c\" fill=\"none\" marker-end=\"url(#er)\">\n      <path d=\"M115,80 L115,158\"/>\n      <path d=\"M115,200 L115,278\"/>\n      <path d=\"M190,180 L278,180\"/>\n      <path d=\"M430,180 L518,180\"/>\n      <path d=\"M670,172 L768,62\"/><path d=\"M670,176 L768,124\"/>\n      <path d=\"M670,184 L768,194\"/><path d=\"M670,190 L768,262\"/>\n    </g>\n    <text x=\"500\" y=\"362\" text-anchor=\"middle\" fill=\"#6b86b8\" font-size=\"10\">recruiters→vacancies→{questions, candidates}; candidates→conversations→{messages, answers, scorecards, meetings}</text>\n  </svg>\n  <figcaption>Borrado en cascada: al borrar un candidato se eliminan su conversación, mensajes,\n  respuestas, scorecard y reunión.</figcaption>\n  </figure>\n  <details><summary>Ver columnas destacadas por tabla</summary>\n  <table>\n    <tr><th>Tabla</th><th>Columnas destacadas</th></tr>\n    <tr><td class=\"file\">vacancies</td><td>title, requirements, semaphore_thresholds, <b>recruiter_id</b>, meeting_duration_minutes, status</td></tr>\n    <tr><td class=\"file\">vacancy_questions</td><td>position, text, criterion, weight, max_follow_ups, cv_field, label</td></tr>\n    <tr><td class=\"file\">candidates</td><td>channel, channel_user_id, status, consent, cv_profile(jsonb), prescreen(jsonb), documents(jsonb)</td></tr>\n    <tr><td class=\"file\">conversations</td><td>langgraph_thread_id, state, current_question_idx, <b>last_activity_at, reminders_sent</b></td></tr>\n    <tr><td class=\"file\">scorecards</td><td>total_score, semaphore, summary, recommendation, per_criterion(jsonb)</td></tr>\n    <tr><td class=\"file\">recruiters</td><td>name, email, company, role, telegram_chat_id, calendar_id, active</td></tr>\n    <tr><td class=\"file\">meetings</td><td>scheduled_at, end_at, meet_link, event_id, sheet_row, candidate_email, recruiter_email, status</td></tr>\n  </table></details>\n</section>\n\n<!-- 12 -->\n<section id=\"config\">\n  <h2><span class=\"num\">12</span>Configuración (58 parámetros)</h2>\n  <p class=\"lead\">Todo se lee de <code>.env</code> con <code>pydantic-settings</code> (<code>src/config.py</code>).\n  Lo editable en caliente vive en <code>app_settings</code> (dashboard → Configuración).</p>\n  <div class=\"grid g2\">\n    <div class=\"card\"><h4>Bloques de <code>.env</code></h4>\n      <ul class=\"tight\">\n        <li><b>LLM:</b> openai_api_base/key/model, timeouts, reintentos.</li>\n        <li><b>Supabase:</b> url, service_key, database_url.</li>\n        <li><b>Telegram:</b> bot_token, allowed_users, demo_chat_id.</li>\n        <li><b>SMTP:</b> host/port/user/pass/from, recruiter_email.</li>\n        <li><b>Entrevista:</b> max_follow_ups, umbrales semáforo.</li>\n        <li><b>Sourcing/prefiltro:</b> provider, pass_min, auto_contact_on_pass.</li>\n        <li><b>Agendamiento:</b> scheduling_provider, google_credentials_path, meeting_sheet_id/tab.</li>\n        <li><b>RAG:</b> persist_dir, embedding_model, cross_encoder, chunking.</li>\n      </ul>\n    </div>\n    <div class=\"card\"><h4>Editable en caliente (<code>app_settings</code>)</h4>\n      <ul class=\"tight\">\n        <li><b>auto_contact</b> · {enabled, times[], timezone}</li>\n        <li><b>inactivity</b> · {enabled, reminder_minutes, max_reminders}</li>\n        <li><b>scheduling</b> · {enabled, provider, slot_minutes, work_days, work_start/end, timezone, horizon_days, options}</li>\n      </ul>\n      <div class=\"note\" style=\"margin-top:8px\">El <b>planificador interno</b> (tick 30 s) relee esta config en cada tick: cambios desde el dashboard aplican sin reiniciar.</div>\n    </div>\n  </div>\n</section>\n\n<!-- 13 -->\n<section id=\"libs\">\n  <h2><span class=\"num\">13</span>Librerías y herramientas</h2>\n  <div class=\"grid g2\">\n    <div class=\"card\"><h4>Backend (Python)</h4>\n      <div class=\"chip-row\">\n        <span class=\"pill\">langgraph</span><span class=\"pill\">langgraph-checkpoint-postgres</span>\n        <span class=\"pill\">langchain-openai</span><span class=\"pill\">fastapi</span><span class=\"pill\">uvicorn</span>\n        <span class=\"pill\">python-telegram-bot</span><span class=\"pill\">supabase</span><span class=\"pill\">psycopg</span>\n        <span class=\"pill\">httpx</span><span class=\"pill\">google-api-python-client</span><span class=\"pill\">google-auth</span>\n        <span class=\"pill\">chromadb</span><span class=\"pill\">sentence-transformers</span><span class=\"pill\">torch 2.2.2</span>\n        <span class=\"pill\">pydantic-settings</span><span class=\"pill\">pypdf</span>\n      </div>\n      <div class=\"warn\" style=\"margin-top:6px\">🍎 <b>Mac Intel:</b> <code>torch==2.2.2</code> y <code>onnxruntime&lt;1.21</code> fijados (últimas ruedas x86_64). Torch tarda ~90 s en importar.</div>\n    </div>\n    <div class=\"card\"><h4>Frontend &amp; tooling</h4>\n      <div class=\"chip-row\">\n        <span class=\"pill\">next 16</span><span class=\"pill\">react</span><span class=\"pill\">lucide-react</span>\n        <span class=\"pill\">TypeScript</span><span class=\"pill\">CSS variables</span>\n      </div>\n      <h4>Calidad</h4>\n      <div class=\"chip-row\"><span class=\"pill\">pytest · 56 tests</span><span class=\"pill\">tsc --noEmit</span>\n        <span class=\"pill\">uv (gestor)</span><span class=\"pill\">Docker</span><span class=\"pill\">Supabase CLI</span></div>\n      <p style=\"font-size:.86rem;color:var(--muted)\">Tests destacados: <code>test_interview</code>,\n      <code>test_scheduling</code>, <code>test_inactivity</code>, <code>test_prescreen</code>,\n      <code>test_sourcing</code>, <code>test_metrics</code>.</p>\n    </div>\n  </div>\n</section>\n\n<!-- 14 -->\n<section id=\"run\">\n  <h2><span class=\"num\">14</span>Cómo se levanta</h2>\n  <pre><span class=\"c\"># 1) Base de datos (Docker) — aplica migraciones automáticamente</span>\nexport PATH=$HOME/.local/share/supabase:$PATH\nsupabase start\n\n<span class=\"c\"># 2) .env  (copiar de .env.example y completar)</span>\n<span class=\"c\">#    OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, keys de `supabase status`</span>\n\n<span class=\"c\"># 3) Backend + bot + planificador</span>\nuv run uvicorn api.main:app --port 8000 --reload      <span class=\"c\"># http://127.0.0.1:8000</span>\n\n<span class=\"c\"># 4) Dashboard</span>\ncd frontend &amp;&amp; npm install &amp;&amp; npm run dev          <span class=\"c\"># http://localhost:3000</span></pre>\n  <div class=\"grid g3\">\n    <div class=\"card\"><b>Studio</b><br><span class=\"file\">127.0.0.1:54323</span><br>ver/editar tablas</div>\n    <div class=\"card\"><b>Mailpit</b><br><span class=\"file\">127.0.0.1:54324</span><br>correos de prueba</div>\n    <div class=\"card\"><b>Demo sin infra</b><br><span class=\"file\">uv run python scripts/demo.py --alberto</span></div>\n  </div>\n</section>\n\n<!-- 15 -->\n<section id=\"mejoras\">\n  <h2><span class=\"num\">15</span>Estado actual y oportunidades de mejora</h2>\n  <p class=\"lead\">Lectura honesta de lo construido para priorizar el siguiente tramo. Prioridad orientativa.</p>\n  <div class=\"card\">\n    <div class=\"imp\"><div class=\"pr\"><span class=\"badge b-red\">Alta</span></div><div><b>Re-propuesta de horarios.</b> Hoy, si el candidato rechaza las 3 opciones, se le pide elegir una de las listadas. Falta volver a consultar el calendario y ofrecer nuevas franjas (incl. interpretar \"mejor el jueves por la tarde\").</div></div>\n    <div class=\"imp\"><div class=\"pr\"><span class=\"badge b-red\">Alta</span></div><div><b>Reprogramar / cancelar</b> la reunión desde el dashboard (y reflejarlo en Calendar/Sheets).</div></div>\n    <div class=\"imp\"><div class=\"pr\"><span class=\"badge b-amber\">Media</span></div><div><b>Autenticación y multi-usuario real.</b> El reclutador se modela por vacante, pero no hay login ni roles/permisos (RLS de Supabase).</div></div>\n    <div class=\"imp\"><div class=\"pr\"><span class=\"badge b-amber\">Media</span></div><div><b>WhatsApp Cloud API.</b> El canal está abstraído (<code>channels/whatsapp.py</code> es stub); falta implementarlo.</div></div>\n    <div class=\"imp\"><div class=\"pr\"><span class=\"badge b-amber\">Media</span></div><div><b>Recordatorios previos a la entrevista</b> (24 h / 1 h antes) y manejo de no-shows.</div></div>\n    <div class=\"imp\"><div class=\"pr\"><span class=\"badge b-amber\">Media</span></div><div><b>Conector de sourcing real</b> (Bumeran/LinkedIn) en vez del fixture simulado; parseo real de CV (PDF→perfil) incl. email.</div></div>\n    <div class=\"imp\"><div class=\"pr\"><span class=\"badge b-blue\">Baja</span></div><div><b>Inactividad en agendamiento:</b> hoy recuerda pero no cierra; podría avisar a RR.HH. tras N recordatorios sin respuesta.</div></div>\n    <div class=\"imp\"><div class=\"pr\"><span class=\"badge b-blue\">Baja</span></div><div><b>Observabilidad:</b> trazas/LangSmith ya cableado parcialmente; faltan dashboards de costo por vacante y alertas.</div></div>\n    <div class=\"imp\" style=\"border:0\"><div class=\"pr\"><span class=\"badge b-blue\">Baja</span></div><div><b>Tests de integración</b> del servicio contra Supabase real (hoy los tests evitan la DB) y E2E del dashboard.</div></div>\n  </div>\n  <div class=\"note\">✅ <b>Sólido hoy:</b> entrevista durable reanudable, evaluación con criterios y radar, pre-filtro\n  con métricas de tokens, contacto manual/automático, inactividad, recepción de documentos, agendamiento con\n  Calendar/Sheets (simulado y real), roster de RR.HH., 56 tests verdes.</div>\n</section>\n\n<!-- 16 -->\n<section id=\"glosario\">\n  <h2><span class=\"num\">16</span>Glosario</h2>\n  <dl class=\"glo\">\n    <dt>LLM</dt><dd>Modelo de lenguaje que entiende y redacta texto. Aquí Qwen3-32B vía Groq.</dd>\n    <dt>Prompt / etapa (stage)</dt><dd>Instrucción para una tarea concreta del LLM; la \"etapa\" agrupa el conteo de tokens.</dd>\n    <dt>Token</dt><dd>Unidad de medida/costo del LLM (~¾ de palabra).</dd>\n    <dt>LangGraph / checkpointer</dt><dd>Máquina de estados con memoria durable; el checkpointer guarda el estado en PostgreSQL.</dd>\n    <dt>Scorecard</dt><dd>Informe de evaluación del candidato (semáforo + resumen + recomendación + detalle por criterio).</dd>\n    <dt>RAG</dt><dd>Recuperar el dato relevante antes de responder, para no inventar (dudas del puesto).</dd>\n    <dt>Embeddings</dt><dd>Representación numérica del texto para buscar por significado.</dd>\n    <dt>Free/busy</dt><dd>Consulta a Google Calendar de qué franjas está ocupado el reclutador.</dd>\n    <dt>Idempotente</dt><dd>Repetir la operación no cambia el resultado (no recontacta ni retrocede fases).</dd>\n    <dt>Simulado</dt><dd>Versión de prueba de una integración que funciona sin credenciales reales.</dd>\n    <dt>Polling</dt><dd>El bot consulta Telegram cada poco para ver mensajes nuevos.</dd>\n  </dl>\n</section>\n\n</main>\n<footer>\n  Agente de Selección de Talento · Datawith.AI — Referencia técnica &amp; funcional (v2).\n  Documento autocontenido. Bitácora de desarrollo en <code>CLAUDE.md</code>.\n</footer>";
+const GUIA_HTML = `
+<header class="hero">
+  <div class="wrap">
+    <div class="tag">Datawith.AI · Guía end-to-end · v3 · para todo público</div>
+    <h1>Agente de Selección de Talento — Guía completa</h1>
+    <p>Un asistente con inteligencia artificial que <b>entrevista candidatos por Telegram</b>, los
+    <b>evalúa</b> contra los requisitos del puesto, le entrega a Recursos Humanos un <b>informe con
+    semáforo</b> y, cuando se aprueba, <b>coordina y agenda la entrevista final</b> en Google Calendar.
+    Esta guía está escrita para que la entienda <b>cualquier persona</b>: cada sección técnica empieza
+    con un resumen "En simple".</p>
+    <div style="margin-top:14px">
+      <span class="pill">Python 3.12 · uv</span><span class="pill">LangGraph (memoria durable)</span>
+      <span class="pill">FastAPI</span><span class="pill">Next.js 16 + React</span>
+      <span class="pill">Supabase / PostgreSQL</span><span class="pill">Bot de Telegram</span>
+      <span class="pill">IA: Groq · Qwen3-32B</span><span class="pill">Google Calendar + Meet</span>
+      <span class="pill">Multi-empresa + Login por roles</span><span class="pill">137 pruebas automáticas</span>
+    </div>
+  </div>
+</header>
+
+<nav class="toc"><div class="wrap">
+  <a href="#resumen">0 · Resumen</a>
+  <a href="#funcional">1 · Qué hace</a>
+  <a href="#arquitectura">2 · Arquitectura</a>
+  <a href="#modulos">3 · Mapa del código</a>
+  <a href="#cerebro">4 · El cerebro</a>
+  <a href="#turno">5 · Un turno paso a paso</a>
+  <a href="#evaluacion">6 · Evaluación</a>
+  <a href="#sourcing">7 · Sourcing &amp; pre-filtro</a>
+  <a href="#agendamiento">8 · Agendamiento</a>
+  <a href="#seguridad">9 · Seguridad &amp; multi-empresa</a>
+  <a href="#confiabilidad">10 · Confiabilidad</a>
+  <a href="#llm">11 · IA &amp; prompts</a>
+  <a href="#apis">12 · APIs</a>
+  <a href="#datos">13 · Datos</a>
+  <a href="#config">14 · Configuración</a>
+  <a href="#libs">15 · Librerías</a>
+  <a href="#run">16 · Levantarlo</a>
+  <a href="#mejoras">17 · Estado &amp; mejoras</a>
+  <a href="#glosario">18 · Glosario</a>
+</div></nav>
+
+<main class="wrap">
+
+<!-- 0 -->
+<section id="resumen">
+  <h2><span class="num">0</span>Resumen ejecutivo</h2>
+  <p class="lead">En una frase: <b>un reclutador virtual que habla con los candidatos, los puntúa con
+  criterios objetivos y le ahorra a RR.HH. las primeras horas de filtrado y coordinación.</b></p>
+  <div class="grid g4">
+    <div class="card"><div class="kpi">137</div><div class="kpi-lbl">pruebas automáticas (en verde)</div></div>
+    <div class="card"><div class="kpi">32</div><div class="kpi-lbl">endpoints de la API</div></div>
+    <div class="card"><div class="kpi">16</div><div class="kpi-lbl">tablas en la base de datos</div></div>
+    <div class="card"><div class="kpi">18</div><div class="kpi-lbl">migraciones (cambios de esquema)</div></div>
+    <div class="card"><div class="kpi">7</div><div class="kpi-lbl">fases de la conversación</div></div>
+    <div class="card"><div class="kpi">6</div><div class="kpi-lbl">etapas de IA (con conteo de tokens)</div></div>
+    <div class="card"><div class="kpi">3</div><div class="kpi-lbl">roles de usuario (admin/reclutador/lector)</div></div>
+    <div class="card"><div class="kpi">68</div><div class="kpi-lbl">parámetros de configuración</div></div>
+  </div>
+  <div class="note">🧭 <b>Idea rectora:</b> el <b>cerebro</b> (qué decir y cómo puntuar) es lógica
+  <b>pura y comprobable</b>, separada de las <b>conexiones externas</b> (Telegram, base de datos, IA,
+  Google). La IA nunca ejecuta comandos: solo produce texto o datos que un código determinista revisa
+  e interpreta. Eso hace al sistema predecible, testeable y seguro.</div>
+</section>
+
+<!-- 1 -->
+<section id="funcional">
+  <h2><span class="num">1</span>Qué hace (visión funcional)</h2>
+  <div class="simple">🟢 <b>En simple:</b> una empresa publica una vacante; el agente busca postulantes,
+  descarta a los que no cumplen el perfil, entrevista por chat a los aptos, los califica y le pasa a
+  RR.HH. una lista priorizada con un botón para "continuar" o "descartar". Si continúa, agenda una
+  reunión por videollamada con ambos.</div>
+
+  <h3>El recorrido, de principio a fin</h3>
+  <div class="flow">
+    <div class="step"><b>1 · Vacante</b>RR.HH. crea el puesto: requisitos, preguntas y criterios de evaluación.</div>
+    <div class="arr">→</div>
+    <div class="step"><b>2 · Sourcing</b>Se importan postulantes de portales de empleo (hoy simulado).</div>
+    <div class="arr">→</div>
+    <div class="step"><b>3 · Pre-filtro</b>La IA lee el CV y descarta a quienes no dan el perfil mínimo.</div>
+    <div class="arr">→</div>
+    <div class="step"><b>4 · Contacto</b>A los aptos se les escribe por Telegram (en horario laboral).</div>
+  </div>
+  <div class="flow">
+    <div class="step"><b>5 · Entrevista</b>Pregunta por pregunta; repregunta si la respuesta es vaga.</div>
+    <div class="arr">→</div>
+    <div class="step"><b>6 · Evaluación</b>Cada respuesta se puntúa contra su criterio.</div>
+    <div class="arr">→</div>
+    <div class="step"><b>7 · Scorecard</b>Semáforo 🟢/🟡/🔴 + recomendación, por correo y en el panel.</div>
+    <div class="arr">→</div>
+    <div class="step"><b>8 · Decisión</b>RR.HH. aprueba o descarta desde el dashboard.</div>
+  </div>
+  <div class="flow">
+    <div class="step"><b>9 · Agendamiento</b>Se proponen 2-3 horarios libres del reclutador.</div>
+    <div class="arr">→</div>
+    <div class="step"><b>10 · Reunión</b>El candidato elige; se crea el evento con enlace de Google Meet.</div>
+    <div class="arr">→</div>
+    <div class="step"><b>11 · Aviso</b>Correo a ambos + registro en Google Sheets.</div>
+  </div>
+
+  <div class="grid g2">
+    <div class="card"><h4>Para RR.HH.</h4><ul class="tight">
+      <li>Deja de leer decenas de CVs a mano: llegan ya filtrados y puntuados.</li>
+      <li>Entrevista inicial 24/7, sin agenda que cuadrar.</li>
+      <li>Criterios objetivos y trazables (por qué avanza o no cada quien).</li>
+      <li>Coordinación de la entrevista final automatizada.</li>
+    </ul></div>
+    <div class="card"><h4>Para el candidato</h4><ul class="tight">
+      <li>Responde por Telegram, a su ritmo, desde el celular.</li>
+      <li>Puede preguntar dudas del puesto y recibe respuesta.</li>
+      <li>Recordatorios si se queda sin responder; trato respetuoso.</li>
+      <li>Confirmación clara de próximos pasos.</li>
+    </ul></div>
+  </div>
+  <div class="note">Inspirado en "SofIA" de Sifrah, la entrevista real que motivó el proyecto.</div>
+</section>
+
+<!-- 2 -->
+<section id="arquitectura">
+  <h2><span class="num">2</span>Arquitectura (las capas)</h2>
+  <div class="simple">🟢 <b>En simple:</b> el sistema está dividido en capas, como una cebolla. En el
+  centro, el "cerebro" decide qué hacer sin tocar nada externo. Alrededor, unas "capas de conexión"
+  hablan con Telegram, la base de datos, la IA y Google. Esa separación permite probar el cerebro
+  sin depender de internet.</div>
+  <table>
+    <thead><tr><th>Capa</th><th>Responsabilidad</th><th>Ejemplos de código</th></tr></thead>
+    <tbody>
+      <tr><td><b>Canales</b></td><td>Entrada/salida con el candidato</td><td class="file">channels/ · api/telegram_bot.py</td></tr>
+      <tr><td><b>API (FastAPI)</b></td><td>Endpoints del dashboard + arranque del bot + tareas programadas</td><td class="file">api/main.py · api/auth.py</td></tr>
+      <tr><td><b>Cerebro</b></td><td>Máquina de estados de la entrevista (LangGraph)</td><td class="file">agent/ (state, graph, nodes, prompts)</td></tr>
+      <tr><td><b>Evaluación</b></td><td>Puntuar respuestas y armar el scorecard</td><td class="file">evaluation/ (scorer, scorecard, prescreen)</td></tr>
+      <tr><td><b>Integraciones</b></td><td>Adaptadores a servicios externos</td><td class="file">integrations/ (sourcing, scheduling)</td></tr>
+      <tr><td><b>Notificaciones</b></td><td>Correo, avisos, cola de envíos con reintentos</td><td class="file">notifications/ (email, candidate, outbox)</td></tr>
+      <tr><td><b>Datos</b></td><td>Guardar y leer todo en PostgreSQL</td><td class="file">db/ (client, repositories) · supabase/migrations</td></tr>
+      <tr><td><b>Frontend</b></td><td>Dashboard del reclutador</td><td class="file">frontend/ (Next.js 16 + React)</td></tr>
+      <tr><td><b>RAG</b></td><td>Base de conocimiento para responder dudas del puesto</td><td class="file">src/ (heredado: vectorstore, qa_chain)</td></tr>
+    </tbody>
+  </table>
+  <div class="note">🔌 <b>Patrón clave — adaptadores:</b> sourcing, agendamiento, canales e IA se
+  definen como <b>contratos</b> (un "molde") con una implementación real y una simulada. Cambiar de
+  Telegram a WhatsApp, o de Google a otro calendario, es cambiar el adaptador, no el cerebro.</div>
+</section>
+
+<!-- 3 -->
+<section id="modulos">
+  <h2><span class="num">3</span>Mapa del código</h2>
+  <div class="simple">🟢 <b>En simple:</b> dónde vive cada cosa. Útil si vas a tocar el proyecto.</div>
+  <table>
+    <thead><tr><th>Carpeta</th><th>Para qué sirve</th></tr></thead>
+    <tbody>
+      <tr><td class="file">api/</td><td>Servidor web (FastAPI), login/roles, bot de Telegram, tareas programadas.</td></tr>
+      <tr><td class="file">agent/</td><td>El cerebro: estados de la conversación, grafo, nodos, prompts, servicio.</td></tr>
+      <tr><td class="file">evaluation/</td><td>Puntuación de respuestas, scorecard con semáforo y pre-filtro del CV.</td></tr>
+      <tr><td class="file">channels/</td><td>Interfaz de canal (Telegram; WhatsApp como esqueleto) y validación de documentos.</td></tr>
+      <tr><td class="file">integrations/</td><td>Sourcing (portales de empleo) y agendamiento (Google Calendar/Meet/Sheets).</td></tr>
+      <tr><td class="file">notifications/</td><td>Correo al reclutador, aviso al candidato y la cola durable de envíos (outbox).</td></tr>
+      <tr><td class="file">db/</td><td>Cliente de Supabase y funciones de lectura/escritura (repositorios).</td></tr>
+      <tr><td class="file">supabase/migrations/</td><td>Los 18 cambios de esquema de la base de datos, versionados.</td></tr>
+      <tr><td class="file">src/</td><td>Reutilizado: configuración, motor RAG, logging, observabilidad.</td></tr>
+      <tr><td class="file">frontend/</td><td>Dashboard web (esta guía vive en <span class="file">frontend/src/app/guia</span>).</td></tr>
+      <tr><td class="file">tests/</td><td>23 archivos de pruebas automáticas (137 casos).</td></tr>
+      <tr><td class="file">docs/</td><td>Auditoría de seguridad y runbook de gestión de secretos.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- 4 -->
+<section id="cerebro">
+  <h2><span class="num">4</span>El cerebro y sus fases</h2>
+  <div class="simple">🟢 <b>En simple:</b> la conversación es una máquina de estados: en cada momento
+  está en una "fase" (saludando, entrevistando, agendando…). Según la fase, el agente sabe qué hacer
+  con el próximo mensaje. Todo se guarda para que la charla sobreviva a un reinicio del servidor.</div>
+
+  <h3>Las fases de la conversación</h3>
+  <div class="chip-row">
+    <span class="badge b-blue">greeting · saludo + Acepto/No interesado</span>
+    <span class="badge b-blue">interviewing · pregunta por pregunta</span>
+    <span class="badge b-violet">awaiting_docs · pide CV/CUL al calificar</span>
+    <span class="badge b-violet">scheduling · coordina horario</span>
+    <span class="badge b-green">scheduled · reunión creada</span>
+    <span class="badge b-amber">finished · cerró OK</span>
+    <span class="badge b-red">closed · sin respuesta / declinó</span>
+  </div>
+
+  <div class="grid g2" style="margin-top:16px">
+    <div class="card"><h4>LangGraph + checkpointer</h4>
+      <p>El cerebro usa <b>LangGraph</b>, una librería para armar "grafos" de decisión. Su
+      <b>checkpointer</b> guarda el estado de cada conversación en PostgreSQL, identificada por un
+      hilo único <code>canal:chat</code>. Si el servidor se reinicia, la entrevista continúa donde
+      quedó.</p></div>
+    <div class="card"><h4>Lógica pura</h4>
+      <p>Los nodos deciden <b>qué decir</b> sin hablar con la red. Reciben el estado, devuelven el
+      estado nuevo + los mensajes a enviar. Enviar de verdad es trabajo de la capa de canal. Por eso
+      el cerebro se prueba con una "IA falsa" (fake) en milisegundos.</p></div>
+  </div>
+</section>
+
+<!-- 5 -->
+<section id="turno">
+  <h2><span class="num">5</span>Un turno, paso a paso</h2>
+  <div class="simple">🟢 <b>En simple:</b> qué pasa desde que el candidato manda un mensaje hasta que
+  recibe respuesta.</div>
+  <div class="card"><ol class="tight">
+    <li>El candidato escribe en Telegram. El <b>bot</b> recibe el mensaje.</li>
+    <li>El bot ubica al candidato y su conversación en la base de datos.</li>
+    <li>Le pasa el texto al <b>servicio de entrevista</b>, que carga el estado guardado del hilo.</li>
+    <li>El <b>cerebro</b> (grafo) decide: ¿la respuesta es suficiente o hay que repreguntar? ¿toca
+    evaluar y pasar a la siguiente pregunta? ¿ya terminó?</li>
+    <li>Si corresponde, la <b>IA</b> puntúa la respuesta contra el criterio (con conteo de tokens).</li>
+    <li>El estado nuevo se <b>guarda</b> (checkpointer) y se proyecta a las tablas de negocio.</li>
+    <li>Los mensajes de salida vuelven al <b>canal</b>, que los envía por Telegram.</li>
+    <li>Al terminar, se arma el <b>scorecard</b> y se notifica a RR.HH. (por la cola de envíos).</li>
+  </ol></div>
+  <div class="note">⏱️ El trabajo pesado (IA, base de datos) corre en un hilo aparte para no bloquear
+  al bot: puede atender a varios candidatos a la vez.</div>
+</section>
+
+<!-- 6 -->
+<section id="evaluacion">
+  <h2><span class="num">6</span>Evaluación y scorecard</h2>
+  <div class="simple">🟢 <b>En simple:</b> cada respuesta recibe una nota de 0 a 100 según qué tan bien
+  cumple el criterio de esa pregunta. Se combinan con pesos en una nota total y un semáforo. Nunca es
+  una "caja negra": cada nota trae su justificación.</div>
+
+  <div class="grid g3">
+    <div class="card"><div class="kpi" style="color:var(--green)">🟢 Verde</div><div class="kpi-lbl">Cumple el perfil — avanzar (nota ≥ umbral verde)</div></div>
+    <div class="card"><div class="kpi" style="color:var(--amber)">🟡 Amarillo</div><div class="kpi-lbl">Dudoso — revisar a mano</div></div>
+    <div class="card"><div class="kpi" style="color:var(--red)">🔴 Rojo</div><div class="kpi-lbl">No cumple — no avanzar</div></div>
+  </div>
+
+  <h3>Qué recibe RR.HH.</h3>
+  <ul class="tight">
+    <li><b>Nota total</b> (0-100 ponderada) + <b>semáforo</b> + <b>recomendación</b> en texto.</li>
+    <li><b>Detalle por criterio</b>: nota, peso y justificación de cada pregunta.</li>
+    <li>Un <b>gráfico de radar</b> en el panel que muestra el perfil por criterio contra el umbral.</li>
+  </ul>
+
+  <h3>Integridad de la evaluación (blindajes)</h3>
+  <div class="grid g2">
+    <div class="card"><h4>Anti-inyección de prompt</h4>
+      <p>La respuesta del candidato se encierra entre delimitadores y se limpia antes de dársela a la
+      IA, para que nadie "engañe" al evaluador escribiendo instrucciones dentro de su respuesta.</p></div>
+    <div class="card"><h4>Escalamiento a humano</h4>
+      <p>Si la IA falla o la respuesta es vacía/ambigua, se marca <code>review_required</code> /
+      <code>low_confidence</code> y el panel avisa "⚠ Requiere revisión humana". El sistema prefiere
+      pedir ayuda antes que inventar una nota.</p></div>
+  </div>
+</section>
+
+<!-- 7 -->
+<section id="sourcing">
+  <h2><span class="num">7</span>Sourcing &amp; pre-filtro</h2>
+  <div class="simple">🟢 <b>En simple:</b> antes de entrevistar, el sistema trae postulantes de portales
+  de empleo y descarta con la IA a quienes claramente no dan el perfil, para no gastar tiempo (ni
+  tokens) en ellos.</div>
+  <div class="flow">
+    <div class="step"><b>Importar</b>Trae postulantes del portal (hoy un conector simulado con datos de ejemplo tipo Bumeran).</div>
+    <div class="arr">→</div>
+    <div class="step"><b>Pre-filtro (CV gate)</b>La IA lee el CV y da una nota; si no llega al mínimo, se descarta con motivo.</div>
+    <div class="arr">→</div>
+    <div class="step"><b>Apto</b>Queda "por contactar"; se le escribe en horario laboral (automático o con botón).</div>
+  </div>
+  <ul class="tight">
+    <li><b>Idempotente:</b> re-sincronizar no re-contacta ni retrocede a quien ya avanzó de fase.</li>
+    <li><b>Horario laboral:</b> solo se contacta de lunes a viernes, 9–18 (configurable por empresa).</li>
+    <li><b>Dos puntajes por candidato:</b> el del CV (pre-filtro) y el de la entrevista.</li>
+    <li><b>Costos visibles:</b> cada llamada a la IA cuenta tokens por etapa (tabla <code>llm_usage</code>).</li>
+  </ul>
+</section>
+
+<!-- 8 -->
+<section id="agendamiento">
+  <h2><span class="num">8</span>Agendamiento de la entrevista final</h2>
+  <div class="simple">🟢 <b>En simple:</b> cuando RR.HH. aprueba a un candidato, el agente mira la
+  agenda del reclutador, propone 2-3 horarios libres, el candidato elige uno y se crea la reunión con
+  enlace de Google Meet, avisando a ambos por correo.</div>
+  <div class="flow">
+    <div class="step"><b>Disponibilidad</b>Lee los huecos libres del calendario del reclutador (freebusy).</div>
+    <div class="arr">→</div>
+    <div class="step"><b>Propuesta</b>Ofrece 2-3 opciones numeradas, firmadas por el reclutador.</div>
+    <div class="arr">→</div>
+    <div class="step"><b>Elección</b>El candidato responde "la 2"; la IA + heurística interpretan la opción.</div>
+    <div class="arr">→</div>
+    <div class="step"><b>Reunión</b>Evento con Meet + fila en Sheets + correo a candidato y reclutador.</div>
+  </div>
+  <div class="grid g2">
+    <div class="card"><h4>Dos modos</h4>
+      <p><b>Simulado</b> (por defecto, sin credenciales): hace correr todo el flujo con un enlace y una
+      "hoja" de mentira — ideal para pruebas. <b>Google real</b>: crea el evento con Meet de verdad e
+      invita por correo.</p></div>
+    <div class="card"><h4>Degradación con gracia (hardening 2026-07-01)</h4>
+      <p>Si las credenciales de Google fallan (token vencido/revocado), <b>el sistema ya no se cae</b>:
+      registra un error visible y cae a modo simulado. El estado degradado aparece en
+      <code>/api/health</code> como <code>scheduler: "simulated-fallback"</code> para que se re-autorice.
+      Antes, un fallo aquí tumbaba todo el backend.</p></div>
+  </div>
+</section>
+
+<!-- 9 -->
+<section id="seguridad">
+  <h2><span class="num">9</span>Seguridad &amp; multi-empresa</h2>
+  <div class="simple">🟢 <b>En simple:</b> la app es "multi-empresa": varias empresas pueden usarla y
+  ninguna ve los datos de otra. Hay login con roles (quién puede hacer qué) y varias capas para que un
+  error no exponga datos ajenos.</div>
+
+  <h3>Login y roles (RBAC)</h3>
+  <p>Cada usuario inicia sesión y recibe un <b>token JWT</b> (una credencial firmada) que dice quién es,
+  a qué empresa pertenece y su rol. Los roles son jerárquicos:</p>
+  <table>
+    <thead><tr><th>Rol</th><th>Puede</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge b-blue">lector (viewer)</span></td><td>Solo ver.</td></tr>
+      <tr><td><span class="badge b-violet">reclutador (recruiter)</span></td><td>Ver + acciones operativas: contactar, decidir, sincronizar, crear vacantes.</td></tr>
+      <tr><td><span class="badge b-green">admin</span></td><td>Todo + configuración, roster de reclutadores, usuarios, auditoría y borrado.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Aislamiento por empresa (tenant)</h3>
+  <div class="grid g2">
+    <div class="card"><h4>Capa de app (activa)</h4>
+      <p>Cada endpoint que carga un recurso verifica que pertenezca a la empresa del usuario. Una
+      <b>prueba automática</b> (<code>test_tenant_guards.py</code>) recorre todas las rutas y <b>falla si
+      alguien agrega un endpoint sin ese candado</b>. Es la defensa principal, garantizada en cada cambio.</p></div>
+    <div class="card"><h4>Base de datos (RLS latente)</h4>
+      <p>Las 16 tablas tienen "Row Level Security" con políticas por empresa (migración 0018). Hoy queda
+      <b>de reserva</b> (el backend usa una llave privilegiada que la omite), pero protege si se filtrara
+      una llave pública o se conectara un cliente directo. Activarla sobre el backend queda para cuando
+      la app madure.</p></div>
+  </div>
+
+  <h3>Manejo de secretos</h3>
+  <ul class="tight">
+    <li><b>Rotación de la firma sin cerrar sesiones:</b> se puede cambiar el secreto de los JWT dejando
+    el anterior como respaldo temporal (<code>JWT_SECRET_PREVIOUS</code>), así nadie queda desconectado.</li>
+    <li><b>Guardia al arrancar:</b> en producción el sistema <b>no arranca</b> con secretos por defecto o
+    débiles (JWT o contraseña de admin).</li>
+    <li><b>Runbook:</b> <span class="file">docs/gestion_secretos.md</span> explica cómo rotar cada
+    secreto (Google, Telegram, base de datos, correo…) y el camino a un gestor de secretos.</li>
+  </ul>
+  <div class="note">🔒 Todo esto salió de una <b>auditoría de seguridad</b> de las integraciones
+  externas (<span class="file">docs/auditoria_integraciones_externas.md</span>): 5 hallazgos (F1–F5),
+  todos cerrados o mitigados — fuga de token en logs, escape de HTML en correos, scopes de Google
+  mínimos, aislamiento por empresa y endurecimiento de secretos.</div>
+</section>
+
+<!-- 10 -->
+<section id="confiabilidad">
+  <h2><span class="num">10</span>Confiabilidad &amp; operación</h2>
+  <div class="simple">🟢 <b>En simple:</b> las cosas fallan (se cae el correo, un candidato no responde,
+  Google no contesta). El sistema está pensado para <b>no perder información</b> y para <b>avisar</b> en
+  vez de romperse en silencio.</div>
+  <div class="grid g2">
+    <div class="card"><h4>📤 Cola de envíos (outbox)</h4>
+      <p>Correos y avisos de Telegram pasan por una cola durable. Si fallan, se reintentan con esperas
+      crecientes (1 min → 6 h) y, tras 6 intentos, quedan marcados como "no entregado" (dead-letter) en
+      vez de perderse.</p></div>
+    <div class="card"><h4>🔎 Reconciliación</h4>
+      <p>Un barrido periódico detecta y alerta estados colgados: envíos en dead-letter, reuniones sin
+      enlace de Meet, coordinaciones de horario estancadas.</p></div>
+    <div class="card"><h4>⏳ Inactividad</h4>
+      <p>Si el candidato deja de responder, se le recuerda a los N minutos; tras varios recordatorios sin
+      respuesta, la conversación se cierra como "No respondió" (sin penalizarlo injustamente).</p></div>
+    <div class="card"><h4>🗑️ Retención (Ley 29733)</h4>
+      <p>Opcional: anonimiza los datos personales de candidatos descartados pasados N días (borra nombre,
+      chat, CV y transcripción, conserva métricas). Incluye "derecho al olvido" (borrado total).</p></div>
+    <div class="card"><h4>📝 Auditoría</h4>
+      <p>Cada acción del dashboard (decidir, contactar, cambiar config, borrar) queda registrada con
+      quién, qué y cuándo.</p></div>
+    <div class="card"><h4>📊 Observabilidad</h4>
+      <p>Página <span class="file">/observabilidad</span> (solo admin): salud de la cola de envíos con
+      botón de reintento y la bitácora de auditoría.</p></div>
+  </div>
+  <div class="note">⚙️ Todo esto lo coordina un <b>scheduler</b> interno que corre cada 30 s. Con varias
+  réplicas del servidor, un <b>candado en la base de datos</b> asegura que solo una haga el trabajo.</div>
+</section>
+
+<!-- 11 -->
+<section id="llm">
+  <h2><span class="num">11</span>La IA y los prompts</h2>
+  <div class="simple">🟢 <b>En simple:</b> el "motor" de IA es un modelo de lenguaje (por defecto
+  Qwen3-32B vía Groq). Se le habla con "prompts" (instrucciones) muy acotados y siempre se mide cuánto
+  cuesta cada llamada.</div>
+  <table>
+    <thead><tr><th>Etapa de IA</th><th>Para qué</th></tr></thead>
+    <tbody>
+      <tr><td><b>prescreen</b></td><td>Leer el CV y decidir si el candidato pasa el pre-filtro.</td></tr>
+      <tr><td><b>classify</b></td><td>Sugerir/clasificar preguntas de la vacante.</td></tr>
+      <tr><td><b>evaluate</b></td><td>Puntuar cada respuesta contra su criterio.</td></tr>
+      <tr><td><b>revalidate</b></td><td>Reformular preguntas según el CV ("Según tu CV: …").</td></tr>
+      <tr><td><b>scorecard</b></td><td>Redactar el resumen y la recomendación final.</td></tr>
+      <tr><td><b>answer</b></td><td>Responder dudas del candidato sobre el puesto (con RAG).</td></tr>
+    </tbody>
+  </table>
+  <ul class="tight">
+    <li><b>Intercambiable:</b> el modelo se inyecta; en las pruebas se usa una "IA falsa" determinista.</li>
+    <li><b>Medido:</b> <code>MeteredLLM</code> registra tokens de entrada/salida por etapa en <code>llm_usage</code>.</li>
+    <li><b>Resistente:</b> tiempo de espera + reintentos; si la IA se cae, degrada con gracia.</li>
+    <li><b>Contractual:</b> la IA devuelve texto/JSON que el código interpreta por clave; nunca ejecuta comandos.</li>
+  </ul>
+</section>
+
+<!-- 12 -->
+<section id="apis">
+  <h2><span class="num">12</span>APIs (32 endpoints)</h2>
+  <div class="simple">🟢 <b>En simple:</b> el dashboard se comunica con el backend por una API REST.
+  Todos los endpoints (menos health y login) exigen token y se aíslan por empresa.</div>
+  <table>
+    <thead><tr><th>Grupo</th><th>Ejemplos</th></tr></thead>
+    <tbody>
+      <tr><td><b>Salud &amp; sesión</b></td><td><code>GET /api/health</code> · <code>POST /api/auth/login</code> · <code>GET /api/auth/me</code></td></tr>
+      <tr><td><b>Vacantes</b></td><td>Listar, crear, ver, editar, candidatos, sincronizar postulantes, métricas.</td></tr>
+      <tr><td><b>Candidatos</b></td><td>Detalle + scorecard, contactar, decidir (avanzar/rechazar), reunión, documentos, borrar.</td></tr>
+      <tr><td><b>Reclutadores</b></td><td>Roster con carga de trabajo (listar, crear, editar).</td></tr>
+      <tr><td><b>Configuración</b></td><td>Auto-contacto, inactividad, agendamiento, retención (por empresa).</td></tr>
+      <tr><td><b>Observabilidad</b></td><td>Auditoría, salud de la cola de envíos + reintento (solo admin).</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- 13 -->
+<section id="datos">
+  <h2><span class="num">13</span>Los datos (PostgreSQL)</h2>
+  <div class="simple">🟢 <b>En simple:</b> todo se guarda en una base de datos PostgreSQL (gestionada
+  con Supabase). Hay <b>dos formas de guardar</b>: una para los datos del negocio (vacantes, candidatos,
+  notas) y otra para el estado interno de cada conversación.</div>
+  <div class="grid g2">
+    <div class="card"><h4>① Datos de negocio</h4>
+      <p>Vacantes, candidatos, respuestas, scorecards, reuniones… Se leen/escriben con el cliente de
+      Supabase (<span class="file">db/client.py</span> + <span class="file">repositories.py</span>).</p></div>
+    <div class="card"><h4>② Estado de la conversación</h4>
+      <p>Lo maneja el <b>checkpointer</b> de LangGraph por conexión directa a Postgres, identificado por
+      el hilo <code>canal:chat</code>. Sobrevive a reinicios.</p></div>
+  </div>
+  <h3>Las 16 tablas de negocio</h3>
+  <div class="chip-row">
+    <span class="badge b-blue">tenants</span><span class="badge b-blue">users</span>
+    <span class="badge b-violet">vacancies</span><span class="badge b-violet">vacancy_questions</span>
+    <span class="badge b-violet">recruiters</span><span class="badge b-green">candidates</span>
+    <span class="badge b-green">conversations</span><span class="badge b-green">messages</span>
+    <span class="badge b-green">answers</span><span class="badge b-green">scorecards</span>
+    <span class="badge b-amber">meetings</span><span class="badge b-amber">candidate_documents</span>
+    <span class="badge b-blue">app_settings</span><span class="badge b-red">outbox</span>
+    <span class="badge b-red">audit_log</span><span class="badge b-blue">llm_usage</span>
+  </div>
+  <div class="note">El esquema se construye por <b>18 migraciones</b> versionadas en
+  <span class="file">supabase/migrations/</span>. Todas las tablas tienen RLS activada (sección 9).</div>
+</section>
+
+<!-- 14 -->
+<section id="config">
+  <h2><span class="num">14</span>Configuración</h2>
+  <div class="simple">🟢 <b>En simple:</b> el comportamiento se ajusta con variables en un archivo
+  <code>.env</code> (68 parámetros). No hay que tocar código para cambiar de proveedor de IA, activar
+  Google real o ajustar el horario de contacto.</div>
+  <table>
+    <thead><tr><th>Grupo</th><th>Qué controla</th></tr></thead>
+    <tbody>
+      <tr><td><b>IA / LLM</b></td><td>Proveedor, modelo, tiempos de espera, reintentos, precio por token.</td></tr>
+      <tr><td><b>Base de datos</b></td><td>URL y llaves de Supabase; cadena de conexión de Postgres.</td></tr>
+      <tr><td><b>Seguridad</b></td><td>Secreto JWT (+ respaldo de rotación), expiración, admin inicial, entorno.</td></tr>
+      <tr><td><b>Telegram</b></td><td>Token del bot, usuarios permitidos, chat de demo.</td></tr>
+      <tr><td><b>Correo (SMTP)</b></td><td>Servidor, credenciales, remitente, correo del reclutador.</td></tr>
+      <tr><td><b>Sourcing</b></td><td>Conector, nota mínima de pre-filtro, auto-contacto al aprobar.</td></tr>
+      <tr><td><b>Agendamiento</b></td><td>Proveedor (simulado/google), credenciales de Google, hoja de registro.</td></tr>
+      <tr><td><b>Entrevista</b></td><td>Máximo de repreguntas, umbrales del semáforo (verde/amarillo).</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- 15 -->
+<section id="libs">
+  <h2><span class="num">15</span>Librerías principales</h2>
+  <div class="simple">🟢 <b>En simple:</b> con qué está construido.</div>
+  <div class="grid g3">
+    <div class="card"><h4>Backend</h4><ul class="tight">
+      <li>FastAPI (API web)</li><li>LangGraph (cerebro)</li><li>python-telegram-bot</li>
+      <li>supabase-py + psycopg (datos)</li><li>PyJWT + bcrypt (seguridad)</li>
+      <li>google-api-python-client (Calendar/Sheets)</li>
+    </ul></div>
+    <div class="card"><h4>IA / RAG</h4><ul class="tight">
+      <li>Cliente compatible con OpenAI (Groq)</li><li>Chroma (búsqueda vectorial)</li>
+      <li>Embeddings multilingües e5</li><li>Cross-encoder (reordenamiento)</li>
+    </ul></div>
+    <div class="card"><h4>Frontend</h4><ul class="tight">
+      <li>Next.js 16 (App Router)</li><li>React</li><li>TypeScript</li>
+    </ul></div>
+  </div>
+  <div class="warn">⚠️ <b>Gotcha (Mac Intel):</b> <code>torch</code> fijado en 2.2.2 y
+  <code>onnxruntime</code> &lt; 1.21 porque las versiones nuevas dejaron de publicar binarios para
+  macOS x86_64. No actualizar sin verificar.</div>
+</section>
+
+<!-- 16 -->
+<section id="run">
+  <h2><span class="num">16</span>Cómo levantarlo</h2>
+  <div class="simple">🟢 <b>En simple:</b> se necesita la base de datos, el backend y el dashboard.
+  Hay también una demo sin nada de infraestructura.</div>
+  <pre><span class="c"># 1) Base de datos (Supabase local, Docker)</span>
+export PATH=$HOME/.local/share/supabase:$PATH && supabase start
+
+<span class="c"># 2) Backend + bot de Telegram</span>
+uv run uvicorn api.main:app --port 8000 --reload
+
+<span class="c"># 3) Dashboard</span>
+cd frontend &amp;&amp; npm install &amp;&amp; npm run dev   <span class="c"># http://localhost:3000</span>
+
+<span class="c"># Demo sin infraestructura (una entrevista de ejemplo)</span>
+uv run python scripts/demo.py --alberto</pre>
+  <div class="note">✅ Verificar que todo esté sano: <code>GET http://localhost:8000/api/health</code>
+  devuelve el estado de Telegram, Supabase y el scheduler.</div>
+</section>
+
+<!-- 17 -->
+<section id="mejoras">
+  <h2><span class="num">17</span>Estado &amp; mejoras</h2>
+  <div class="simple">🟢 <b>En simple:</b> qué está listo y qué falta.</div>
+  <h3>Hecho recientemente</h3>
+  <ul class="tight">
+    <li><span class="badge b-green">✓</span> Auditoría de seguridad F1–F5 (token en logs, HTML de correos, scopes de Google, aislamiento por empresa, secretos).</li>
+    <li><span class="badge b-green">✓</span> Multi-empresa + login por roles + aislamiento (guards + prueba en CI) + RLS latente.</li>
+    <li><span class="badge b-green">✓</span> Rotación de la firma JWT sin cerrar sesiones + endurecimiento de secretos + runbook.</li>
+    <li><span class="badge b-green">✓</span> Confiabilidad: cola de envíos, reconciliación, inactividad, retención, auditoría, panel de observabilidad.</li>
+    <li><span class="badge b-green">✓</span> Agendamiento con Google real + degradación con gracia (no tumba el arranque).</li>
+  </ul>
+  <h3>Pendiente / futuro</h3>
+  <ul class="tight">
+    <li><span class="badge b-amber">◻</span> RLS <b>efectivo</b> sobre el backend (diferido: al exponer la DB a clientes directos o por cumplimiento; junto con Supabase Auth).</li>
+    <li><span class="badge b-amber">◻</span> Gestor de secretos externo para producción (hoy <code>.env</code>).</li>
+    <li><span class="badge b-amber">◻</span> Adaptador de WhatsApp Cloud API (hoy Telegram).</li>
+    <li><span class="badge b-amber">◻</span> Conectores reales de sourcing (Bumeran/LinkedIn) en vez del simulado.</li>
+    <li><span class="badge b-amber">◻</span> Almacenamiento de CVs en object store (hoy contenido en Postgres).</li>
+  </ul>
+</section>
+
+<!-- 18 -->
+<section id="glosario">
+  <h2><span class="num">18</span>Glosario</h2>
+  <div class="simple">🟢 <b>En simple:</b> las palabras técnicas de esta guía, en cristiano.</div>
+  <dl class="glo">
+    <dt>LLM / modelo de lenguaje</dt><dd>La "IA" que entiende y genera texto (aquí Qwen3-32B vía Groq).</dd>
+    <dt>Prompt</dt><dd>Las instrucciones que se le dan a la IA para una tarea concreta.</dd>
+    <dt>Token</dt><dd>La unidad con la que se mide (y cobra) el texto que procesa la IA.</dd>
+    <dt>LangGraph</dt><dd>Librería para armar el "cerebro" como una máquina de estados/decisiones.</dd>
+    <dt>Checkpointer</dt><dd>El mecanismo que guarda el estado de cada conversación para que sobreviva a reinicios.</dd>
+    <dt>RAG</dt><dd>Técnica para responder con base en documentos propios (la base de conocimiento del puesto).</dd>
+    <dt>Scorecard</dt><dd>El informe de evaluación del candidato: nota total, semáforo y detalle por criterio.</dd>
+    <dt>Semáforo</dt><dd>El código de color del resultado: 🟢 avanza, 🟡 revisar, 🔴 no avanza.</dd>
+    <dt>Tenant (empresa)</dt><dd>Cada empresa cliente; sus datos están aislados de las demás.</dd>
+    <dt>JWT</dt><dd>Credencial firmada que prueba quién sos, tu empresa y tu rol al usar la API.</dd>
+    <dt>RBAC</dt><dd>Control de acceso por roles (lector, reclutador, admin).</dd>
+    <dt>RLS</dt><dd>Reglas en la propia base de datos que limitan qué filas puede ver cada quien.</dd>
+    <dt>Outbox</dt><dd>Cola de envíos que reintenta correos/avisos fallidos en vez de perderlos.</dd>
+    <dt>Dead-letter</dt><dd>Un envío que agotó sus reintentos y queda marcado para revisión manual.</dd>
+    <dt>Idempotente</dt><dd>Repetir la acción no cambia el resultado (no duplica ni retrocede).</dd>
+    <dt>Freebusy / Meet</dt><dd>La disponibilidad del calendario / el enlace de videollamada de Google.</dd>
+    <dt>Adaptador</dt><dd>Pieza intercambiable que conecta con un servicio externo (Telegram, Google, portal de empleo).</dd>
+  </dl>
+</section>
+
+</main>
+
+<footer>
+  Agente de Selección de Talento · Datawith.AI · Guía v3 (2026-07-01) · documento de solo lectura.
+</footer>
+`;
 
 export default function GuiaPage() {
   return (
