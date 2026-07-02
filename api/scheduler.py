@@ -825,6 +825,37 @@ def _sla_sweep(settings: Settings) -> dict[str, int]:
     return report
 
 
+# ── Snapshot de métricas HTTP a DB (O-6) ──────────────────────────────────────────
+
+def _http_snapshot_sweep(settings: Settings) -> dict[str, int]:
+    """Vuelca las métricas HTTP en memoria a `http_metrics_snapshots` cada
+    `http_snapshot_minutes` (0 = off) y poda los snapshots vencidos.
+
+    Los contadores son acumulados desde el arranque del proceso; con varias réplicas,
+    solo la que sostiene el advisory lock persiste (las métricas son por-proceso)."""
+    import time
+    from datetime import datetime, timedelta, timezone
+
+    minutes = int(settings.http_snapshot_minutes or 0)
+    if minutes <= 0:
+        return {"saved": 0}
+    last = _state.get("http_snapshot_last") or 0.0
+    now_mono = time.monotonic()
+    if now_mono - last < minutes * 60:
+        return {"saved": 0}
+    _state["http_snapshot_last"] = now_mono
+
+    from api.httpmetrics import http_metrics
+
+    rows = http_metrics.snapshot()
+    repo.save_http_snapshot(rows)
+    days = int(settings.http_snapshot_retention_days or 0)
+    if days > 0:
+        before = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        repo.prune_http_snapshots(before)
+    return {"saved": len(rows)}
+
+
 # ── Loop principal ────────────────────────────────────────────────────────────────
 
 def _prune_fired_slots(fired: set[str], today) -> set[str]:
@@ -904,6 +935,10 @@ async def _scheduler_loop() -> None:
             sla = await asyncio.to_thread(_sla_sweep, settings)
             if sla.get("alerted"):
                 logger.info("SLA → %s", sla)
+            # Snapshot de métricas HTTP a DB (O-6): historial que sobrevive redeploys.
+            snap = await asyncio.to_thread(_http_snapshot_sweep, settings)
+            if snap.get("saved"):
+                logger.info("Snapshot HTTP → %s", snap)
         except Exception:  # noqa: BLE001 — el scheduler nunca debe morir
             logger.exception("Error en el tick del scheduler")
         await asyncio.sleep(30)

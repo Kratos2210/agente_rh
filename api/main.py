@@ -38,6 +38,7 @@ from api.runtime import (  # noqa: F401 — re-export (compat tests/consumidores
     _parse_dt,
     _state,
     current_settings,
+    init_sentry,
 )
 from api.scheduler import (  # noqa: F401 — re-export (compat tests/consumidores)
     _acquire_scheduler_lock,
@@ -91,6 +92,10 @@ async def lifespan(app: FastAPI):
     settings: Settings = get_settings()
     _state["settings"] = settings
     _state["tracing_on"] = setup_tracing(settings)
+    # Error tracking (O-6, config-gated): sin SENTRY_DSN es un no-op.
+    _state["sentry_on"] = init_sentry(settings)
+    if _state["sentry_on"]:
+        logger.info("Sentry activo (environment=%s)", settings.environment)
     _state["event_loop"] = asyncio.get_running_loop()
 
     # Seguridad (P0): en producción, rechaza secretos por defecto/débiles ANTES de servir.
@@ -184,6 +189,26 @@ async def _http_metrics_middleware(request: Request, call_next):
         path = getattr(route, "path", None) or request.url.path
         if path.startswith("/api"):
             http_metrics.record(request.method, path, status, (time.perf_counter() - start) * 1000)
+
+
+# O-6: request-id por request — propaga el `X-Request-ID` entrante (gateway/proxy) o
+# genera uno; queda en el contextvar (los logs JSON lo incluyen) y en la respuesta.
+# Declarado DESPUÉS del de métricas a propósito: el último agregado es el más externo,
+# así el request_id ya está seteado cuando corre todo lo demás.
+@app.middleware("http")
+async def _request_id_middleware(request: Request, call_next):
+    import uuid
+
+    from src.logging_config import set_request_id
+
+    rid = (request.headers.get("x-request-id") or "").strip()[:64] or uuid.uuid4().hex[:16]
+    set_request_id(rid)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = rid
+        return response
+    finally:
+        set_request_id("-")
 
 
 @app.get("/api/health")

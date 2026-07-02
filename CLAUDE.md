@@ -719,6 +719,28 @@ embeddings) para responder dudas del candidato sobre el puesto.
   fundamentada y caza la alucinación de sueldo (50% < 90% → exit 1); trazas de smoke limpiadas.
   Pendiente del plan: O-6 (logs JSON + request-id, Sentry config-gated, snapshot HTTP metrics a DB).
 
+- **2026-07-02 — Observabilidad · Fase O-6 (logs JSON + request-id, Sentry, snapshot HTTP a DB) —
+  PLAN DE OBSERVABILIDAD COMPLETO (O-1..O-6)**: (1) **Logs JSON + request-id** —
+  `src/logging_config.py`: contextvar `request_id_var` + `set/get_request_id`, filtro que inyecta
+  `record.request_id` y `JsonFormatter` (ts/level/logger/message/request_id/exc_info) config-gated
+  por env **`LOG_JSON`** (como LOG_LEVEL; default off, formato clásico intacto); middleware
+  `_request_id_middleware` en `api/main.py` (declarado al final = el más externo): propaga el
+  `X-Request-ID` entrante (cap 64 chars) o genera uuid4-hex16, lo devuelve en la respuesta y
+  resetea el contextvar al salir. (2) **Sentry config-gated** — dep `sentry-sdk` (wheel puro);
+  `runtime.init_sentry(settings)`: no-op sin `SENTRY_DSN`, con DSN inicializa con
+  `environment` + `traces_sample_rate` (default 0 = solo errores) y **`send_default_pii=False`**
+  (Ley 29733: stacktraces sin datos del candidato); best-effort (DSN inválido no rompe el
+  arranque); cableado en el lifespan (`_state["sentry_on"]`). (3) **Snapshot HTTP a DB** —
+  migración `0025_http_metrics_snapshots.sql` (tabla sin tenant, RLS activado SIN políticas =
+  solo service_role; **aplicada en vivo** por docker psql + `NOTIFY pgrst`, patrón conocido);
+  `repo.save_http_snapshot`/`prune_http_snapshots` (best-effort); `_http_snapshot_sweep` en el
+  scheduler (config `HTTP_SNAPSHOT_MINUTES` default 60, 0=off; retención
+  `HTTP_SNAPSHOT_RETENTION_DAYS` default 14; contadores ACUMULADOS desde el arranque del proceso —
+  el consumidor deriva deltas). `.env.example` con el bloque O-6. **Tests
+  `test_o6_observability.py` (+7) → 283/283 verde.** **Verificado en vivo**: `X-Request-ID`
+  generado y propagado por el backend real; round-trip snapshot→DB→prune OK; `LOG_JSON=true`
+  emite JSON con request_id. Sentry queda validado por tests (activarlo en prod = solo setear DSN).
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.

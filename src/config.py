@@ -56,6 +56,15 @@ class Settings(BaseSettings):
     llm_trace_enabled: bool = False
     llm_trace_max_chars: int = 8000
 
+    # Sentry (observabilidad O-6): error tracking config-gated — sin DSN es un no-op.
+    sentry_dsn: str = ""
+    sentry_traces_sample_rate: float = 0.0  # 0 = solo errores (sin performance tracing)
+
+    # Snapshot periódico de las métricas HTTP en memoria a la DB (O-6): sobrevive
+    # reinicios/redeploys. 0 = apagado. La retención poda snapshots viejos.
+    http_snapshot_minutes: int = 60
+    http_snapshot_retention_days: int = 14
+
     # Documentos. El env var se llama PDF_PATHS (alias) pero el atributo es pdf_paths_raw.
     pdf_paths_raw: str = Field(default="", validation_alias="PDF_PATHS")
     pdf_dir: str = "./data"

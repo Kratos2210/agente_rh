@@ -1020,6 +1020,24 @@ def _aggregate_tokens(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def save_http_snapshot(rows: list[dict[str, Any]]) -> None:
+    """Persiste un snapshot de métricas HTTP por ruta (O-6). Best-effort: nunca rompe."""
+    if not rows:
+        return
+    try:
+        get_supabase().table("http_metrics_snapshots").insert(rows).execute()
+    except Exception:  # noqa: BLE001 — observabilidad, no tumba el scheduler
+        pass
+
+
+def prune_http_snapshots(before_iso: str) -> None:
+    """Poda snapshots HTTP anteriores al instante dado (retención O-6). Best-effort."""
+    try:
+        get_supabase().table("http_metrics_snapshots").delete().lt("taken_at", before_iso).execute()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def usage_rows_since(since_iso: str) -> list[dict[str, Any]]:
     """Filas de `llm_usage` desde un instante (gasto del mes — O-2; SLA de latencia — O-4)."""
     return (

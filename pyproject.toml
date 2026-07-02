@@ -58,6 +58,7 @@ dependencies = [
     "numpy>=1.26.0,<2",
     "docx2txt>=0.8",
     "mcp>=1.0,<2",
+    "sentry-sdk>=2.64.0",
 ]
 
 [project.optional-dependencies]

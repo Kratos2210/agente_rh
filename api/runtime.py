@@ -23,6 +23,32 @@ def current_settings() -> Settings:
     return _state.get("settings") or get_settings()
 
 
+def init_sentry(settings: Settings) -> bool:
+    """Error tracking config-gated (O-6): inicializa Sentry solo si hay `SENTRY_DSN`.
+
+    Devuelve True si quedó activo. Best-effort: un DSN inválido o el SDK ausente
+    no deben impedir el arranque (queda el logging normal)."""
+    if not str(settings.sentry_dsn or "").strip():
+        return False
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            environment=settings.environment,
+            traces_sample_rate=float(settings.sentry_traces_sample_rate or 0.0),
+            # PII fuera de los eventos (Ley 29733): Sentry no debe recibir cuerpos
+            # de requests ni datos del candidato, solo stacktraces.
+            send_default_pii=False,
+        )
+        return True
+    except Exception:  # noqa: BLE001
+        from src.logging_config import get_logger
+
+        get_logger("api.runtime").exception("Sentry no pudo inicializarse (se sigue sin él)")
+        return False
+
+
 def _now_iso() -> str:
     """Timestamp UTC ISO (usado al registrar el envío del examen psicológico)."""
     from datetime import datetime, timezone
