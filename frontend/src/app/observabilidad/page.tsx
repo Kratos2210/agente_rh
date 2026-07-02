@@ -1,9 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Shell, Card, BackLink } from "@/components/Shell";
-import { api, AuditEntry, OutboxHealth, OutboxItem } from "@/lib/api";
+import { api, errorMessage, AuditEntry, HttpRouteMetric, OpsAlert, OutboxHealth, OutboxItem } from "@/lib/api";
 import { isAdmin } from "@/lib/auth";
+
+// Etiquetas legibles para los tipos de alerta operativa (reconciliación).
+const ALERT_LABEL: Record<string, string> = {
+  dead_letter: "Envíos detenidos",
+  meeting_no_link: "Reunión sin enlace",
+  scheduling_stuck: "Coordinación estancada",
+  state_divergence: "Estado divergente",
+  delivery_failed: "Entrega Telegram fallida",
+};
 
 // Etiquetas legibles para los tipos de envío del outbox.
 const KIND_LABEL: Record<string, string> = {
@@ -52,15 +62,19 @@ function CountChip({ label, value, color }: { label: string; value: number; colo
 
 export default function ObservabilidadPage() {
   const [outbox, setOutbox] = useState<OutboxHealth | null>(null);
+  const [alerts, setAlerts] = useState<OpsAlert[] | null>(null);
   const [audit, setAudit] = useState<AuditEntry[] | null>(null);
+  const [http, setHttp] = useState<HttpRouteMetric[] | null>(null);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [retrying, setRetrying] = useState<string | null>(null);
   const [allowed, setAllowed] = useState<boolean | null>(null);
 
   const load = () => {
-    api.getOutbox().then(setOutbox).catch((e) => setError(String(e)));
-    api.getAudit().then(setAudit).catch((e) => setError(String(e)));
+    api.getOutbox().then(setOutbox).catch((e) => setError(errorMessage(e)));
+    api.getOpsAlerts().then((r) => setAlerts(r.alerts)).catch((e) => setError(errorMessage(e)));
+    api.getAudit().then(setAudit).catch((e) => setError(errorMessage(e)));
+    api.getHttpMetrics().then((r) => setHttp(r.routes)).catch((e) => setError(errorMessage(e)));
   };
 
   useEffect(() => {
@@ -76,7 +90,7 @@ export default function ObservabilidadPage() {
       setMsg("Envío reencolado ✅ — se reintentará en el próximo ciclo.");
       load();
     } catch (e) {
-      setMsg("Error: " + String(e));
+      setMsg("Error: " + errorMessage(e));
     } finally {
       setRetrying(null);
     }
@@ -102,6 +116,36 @@ export default function ObservabilidadPage() {
 
       {error && <p style={{ color: "#f87171", marginBottom: 14 }}>Error: {error}</p>}
       {msg && <p className="text-sm mb-4" style={{ color: "var(--accent)" }}>{msg}</p>}
+
+      {/* ── Alertas operativas (reconciliación) ─────────────────────── */}
+      <Card style={{ marginBottom: 18 }}>
+        <h2 className="font-semibold mb-1">Alertas operativas</h2>
+        <p className="text-sm mb-4" style={{ color: "var(--muted)" }}>
+          Estados colgados que el sistema detecta solo (reuniones sin enlace, coordinaciones
+          estancadas, divergencias) y requieren acción de una persona.
+        </p>
+        {!alerts ? (
+          <p className="text-sm" style={{ color: "var(--muted)" }}>Cargando…</p>
+        ) : alerts.length === 0 ? (
+          <p className="text-sm" style={{ color: "#34d399" }}>✓ Sin alertas: todo el proceso está sano.</p>
+        ) : (
+          <div style={{ display: "grid", gap: 10 }}>
+            {alerts.map((a, i) => (
+              <div key={i} style={{ padding: "13px 16px", borderRadius: 12, background: "rgba(248,113,113,.05)", border: "1px solid rgba(248,113,113,.25)", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                <span style={{ padding: "3px 10px", borderRadius: 999, background: "rgba(248,113,113,.12)", color: "#f87171", fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap" }}>
+                  {ALERT_LABEL[a.type] || a.type}
+                </span>
+                <div style={{ flex: 1, minWidth: 200, fontSize: 13, color: "#dbe2ee" }}>{a.detail}</div>
+                {a.candidate_id && (
+                  <Link href={`/candidatos/${a.candidate_id}`} style={{ fontSize: 12.5, fontWeight: 700, color: "var(--accent)", whiteSpace: "nowrap" }}>
+                    Ver candidato →
+                  </Link>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
 
       {/* ── Salud del outbox ─────────────────────────────────────────── */}
       <Card style={{ marginBottom: 18 }}>
@@ -145,6 +189,46 @@ export default function ObservabilidadPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+      </Card>
+
+      {/* ── Rendimiento HTTP (O3) ────────────────────────────────────── */}
+      <Card style={{ marginBottom: 18 }}>
+        <h2 className="font-semibold mb-1">Rendimiento HTTP</h2>
+        <p className="text-sm mb-4" style={{ color: "var(--muted)" }}>
+          Conteo, errores y latencia por ruta de la API desde el último arranque del backend.
+        </p>
+        {!http ? (
+          <p className="text-sm" style={{ color: "var(--muted)" }}>Cargando…</p>
+        ) : http.length === 0 ? (
+          <p className="text-sm" style={{ color: "var(--muted)" }}>Aún no hay requests registrados.</p>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+              <thead>
+                <tr style={{ color: "var(--muted)", textAlign: "left" }}>
+                  <th style={{ padding: "6px 10px", fontWeight: 600 }}>Ruta</th>
+                  <th style={{ padding: "6px 10px", fontWeight: 600, textAlign: "right" }}>Requests</th>
+                  <th style={{ padding: "6px 10px", fontWeight: 600, textAlign: "right" }}>4xx</th>
+                  <th style={{ padding: "6px 10px", fontWeight: 600, textAlign: "right" }}>5xx</th>
+                  <th style={{ padding: "6px 10px", fontWeight: 600, textAlign: "right" }}>Prom. (ms)</th>
+                  <th style={{ padding: "6px 10px", fontWeight: 600, textAlign: "right" }}>Máx. (ms)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {http.slice(0, 20).map((r) => (
+                  <tr key={r.route} style={{ borderTop: "1px solid var(--edge)" }}>
+                    <td style={{ padding: "7px 10px", color: "#dbe2ee", fontFamily: "var(--font-jetbrains), monospace", fontSize: 11.5 }}>{r.route}</td>
+                    <td style={{ padding: "7px 10px", textAlign: "right", color: "#dbe2ee", fontWeight: 600 }}>{r.count}</td>
+                    <td style={{ padding: "7px 10px", textAlign: "right", color: r.client_errors ? "#d97706" : "var(--muted)" }}>{r.client_errors}</td>
+                    <td style={{ padding: "7px 10px", textAlign: "right", color: r.errors ? "#f87171" : "var(--muted)", fontWeight: r.errors ? 700 : 400 }}>{r.errors}</td>
+                    <td style={{ padding: "7px 10px", textAlign: "right", color: "#dbe2ee" }}>{r.avg_ms}</td>
+                    <td style={{ padding: "7px 10px", textAlign: "right", color: "var(--muted)" }}>{r.max_ms}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </Card>

@@ -8,6 +8,7 @@ supabase-py son síncronos.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
@@ -110,8 +111,23 @@ class InterviewService:
         self.notify_meeting = notify_meeting
         self.scheduler = scheduler
         self.settings = settings
+        # Serialización por thread (audit A3): el barrido de inactividad y un mensaje del
+        # candidato pueden invocar el motor del MISMO thread desde dos hilos worker a la
+        # vez; LangGraph no serializa, así que dos send() concurrentes pisarían el
+        # checkpoint. Un lock por thread_id (el dict crece un puntero por conversación
+        # vista en la vida del proceso — despreciable) elimina la carrera.
+        self._thread_locks: dict[str, threading.Lock] = {}
+        self._thread_locks_guard = threading.Lock()
+
+    def _thread_lock(self, thread_id: str) -> threading.Lock:
+        with self._thread_locks_guard:
+            return self._thread_locks.setdefault(thread_id, threading.Lock())
 
     def process(self, inbound: InboundMessage) -> TurnResult:
+        with self._thread_lock(inbound.thread_id):
+            return self._process(inbound)
+
+    def _process(self, inbound: InboundMessage) -> TurnResult:
         resolved = self._resolve_context(inbound)
         if isinstance(resolved, TurnResult):
             return resolved
@@ -206,6 +222,10 @@ class InterviewService:
 
         Avanza el motor con `timeout=True`, proyecta el estado a Supabase (status
         `no_response` si la entrevista quedó sin responder) y devuelve el mensaje de cierre."""
+        with self._thread_lock(thread_id):
+            return self._finalize_inactive(thread_id)
+
+    def _finalize_inactive(self, thread_id: str) -> TurnResult:
         conv = repositories.get_conversation_by_thread(thread_id)
         if not conv:
             return TurnResult()
@@ -228,7 +248,16 @@ class InterviewService:
         filename = doc.get("filename", "")
         mime = doc.get("mime", "application/pdf")
         content_b64, size = _read_document_b64(doc.get("local_path", ""))
+        # Umbral de contenido en DB (audit D2): un PDF grande vía PostgREST infla el JSON
+        # ~35% en base64; sobre el umbral el archivo queda solo en disco (stored="disk").
+        max_db = int(
+            getattr(getattr(self, "settings", None), "document_db_max_bytes", 0)
+            or 5 * 1024 * 1024
+        )
         stored = "none"
+        if content_b64 and size > max_db:
+            content_b64 = ""
+            stored = "disk"
         if content_b64:
             try:
                 repositories.save_document_content(
@@ -260,19 +289,20 @@ class InterviewService:
         de botones para que el canal lo envíe. No marca `invited` (eso lo hace el endpoint
         tras confirmar el envío)."""
         thread_id = f"{candidate['channel']}:{candidate['channel_user_id']}"
-        conv = repositories.get_or_create_conversation(candidate["id"], vacancy["id"], thread_id)
-        questions = [_to_qspec(q) for q in repositories.get_vacancy_questions(vacancy["id"])]
-        state = self.runner.start(
-            thread_id, _vacancy_subset(vacancy), questions, cv_profile=candidate.get("cv_profile") or {}
-        )
-        self._sync_business(vacancy, candidate, conv, state)
-        self._persist_outbound(conv, state)
-        self._record_usage(vacancy, candidate, conv)
-        # Arranca el reloj de inactividad desde el momento del contacto.
-        repositories.update_conversation(
-            conv["id"], {"last_activity_at": _now_iso(), "reminders_sent": 0}
-        )
-        return self._result(state)
+        with self._thread_lock(thread_id):
+            conv = repositories.get_or_create_conversation(candidate["id"], vacancy["id"], thread_id)
+            questions = [_to_qspec(q) for q in repositories.get_vacancy_questions(vacancy["id"])]
+            state = self.runner.start(
+                thread_id, _vacancy_subset(vacancy), questions, cv_profile=candidate.get("cv_profile") or {}
+            )
+            self._sync_business(vacancy, candidate, conv, state)
+            self._persist_outbound(conv, state)
+            self._record_usage(vacancy, candidate, conv)
+            # Arranca el reloj de inactividad desde el momento del contacto.
+            repositories.update_conversation(
+                conv["id"], {"last_activity_at": _now_iso(), "reminders_sent": 0}
+            )
+            return self._result(state)
 
     # ── Agendamiento de entrevista (fase 2) ──────────────────────────────────
 
@@ -310,33 +340,34 @@ class InterviewService:
         `stage` = "hr" | "lead" | "manager"; `modality` = "virtual" | "onsite".
         La dispara el endpoint de decisión/avance de etapa. El saludo + opciones los envía el bot."""
         thread_id = f"{candidate['channel']}:{candidate['channel_user_id']}"
-        conv = repositories.get_or_create_conversation(candidate["id"], vacancy["id"], thread_id)
-        cfg = repositories.get_app_setting("scheduling", {}, vacancy.get("tenant_id")) or {}
-        recruiter = self._resolve_recruiter(vacancy)
-        interviewer = self._resolve_interviewer(vacancy, stage)
-        calendar_id = interviewer.get("calendar_id") or recruiter.get("calendar_id") or "primary"
-        now = datetime.now(timezone.utc)
-        horizon = int(cfg.get("horizon_days", 7) or 7)
-        busy: list[tuple[datetime, datetime]] = []
-        try:
-            busy = self._scheduler().busy_intervals(calendar_id, now, now + timedelta(days=horizon + 1))
-        except Exception:  # noqa: BLE001 — sin disponibilidad legible, proponemos igual
-            busy = []
-        slots = [s.isoformat() for s in compute_free_slots(busy, cfg, now=now)]
-        state = self.runner.send(
-            thread_id,
-            start_scheduling=slots,
-            recruiter=recruiter,
-            stage=stage,
-            modality=modality,
-            interviewer=interviewer,
-        )
-        self._sync_business(vacancy, candidate, conv, state)
-        self._persist_outbound(conv, state)
-        repositories.update_conversation(
-            conv["id"], {"last_activity_at": _now_iso(), "reminders_sent": 0}
-        )
-        return self._result(state)
+        with self._thread_lock(thread_id):
+            conv = repositories.get_or_create_conversation(candidate["id"], vacancy["id"], thread_id)
+            cfg = repositories.get_app_setting("scheduling", {}, vacancy.get("tenant_id")) or {}
+            recruiter = self._resolve_recruiter(vacancy)
+            interviewer = self._resolve_interviewer(vacancy, stage)
+            calendar_id = interviewer.get("calendar_id") or recruiter.get("calendar_id") or "primary"
+            now = datetime.now(timezone.utc)
+            horizon = int(cfg.get("horizon_days", 7) or 7)
+            busy: list[tuple[datetime, datetime]] = []
+            try:
+                busy = self._scheduler().busy_intervals(calendar_id, now, now + timedelta(days=horizon + 1))
+            except Exception:  # noqa: BLE001 — sin disponibilidad legible, proponemos igual
+                busy = []
+            slots = [s.isoformat() for s in compute_free_slots(busy, cfg, now=now)]
+            state = self.runner.send(
+                thread_id,
+                start_scheduling=slots,
+                recruiter=recruiter,
+                stage=stage,
+                modality=modality,
+                interviewer=interviewer,
+            )
+            self._sync_business(vacancy, candidate, conv, state)
+            self._persist_outbound(conv, state)
+            repositories.update_conversation(
+                conv["id"], {"last_activity_at": _now_iso(), "reminders_sent": 0}
+            )
+            return self._result(state)
 
     def _finalize_scheduling(self, vacancy: dict, candidate: dict, conv: dict, state: InterviewState) -> None:
         """Crea la reunión (Calendar + Sheets) tras la elección del candidato y notifica.
@@ -466,6 +497,8 @@ class InterviewService:
 
     def _record_usage(self, vacancy: dict, candidate: dict, conv: dict) -> None:
         """Vuelca el uso de tokens acumulado este turno (si el LLM está instrumentado)."""
+        from agent.prompts import PROMPT_VERSION
+
         drain = getattr(self.runner.llm, "drain", None)
         if not callable(drain):
             return
@@ -476,6 +509,7 @@ class InterviewService:
                 vacancy_id=vacancy.get("id"),
                 candidate_id=candidate.get("id"),
                 conversation_id=conv.get("id"),
+                prompt_version=PROMPT_VERSION,
             )
 
     # ── Proyección a Supabase ────────────────────────────────────────────────
@@ -508,10 +542,14 @@ class InterviewService:
         if cand_update:
             repositories.update_candidate(candidate["id"], cand_update)
 
-        # Conversación: estado + índice de pregunta.
+        # Conversación: estado + índice de pregunta. Si la fase cambió, queda registrada
+        # la transición con timestamp (audit G4: tiempo-por-estado, reconstrucción del flujo).
+        new_conv_state = phase or "greeting"
+        if new_conv_state != (conv.get("state") or ""):
+            repositories.add_state_transition(conv["id"], conv.get("state") or "", new_conv_state)
         repositories.update_conversation(
             conv["id"],
-            {"state": phase or "greeting", "current_question_idx": state.get("current_idx", 0)},
+            {"state": new_conv_state, "current_question_idx": state.get("current_idx", 0)},
         )
 
         # Respuestas evaluadas (idempotente).

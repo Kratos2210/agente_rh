@@ -1,0 +1,77 @@
+{
+  "description": "Suite golden del prompt de evaluación (EVALUATE_ANSWER_PROMPT). Respuestas reales de la entrevista de Alberto (16/06/2026) + contraejemplos débiles/negativos, con el rango de score esperado. Se corre MANUALMENTE contra el LLM real: uv run python scripts/golden_eval.py",
+  "cases": [
+    {
+      "id": "formacion-alberto",
+      "question": "¿Cuál es tu nivel de estudios y qué carrera cursaste?",
+      "criterion": "Formación afín (Ing. Sistemas/Software/Computación).",
+      "answer": "Soy Ingeniero de Sistemas titulado de la Universidad Nacional San Luis Gonzaga de Ica.",
+      "expected_min": 70,
+      "expected_max": 100
+    },
+    {
+      "id": "experiencia-alberto",
+      "question": "¿Cuánto tiempo de experiencia tienes en automatizaciones e IA?",
+      "criterion": "Mínimo 2 años de experiencia específica.",
+      "answer": "En automatización e IA casi 2 años. En BBVA automaticé validaciones de datos en pipelines financieros y rediseñé flujos As-Is/To-Be; hoy como freelance desarrollo agentes de IA, automatizaciones con n8n y sistemas RAG.",
+      "expected_min": 50,
+      "expected_max": 100
+    },
+    {
+      "id": "disponibilidad-si",
+      "question": "¿Estás disponible para trabajar presencial en Santiago de Surco, Lima?",
+      "criterion": "Disponibilidad presencial.",
+      "answer": "Sí, sin problema.",
+      "expected_min": 75,
+      "expected_max": 100
+    },
+    {
+      "id": "dominio-alberto",
+      "question": "¿Cuál es tu dominio en RPA, programación, IA, cloud, BD, APIs, ágil, DevOps? Con ejemplos.",
+      "criterion": "Amplitud técnica sustentada con herramientas y proyectos.",
+      "answer": "RPA y flujos con n8n (certificación oficial 2026): webhooks, conectores a Google Workspace, correo, Telegram y bases de datos; automaticé pipelines de ingesta y controles de calidad. Programación: Python (PySpark para datos y agentes de IA). Cloud y APIs, bases de datos, metodologías ágiles y control de versiones con Git.",
+      "expected_min": 65,
+      "expected_max": 100
+    },
+    {
+      "id": "caso-real-alberto",
+      "question": "Contame una automatización/IA reciente: problema, arquitectura, integración y resultados.",
+      "criterion": "Caso real end-to-end con impacto medible.",
+      "answer": "Un cliente perdía horas buscando en contratos y manuales. Construí un asistente RAG que sube PDF/Word/TXT y responde en lenguaje natural citando la página exacta. Arquitectura: Python, LangChain, Chroma con búsqueda híbrida (BM25 + semántica) y re-ranking con cross-encoder; inferencia con Groq + Qwen3. Resultado: consultas de minutos a segundos.",
+      "expected_min": 70,
+      "expected_max": 100
+    },
+    {
+      "id": "salario-claro",
+      "question": "¿Cuál es tu pretensión salarial mínima (monto, bruto/neto, moneda)?",
+      "criterion": "Pretensión clara y razonable (informativo).",
+      "answer": "Mi pretensión salarial es de S/4,500 brutos mensuales en soles.",
+      "expected_min": 60,
+      "expected_max": 100
+    },
+    {
+      "id": "dominio-vago",
+      "question": "¿Cuál es tu dominio en RPA, programación, IA, cloud, BD, APIs, ágil, DevOps? Con ejemplos.",
+      "criterion": "Amplitud técnica sustentada con herramientas y proyectos.",
+      "answer": "Sé de todo un poco, la verdad manejo bastante de esas cosas.",
+      "expected_min": 0,
+      "expected_max": 55
+    },
+    {
+      "id": "caso-real-vago",
+      "question": "Contame una automatización/IA reciente: problema, arquitectura, integración y resultados.",
+      "criterion": "Caso real end-to-end con impacto medible.",
+      "answer": "He hecho varias cosas de automatización pero ahorita no recuerdo los detalles.",
+      "expected_min": 0,
+      "expected_max": 45
+    },
+    {
+      "id": "disponibilidad-no",
+      "question": "¿Estás disponible para trabajar presencial en Santiago de Surco, Lima?",
+      "criterion": "Disponibilidad presencial.",
+      "answer": "No, solo puedo trabajar remoto desde Arequipa.",
+      "expected_min": 0,
+      "expected_max": 40
+    }
+  ]
+}

@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from agent.llm import LLM, complete_staged, parse_json_object
-from agent.prompts import SCORECARD_PROMPT
+from agent.prompts import PROMPT_VERSION, SCORECARD_PROMPT
 from src.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -139,4 +139,6 @@ def build_scorecard(
         "recommendation": recommendation,
         "per_criterion": per_crit,
         "review_required": review_required,
+        # Versión de los prompts con que se evaluó (comparabilidad entre scorecards).
+        "prompt_version": PROMPT_VERSION,
     }

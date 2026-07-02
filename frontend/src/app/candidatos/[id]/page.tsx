@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Shell, BackLink } from "@/components/Shell";
 import { Radar, ScoreRing, Stepper, Toast } from "@/components/ui";
-import { api, CandidateDetail, MeetingStage, PHASE_STEPS, phaseMeta } from "@/lib/api";
+import { api, errorMessage, CandidateDetail, MeetingStage, PHASE_STEPS, phaseMeta } from "@/lib/api";
 import { isAdmin } from "@/lib/auth";
 import { ACCENT, avatarColor, initials, scoreColor, sourceIcon, stageMeta } from "@/lib/stages";
 
@@ -47,6 +47,8 @@ export default function CandidatePage() {
   const [toast, setToast] = useState("");
   const [contacting, setContacting] = useState(false);
   const [erasing, setErasing] = useState(false);
+  const [eraseOpen, setEraseOpen] = useState(false);
+  const [eraseName, setEraseName] = useState("");
   const [admin, setAdmin] = useState(false);
   const [txOpen, setTxOpen] = useState(false);
   const [feedback, setFeedback] = useState("");
@@ -55,27 +57,29 @@ export default function CandidatePage() {
 
   const load = () => {
     if (!id) return;
-    api.getCandidate(id).then(setData).catch((e) => setError(String(e)));
+    api.getCandidate(id).then(setData).catch((e) => setError(errorMessage(e)));
   };
   useEffect(load, [id]);
   useEffect(() => setAdmin(isAdmin()), []);
 
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(""), 3500); };
 
+  // U3 (auditoría): el borrado definitivo exige tipear el nombre del candidato (modal
+  // propio en lugar del window.confirm nativo). Si el candidato no tiene nombre
+  // (anonimizado), la palabra de confirmación es BORRAR.
+  const eraseTarget = data?.candidate.name?.trim() || "BORRAR";
+  const eraseReady = eraseName.trim() === eraseTarget;
   const erase = async () => {
-    if (!data) return;
-    const ok = window.confirm(
-      `¿Borrar definitivamente a ${data.candidate.name || "este candidato"} y todos sus datos ` +
-        "(transcripción, CV, evaluación)? Esta acción es irreversible (derecho al olvido, Ley 29733).",
-    );
-    if (!ok) return;
+    if (!data || !eraseReady) return;
     setErasing(true);
     try {
       await api.eraseCandidate(id);
       router.replace(data.vacancy ? `/vacantes/${data.vacancy.id}` : "/");
     } catch (e) {
-      flash("Error: " + String(e));
+      flash("Error: " + errorMessage(e));
       setErasing(false);
+      setEraseOpen(false);
+      setEraseName("");
     }
   };
 
@@ -85,7 +89,7 @@ export default function CandidatePage() {
       const r = await api.decide(id, decision);
       flash(r.scheduling_started ? "Aprobado · coordinando entrevista por Telegram 📅" : decision === "advance" ? "Candidato aprobado ✅" : "Candidato rechazado · notificación enviada.");
       load();
-    } catch (e) { flash("Error: " + String(e)); } finally { setActing(false); }
+    } catch (e) { flash("Error: " + errorMessage(e)); } finally { setActing(false); }
   };
   const contact = async () => {
     setContacting(true);
@@ -93,7 +97,7 @@ export default function CandidatePage() {
       const r = await api.contactCandidate(id);
       flash(r.contacted ? "Contactado por Telegram ✅" : `No se contactó: ${r.note}`);
       load();
-    } catch (e) { flash("Error: " + String(e)); } finally { setContacting(false); }
+    } catch (e) { flash("Error: " + errorMessage(e)); } finally { setContacting(false); }
   };
   const sendExam = async () => {
     if (!exam.link.trim()) { flash("Falta el link del examen"); return; }
@@ -103,7 +107,7 @@ export default function CandidatePage() {
       flash(r.sent ? "Examen psicológico enviado por correo ✅" : "Correo encolado (revisa SMTP/email del candidato)");
       setExam({ link: "", code: "", key: "" });
       load();
-    } catch (e) { flash("Error: " + String(e)); } finally { setActing(false); }
+    } catch (e) { flash("Error: " + errorMessage(e)); } finally { setActing(false); }
   };
   const doAttendance = async (stage: MeetingStage, attended: "attended" | "no_show", reschedule = false) => {
     setActing(true);
@@ -111,7 +115,7 @@ export default function CandidatePage() {
       await api.markAttendance(id, { stage, attended, reschedule });
       flash(attended === "attended" ? "Asistencia registrada ✅" : reschedule ? "Reagendando por Telegram 📅" : "Proceso cerrado (no asistió).");
       load();
-    } catch (e) { flash("Error: " + String(e)); } finally { setActing(false); }
+    } catch (e) { flash("Error: " + errorMessage(e)); } finally { setActing(false); }
   };
   const doAdvance = async (stage: MeetingStage, decision: "approved" | "rejected") => {
     setActing(true);
@@ -124,7 +128,7 @@ export default function CandidatePage() {
       );
       setFeedback("");
       load();
-    } catch (e) { flash("Error: " + String(e)); } finally { setActing(false); }
+    } catch (e) { flash("Error: " + errorMessage(e)); } finally { setActing(false); }
   };
 
   if (error) return <Shell width={1020}><BackLink href="/" label="Volver" /><p style={{ color: "#f87171" }}>Error: {error}</p></Shell>;
@@ -430,12 +434,45 @@ export default function CandidatePage() {
               Borra definitivamente al candidato y todos sus datos (transcripción, CV, evaluación). Irreversible · derecho al olvido (Ley 29733).
             </div>
             <button
-              onClick={erase}
+              onClick={() => { setEraseName(""); setEraseOpen(true); }}
               disabled={erasing}
               style={{ padding: "10px 18px", borderRadius: 10, background: "rgba(248,113,113,.12)", border: "1px solid rgba(248,113,113,.35)", color: "#f87171", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: erasing ? 0.5 : 1, whiteSpace: "nowrap" }}
             >
-              {erasing ? "Borrando…" : "🗑 Borrar candidato"}
+              🗑 Borrar candidato
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmación del borrado (U3: tipear el nombre, no confirm nativo) */}
+      {eraseOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(5,8,14,.72)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ width: 440, maxWidth: "100%", padding: "22px 24px", borderRadius: 16, background: "#0f1521", border: "1px solid rgba(248,113,113,.35)", boxShadow: "0 20px 60px rgba(0,0,0,.55)" }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "#f87171", marginBottom: 8 }}>Borrado definitivo</div>
+            <div style={{ fontSize: 13, color: "#aeb8cc", lineHeight: 1.55, marginBottom: 14 }}>
+              Se eliminarán <b style={{ color: "#eef2f9" }}>todos los datos</b> de {data.candidate.name || "este candidato"}:
+              transcripción, CV, evaluación y notificaciones. Irreversible · derecho al olvido (Ley 29733).
+            </div>
+            <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 8 }}>
+              Escribe <b style={{ color: "#eef2f9" }}>{eraseTarget}</b> para confirmar:
+            </div>
+            <input
+              value={eraseName}
+              onChange={(e) => setEraseName(e.target.value)}
+              placeholder={eraseTarget}
+              autoFocus
+              style={{ ...inputStyle, width: "100%", marginBottom: 16 }}
+            />
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => { setEraseOpen(false); setEraseName(""); }} disabled={erasing} style={btnGhost}>Cancelar</button>
+              <button
+                onClick={erase}
+                disabled={!eraseReady || erasing}
+                style={{ ...btnDanger, background: "rgba(248,113,113,.16)", opacity: !eraseReady || erasing ? 0.45 : 1, cursor: !eraseReady || erasing ? "not-allowed" : "pointer" }}
+              >
+                {erasing ? "Borrando…" : "Borrar definitivamente"}
+              </button>
+            </div>
           </div>
         </div>
       )}

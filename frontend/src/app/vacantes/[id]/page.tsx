@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Shell, BackLink } from "@/components/Shell";
 import { KanbanBoard } from "@/components/ui";
-import { api, CandidateRow, Metrics, Vacancy } from "@/lib/api";
+import { api, errorMessage, CandidateRow, Metrics, Vacancy } from "@/lib/api";
 import { ACCENT, avatarColor, buildColumns, cvChip, initials, stageMeta } from "@/lib/stages";
 
 const MONO = "var(--font-jetbrains), monospace";
@@ -77,7 +77,7 @@ export default function VacancyPage() {
       api.getVacancyMetrics(id),
     ])
       .then(([v, page, m]) => { setVacancy(v); setCandidates(page.items); setTotal(page.total); setMetrics(m); })
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(errorMessage(e)));
   }, [id, q, offset]);
   useEffect(() => { load(); }, [load]);
 
@@ -97,7 +97,7 @@ export default function VacancyPage() {
       const r = await api.syncApplicants(id);
       setMsg(`Importados ${r.imported} · aptos ${r.passed} · descartados ${r.rejected} · contactados ${r.contacted}`);
       load();
-    } catch (e) { setMsg(`Error: ${String(e)}`); } finally { setSyncing(false); }
+    } catch (e) { setMsg(`Error: ${errorMessage(e)}`); } finally { setSyncing(false); }
   };
 
   if (error) return <Shell><BackLink href="/" label="Vacantes" /><p style={{ color: "#f87171" }}>Error: {error}</p></Shell>;

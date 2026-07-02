@@ -192,6 +192,44 @@ def ensure_default_admin(settings: Settings) -> None:
     )
 
 
+# ── Revocación de sesión (auditoría S2) ──────────────────────────────────────────
+#
+# El JWT vive `jwt_expire_minutes` (12 h por defecto) y el logout solo borra el
+# localStorage: sin este chequeo, desactivar un usuario NO cortaba su sesión viva.
+# `get_current_user` consulta `users.active` con un caché TTL corto (una lectura
+# por usuario cada `_REVOCATION_TTL_SECONDS`, no por request). Política:
+#   - la DB confirma active=False → 401 (revocado);
+#   - la DB no responde o el usuario no existe (tokens de test/bootstrap) → se
+#     acepta el token hasta su expiración (fail-open: una caída de la DB no debe
+#     dejar a todo el dashboard afuera; el flujo de revocación es DESACTIVAR).
+
+_REVOCATION_TTL_SECONDS = 60
+# {user_id: (revocado, expira_epoch)} — proceso-local, igual que el rate limiter.
+_revocation_cache: dict[str, tuple[bool, float]] = {}
+
+
+def _is_user_revoked(user_id: str) -> bool:
+    """True solo si la DB confirma que el usuario existe y está inactivo (con caché TTL)."""
+    import time
+
+    if not user_id:
+        return False
+    cached = _revocation_cache.get(user_id)
+    now = time.monotonic()
+    if cached and cached[1] > now:
+        return cached[0]
+    revoked = False
+    try:
+        from db import repositories as repo
+
+        row = repo.get_user(user_id)
+        revoked = bool(row) and not row.get("active", True)
+    except Exception:  # noqa: BLE001 — sin DB no hay veredicto: el token sigue valiendo
+        revoked = False
+    _revocation_cache[user_id] = (revoked, now + _REVOCATION_TTL_SECONDS)
+    return revoked
+
+
 # ── Dependencias de FastAPI ───────────────────────────────────────────────────────
 
 _bearer = HTTPBearer(auto_error=False)
@@ -210,6 +248,8 @@ def get_current_user(
         raise HTTPException(401, "Token inválido o expirado")
     if not claims.get("tenant_id"):
         raise HTTPException(401, "Token sin tenant")
+    if _is_user_revoked(str(claims.get("sub") or "")):
+        raise HTTPException(401, "La sesión fue revocada")
     return {
         "id": claims.get("sub"),
         "email": claims.get("email"),

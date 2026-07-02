@@ -68,8 +68,19 @@ def get_vacancy_questions(vacancy_id: str) -> list[dict[str, Any]]:
 
 
 def replace_vacancy_questions(vacancy_id: str, questions: list[dict[str, Any]]) -> None:
-    """Reemplaza el set de preguntas de una vacante (usado por el dashboard)."""
+    """Reemplaza el set de preguntas de una vacante (usado por el dashboard).
+
+    Atómico vía RPC (audit D3: delete+insert en una transacción — un fallo a mitad ya
+    no deja la vacante sin preguntas). Sin la función (migración 0022 no aplicada),
+    cae a la secuencia multi-request previa."""
     sb = get_supabase()
+    try:
+        sb.rpc(
+            "app_replace_vacancy_questions", {"vid": vacancy_id, "qs": questions or []}
+        ).execute()
+        return
+    except Exception:  # noqa: BLE001 — retro-compat: sin el RPC, camino previo
+        pass
     sb.table("vacancy_questions").delete().eq("vacancy_id", vacancy_id).execute()
     if questions:
         rows = [{**q, "vacancy_id": vacancy_id} for q in questions]
@@ -98,20 +109,36 @@ def get_or_create_candidate(
     )
     if res.data:
         return res.data[0]
-    return (
-        sb.table("candidates")
-        .insert(
-            {
-                "vacancy_id": vacancy_id,
-                "channel": channel,
-                "channel_user_id": channel_user_id,
-                "name": name,
-                "source": source,
-            }
+    try:
+        return (
+            sb.table("candidates")
+            .insert(
+                {
+                    "vacancy_id": vacancy_id,
+                    "channel": channel,
+                    "channel_user_id": channel_user_id,
+                    "name": name,
+                    "source": source,
+                }
+            )
+            .execute()
+            .data[0]
         )
-        .execute()
-        .data[0]
-    )
+    except Exception:  # noqa: BLE001 — audit A5: dos mensajes concurrentes pueden pasar
+        # ambos el select vacío; el unique (vacancy_id, channel, channel_user_id) hace
+        # que solo un insert gane — el perdedor relee la fila del ganador (sin duplicar).
+        res = (
+            sb.table("candidates")
+            .select("*")
+            .eq("vacancy_id", vacancy_id)
+            .eq("channel", channel)
+            .eq("channel_user_id", channel_user_id)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            return res.data[0]
+        raise
 
 
 def add_candidate_document(candidate_id: str, doc: dict[str, Any]) -> dict[str, Any]:
@@ -192,6 +219,44 @@ def claim_candidate_for_contact(candidate_id: str) -> Optional[dict[str, Any]]:
         .execute()
     )
     return res.data[0] if res.data else None
+
+
+def claim_candidate_chat(
+    target_id: str, vacancy_id: str, channel: str, chat: str, thread_id: str
+) -> None:
+    """Reasigna `chat` al candidato `target_id`: libera a otros que lo tengan en la
+    vacante, purga la conversación del thread y asigna el chat — todo en una transacción
+    (RPC de 0022, audit D3). Sin el RPC cae a la secuencia multi-request previa."""
+    sb = get_supabase()
+    try:
+        sb.rpc(
+            "app_claim_candidate_chat",
+            {
+                "target": target_id,
+                "vid": vacancy_id,
+                "chan": channel,
+                "chat": str(chat),
+                "thread": thread_id,
+            },
+        ).execute()
+        return
+    except Exception:  # noqa: BLE001 — retro-compat: sin el RPC, camino previo
+        pass
+    rows = (
+        sb.table("candidates")
+        .select("id")
+        .eq("vacancy_id", vacancy_id)
+        .eq("channel", channel)
+        .eq("channel_user_id", str(chat))
+        .neq("id", target_id)
+        .execute()
+        .data
+        or []
+    )
+    for other in rows:
+        update_candidate(other["id"], {"channel_user_id": f"freed-{other['id'][:8]}"})
+    delete_thread_conversations(thread_id)
+    update_candidate(target_id, {"channel_user_id": str(chat)})
 
 
 def list_candidates(vacancy_id: str) -> list[dict[str, Any]]:
@@ -347,6 +412,73 @@ def delete_langgraph_checkpoint(thread_id: str) -> None:
         pass
 
 
+def set_delivery_failure(conversation_id: str, when_iso: Optional[str]) -> None:
+    """Marca (o limpia con None) la última entrega fallida por Telegram (audit G3).
+
+    Fail-safe: sin la columna (migración 0022 no aplicada) no rompe el turno."""
+    try:
+        get_supabase().table("conversations").update(
+            {"last_delivery_failed_at": when_iso}
+        ).eq("id", conversation_id).execute()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def list_delivery_failed_conversations() -> list[dict[str, Any]]:
+    """Conversaciones con una entrega Telegram fallida marcada (para las alertas ops)."""
+    try:
+        return (
+            get_supabase()
+            .table("conversations")
+            .select("*")
+            .not_.is_("last_delivery_failed_at", "null")
+            .execute()
+            .data
+            or []
+        )
+    except Exception:  # noqa: BLE001 — sin la columna todavía, no hay alertas
+        return []
+
+
+def purge_stale_checkpoints(days: int) -> int:
+    """Borra los checkpoints LangGraph de conversaciones terminales con más de `days`
+    días sin actividad (audit D4: crecían sin límite). Terminal = conversación `closed`
+    o candidato en estado final (rechazado/contratado/no respondió/no asistió).
+
+    Corre por conexión directa (DATABASE_URL, mismas tablas que PostgresSaver).
+    Devuelve cuántos threads se purgaron; 0 y silencio si algo falla."""
+    import psycopg
+
+    from db.client import get_database_url
+
+    stale_sql = """
+        select c.langgraph_thread_id
+          from conversations c
+          join candidates k on k.id = c.candidate_id
+         where coalesce(c.last_activity_at, c.created_at) < now() - make_interval(days => %s)
+           and (c.state = 'closed'
+                or k.status in ('rejected', 'hired', 'no_show', 'no_response', 'declined'))
+    """
+    try:
+        with psycopg.connect(get_database_url(), autocommit=True) as conn:
+            threads = [r[0] for r in conn.execute(stale_sql, (max(1, days),)).fetchall()]
+            purged = 0
+            for thread in threads:
+                found = False
+                for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
+                    try:
+                        cur = conn.execute(
+                            f"delete from {table} where thread_id = %s", (thread,)
+                        )
+                        found = found or bool(cur.rowcount)
+                    except Exception:  # noqa: BLE001 — la tabla puede no existir aún
+                        pass
+                purged += int(found)
+            return purged
+    except Exception:  # noqa: BLE001 — la purga es higiene, nunca tumba el scheduler
+        return 0
+
+
 def list_conversations_by_states(states: list[str]) -> list[dict[str, Any]]:
     """Conversaciones cuyo estado del flujo está en `states` (para el barrido de inactividad)."""
     if not states:
@@ -371,6 +503,38 @@ def update_conversation(conversation_id: str, payload: dict[str, Any]) -> dict[s
         .execute()
         .data[0]
     )
+
+
+# ── Transiciones de fase (audit G4: tiempo-por-estado + reconstrucción del flujo) ─
+
+def add_state_transition(conversation_id: str, from_state: str, to_state: str) -> None:
+    """Registra un cambio de fase de la conversación. Fail-safe: nunca rompe el turno."""
+    try:
+        get_supabase().table("state_transitions").insert(
+            {
+                "conversation_id": conversation_id,
+                "from_state": from_state or "",
+                "to_state": to_state,
+            }
+        ).execute()
+    except Exception:  # noqa: BLE001 — sin la tabla (0022) el flujo sigue igual
+        pass
+
+
+def list_state_transitions(conversation_id: str) -> list[dict[str, Any]]:
+    try:
+        return (
+            get_supabase()
+            .table("state_transitions")
+            .select("*")
+            .eq("conversation_id", conversation_id)
+            .order("created_at", desc=False)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:  # noqa: BLE001
+        return []
 
 
 # ── Mensajes ─────────────────────────────────────────────────────────────────
@@ -442,13 +606,25 @@ def get_answers(conversation_id: str) -> list[dict[str, Any]]:
 # ── Scorecard ────────────────────────────────────────────────────────────────
 
 def save_scorecard(conversation_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    return (
-        get_supabase()
-        .table("scorecards")
-        .upsert({**payload, "conversation_id": conversation_id}, on_conflict="conversation_id")
-        .execute()
-        .data[0]
-    )
+    row = {**payload, "conversation_id": conversation_id}
+    try:
+        return (
+            get_supabase()
+            .table("scorecards")
+            .upsert(row, on_conflict="conversation_id")
+            .execute()
+            .data[0]
+        )
+    except Exception:
+        # Retro-compat: sin la columna `prompt_version` (migración 0021), guarda lo básico.
+        row.pop("prompt_version", None)
+        return (
+            get_supabase()
+            .table("scorecards")
+            .upsert(row, on_conflict="conversation_id")
+            .execute()
+            .data[0]
+        )
 
 
 def get_scorecard(conversation_id: str) -> Optional[dict[str, Any]]:
@@ -539,13 +715,17 @@ def get_meeting_by_conversation(conversation_id: str) -> Optional[dict[str, Any]
 
 
 def list_meetings_without_link() -> list[dict[str, Any]]:
-    """Reuniones agendadas sin enlace Meet (Calendar falló) — para la reconciliación."""
+    """Reuniones agendadas sin enlace Meet (Calendar falló) — para la reconciliación.
+
+    Excluye las presenciales (`modality=onsite`): esas no llevan Meet por diseño
+    (multi-etapa 0019) y marcarlas sería un falso positivo en las alertas."""
     return (
         get_supabase()
         .table("meetings")
         .select("*")
         .eq("meet_link", "")
         .eq("status", "scheduled")
+        .neq("modality", "onsite")
         .execute()
         .data
         or []
@@ -642,6 +822,7 @@ def record_usage(
     vacancy_id: Optional[str] = None,
     candidate_id: Optional[str] = None,
     conversation_id: Optional[str] = None,
+    prompt_version: str = "",
 ) -> None:
     """Registra el uso de tokens + latencia/errores de una etapa. No rompe el flujo si falla."""
     total = int(tokens.get("total_tokens", 0) or 0)
@@ -662,10 +843,11 @@ def record_usage(
         "output_tokens": int(tokens.get("output_tokens", 0) or 0),
         "total_tokens": total,
     }
-    extra = {  # observabilidad O1 (columnas de 0020; si la migración no está, cae al insert base)
+    extra = {  # columnas de 0020/0021; si la migración no está, cae al insert base
         "calls": int(tokens.get("calls", 0) or 0),
         "errors": int(tokens.get("errors", 0) or 0),
         "duration_ms": int(tokens.get("duration_ms", 0) or 0),
+        "prompt_version": prompt_version or "",
     }
     try:
         get_supabase().table("llm_usage").insert({**base, **extra}).execute()
@@ -812,6 +994,12 @@ def get_outbox(outbox_id: str) -> Optional[dict[str, Any]]:
     return res.data[0] if res.data else None
 
 
+def delete_outbox_by_candidate(candidate_id: str) -> None:
+    """Borra los envíos del candidato (payloads con PII — audit S4). La FK cascade de
+    0022 cubre el erasure; esta llamada explícita cubre la retención y entornos sin 0022."""
+    get_supabase().table("outbox").delete().eq("candidate_id", candidate_id).execute()
+
+
 # ── Tenants (empresas cliente) ──────────────────────────────────────────────────
 
 def get_tenant(tenant_id: str) -> Optional[dict[str, Any]]:
@@ -868,6 +1056,14 @@ def list_users(*, tenant_id: Optional[str] = None) -> list[dict[str, Any]]:
 
 def add_audit_log(row: dict[str, Any]) -> dict[str, Any]:
     return get_supabase().table("audit_log").insert(row).execute().data[0]
+
+
+def scrub_audit_for_entity(entity_id: str) -> None:
+    """Vacía los resúmenes de auditoría de una entidad (audit S4: el summary lleva el
+    nombre del candidato y sobrevivía al erasure). Conserva quién/qué/cuándo."""
+    get_supabase().table("audit_log").update({"summary": ""}).eq(
+        "entity_id", entity_id
+    ).execute()
 
 
 def list_audit_log(tenant_id: str, limit: int = 100) -> list[dict[str, Any]]:

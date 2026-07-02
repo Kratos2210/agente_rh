@@ -245,6 +245,24 @@ export interface CandidateDetail {
   psych_exam?: PsychExam | null;
 }
 
+// Mensajes humanos por código HTTP (U2): se usan cuando el backend no manda un `detail`.
+const FALLBACK_ERROR: Record<number, string> = {
+  400: "La solicitud no es válida.",
+  403: "No tienes permisos para esta acción.",
+  404: "No se encontró el recurso (puede haber sido eliminado).",
+  409: "La acción ya fue realizada o no está disponible en este estado.",
+  422: "Hay datos inválidos: revisa los campos del formulario.",
+  429: "Demasiados intentos: espera un momento y vuelve a probar.",
+  500: "Ocurrió un error en el servidor. Inténtalo de nuevo.",
+  502: "El servidor no está disponible. Inténtalo en unos segundos.",
+  503: "El servidor no está disponible. Inténtalo en unos segundos.",
+};
+
+// Texto legible de un error capturado (evita renderizar "Error: Error: …").
+export function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
   const { headers: initHeaders, ...rest } = init || {};
@@ -257,15 +275,26 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
       ...((initHeaders as Record<string, string>) || {}),
     },
   });
-  // Sesión expirada o ausente: limpiar y mandar al login (salvo que ya estemos ahí).
+  // Sesión expirada o ausente: limpiar y mandar al login con el motivo (U4).
   if (res.status === 401) {
+    const hadSession = Boolean(token);
     clearSession();
     if (typeof window !== "undefined" && window.location.pathname !== "/login") {
-      window.location.href = "/login";
+      window.location.href = hadSession ? "/login?expired=1" : "/login";
     }
-    throw new Error("401 no autenticado");
+    throw new Error("Tu sesión expiró. Inicia sesión de nuevo.");
   }
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    // FastAPI responde {"detail": "..."} con mensajes ya en español; se prefieren.
+    let detail = "";
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      /* cuerpo no-JSON: usar el fallback por código */
+    }
+    throw new Error(detail || FALLBACK_ERROR[res.status] || `Error ${res.status} (${res.statusText})`);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -360,12 +389,14 @@ export const api = {
   setInactivity: (body: InactivityConfig) =>
     req<InactivityConfig>("/api/settings/inactivity", { method: "PUT", body: JSON.stringify(body) }),
   // Observabilidad (solo admin).
+  getOpsAlerts: () => req<{ alerts: OpsAlert[] }>("/api/ops/alerts"),
   getAudit: () => req<AuditEntry[]>("/api/audit"),
   getOutbox: () => req<OutboxHealth>("/api/outbox"),
   retryOutbox: (id: string) =>
     req<{ requeued: boolean }>(`/api/outbox/${id}/retry`, { method: "POST" }),
   eraseCandidate: (id: string) =>
     req<{ deleted: boolean }>(`/api/candidates/${id}`, { method: "DELETE" }),
+  getHttpMetrics: () => req<{ routes: HttpRouteMetric[] }>("/api/ops/http-metrics"),
 };
 
 export interface AuditEntry {
@@ -393,6 +424,26 @@ export interface OutboxItem {
 export interface OutboxHealth {
   counts: Record<string, number>;
   items: OutboxItem[];
+}
+
+// Métricas HTTP por ruta del proceso (O3): conteo, errores y latencia.
+export interface HttpRouteMetric {
+  route: string;
+  count: number;
+  errors: number;
+  client_errors: number;
+  avg_ms: number;
+  max_ms: number;
+}
+
+// Alerta operativa de la reconciliación (O2): estados colgados que requieren atención.
+export interface OpsAlert {
+  type: "dead_letter" | "meeting_no_link" | "scheduling_stuck" | "state_divergence" | "delivery_failed" | string;
+  detail: string;
+  count?: number;
+  candidate_id?: string | null;
+  meeting_id?: string;
+  conversation_id?: string;
 }
 
 export interface AutoContactConfig {

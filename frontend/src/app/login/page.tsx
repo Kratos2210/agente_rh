@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { setSession } from "@/lib/auth";
@@ -10,7 +10,16 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // U4: si nos trajo un 401 con sesión previa (?expired=1), avisar por qué está aquí.
+  // Se lee de window (y no de useSearchParams) para no exigir un Suspense boundary.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("expired")) {
+      setNotice("Tu sesión expiró. Vuelve a iniciar sesión para continuar.");
+    }
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -53,6 +62,11 @@ export default function LoginPage() {
         <div style={{ padding: 26, borderRadius: 16, background: "var(--card)", border: "1px solid var(--edge)" }}>
           <h1 style={{ fontSize: 18, fontWeight: 800, color: "var(--heading)", margin: "0 0 4px" }}>Iniciar sesión</h1>
           <p style={{ fontSize: 13, color: "var(--muted)", margin: "0 0 20px" }}>Panel del reclutador</p>
+
+          {notice && (
+            <div style={{ margin: "0 0 16px", fontSize: 13, color: "#d97706", background: "rgba(217,119,6,.1)",
+              border: "1px solid rgba(217,119,6,.3)", borderRadius: 9, padding: "9px 12px" }}>{notice}</div>
+          )}
 
           <label style={label}>Correo</label>
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus

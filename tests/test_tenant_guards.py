@@ -43,13 +43,26 @@ _TENANT_GUARD_MARKERS = (
 _AUTH_MARKERS = ("get_current_user", "require_role")
 
 
+def _walk_routes(routes) -> list[APIRoute]:
+    """Aplana el árbol de rutas: FastAPI puede registrar los `include_router` como
+    routers anidados (no como APIRoute planas), así que se recorre recursivamente."""
+    out: list[APIRoute] = []
+    for r in routes:
+        if isinstance(r, APIRoute):
+            out.append(r)
+            continue
+        # `include_router` puede quedar como wrapper (p. ej. `_IncludedRouter`) cuyo
+        # APIRouter vive en `original_router`; otros anidan directamente en `routes`.
+        inner = getattr(r, "original_router", None) or r
+        sub = getattr(inner, "routes", None)
+        if sub:
+            out.extend(_walk_routes(sub))
+    return out
+
+
 def _api_routes() -> list[APIRoute]:
     """Rutas APIRoute bajo /api (excluye estáticas / internas de FastAPI)."""
-    return [
-        r
-        for r in main.app.routes
-        if isinstance(r, APIRoute) and r.path.startswith("/api/")
-    ]
+    return [r for r in _walk_routes(main.app.routes) if r.path.startswith("/api/")]
 
 
 def _methods(route: APIRoute) -> set[str]:

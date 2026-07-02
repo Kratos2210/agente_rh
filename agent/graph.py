@@ -17,8 +17,8 @@ from agent.llm import LLM
 from agent.state import InterviewState, QuestionSpec, new_state
 
 
-def build_interview_graph(llm: LLM, checkpointer: Optional[Any] = None):
-    """Compila el grafo de entrevista con el LLM y checkpointer dados."""
+def build_interview_graph(llm: LLM, checkpointer: Optional[Any] = None, retriever: Optional[Any] = None):
+    """Compila el grafo de entrevista con el LLM, checkpointer y retriever (RAG) dados."""
 
     def _turn(state: InterviewState) -> InterviewState:
         mode = state.get("mode")
@@ -27,7 +27,7 @@ def build_interview_graph(llm: LLM, checkpointer: Optional[Any] = None):
         elif mode == "schedule_start":
             out = nodes.start_scheduling(state)
         else:
-            out = nodes.handle_turn(state, llm)
+            out = nodes.handle_turn(state, llm, retriever=retriever)
         out["mode"] = ""
         return out
 
@@ -39,11 +39,14 @@ def build_interview_graph(llm: LLM, checkpointer: Optional[Any] = None):
 
 
 class InterviewRunner:
-    """Driver de alto nivel: un grafo compilado + un checkpointer durable."""
+    """Driver de alto nivel: un grafo compilado + un checkpointer durable.
 
-    def __init__(self, llm: LLM, checkpointer: Any) -> None:
+    `retriever` (opcional) conecta la base de conocimiento RAG a las dudas del
+    candidato — inyectado igual que el LLM para mantener el motor puro."""
+
+    def __init__(self, llm: LLM, checkpointer: Any, retriever: Optional[Any] = None) -> None:
         self.llm = llm
-        self.graph = build_interview_graph(llm, checkpointer)
+        self.graph = build_interview_graph(llm, checkpointer, retriever)
 
     @staticmethod
     def _cfg(thread_id: str) -> dict[str, Any]:
@@ -104,14 +107,14 @@ class InterviewRunner:
         return snapshot.values if snapshot else {}
 
 
-def make_memory_runner(llm: LLM) -> InterviewRunner:
+def make_memory_runner(llm: LLM, retriever: Optional[Any] = None) -> InterviewRunner:
     """Runner con checkpointer en memoria (tests / consola)."""
     from langgraph.checkpoint.memory import MemorySaver
 
-    return InterviewRunner(llm, MemorySaver())
+    return InterviewRunner(llm, MemorySaver(), retriever)
 
 
-def make_postgres_runner(llm: LLM, db_url: str) -> InterviewRunner:
+def make_postgres_runner(llm: LLM, db_url: str, retriever: Optional[Any] = None) -> InterviewRunner:
     """Runner con checkpointer durable en Postgres (Supabase) — para producción.
 
     Crea las tablas de checkpoints la primera vez (`setup()`). El pool queda vivo
@@ -129,4 +132,4 @@ def make_postgres_runner(llm: LLM, db_url: str) -> InterviewRunner:
     )
     checkpointer = PostgresSaver(pool)
     checkpointer.setup()
-    return InterviewRunner(llm, checkpointer)
+    return InterviewRunner(llm, checkpointer, retriever)

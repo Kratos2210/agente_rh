@@ -137,6 +137,10 @@ class Settings(BaseSettings):
         """True si el despliegue es de producción (exige secretos fuertes al arrancar)."""
         return str(self.environment).strip().lower() in {"production", "prod"}
 
+    # Orígenes permitidos por CORS para el dashboard (CSV). En producción, reemplazar
+    # por el dominio real del frontend (audit S5); el default cubre el dev local.
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+
     # SMTP para enviar el scorecard al reclutador (patrón de qrs).
     smtp_host: str = ""
     smtp_port: int = 587
@@ -182,8 +186,22 @@ class Settings(BaseSettings):
     bot_turn_cooldown_seconds: float = 2.0
     bot_max_turns_per_day: int = 120
 
+    # Documentos del candidato (CV/CUL): tamaño máximo cuyo CONTENIDO se replica en
+    # Postgres (audit D2: un PDF de 20 MB ≈ 27 MB de JSON por request de PostgREST).
+    # Sobre el umbral el archivo queda solo en disco (uploads/, stored="disk");
+    # al migrar a S3/Storage este umbral define qué va a la DB y qué al object store.
+    document_db_max_bytes: int = 5 * 1024 * 1024
+    # Purga de checkpoints LangGraph de conversaciones terminales con más de N días
+    # sin actividad (audit D4: crecían sin límite). 0 = desactivada.
+    checkpoint_retention_days: int = 30
+
     # Entrevista: máximo de follow-ups por pregunta ante respuestas vagas.
     interview_max_follow_ups: int = 1
+    # RAG en las dudas del candidato (pipeline LLM · auditoría): si True, las preguntas
+    # del candidato sobre el puesto se responden recuperando fragmentos de la base de
+    # conocimiento (Chroma en persist_directory) además del company_info de la vacante.
+    # Default False: carga lazy (torch tarda ~90 s en Intel) y solo si hay corpus indexado.
+    interview_rag_enabled: bool = False
     # Umbrales del semáforo sobre el score total 0-100:
     #   score >= green_min  → 🟢 verde   (avanza)
     #   score >= yellow_min → 🟡 amarillo (revisar)

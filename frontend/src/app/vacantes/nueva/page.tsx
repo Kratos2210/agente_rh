@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Shell, BackLink } from "@/components/Shell";
-import { api, Recruiter } from "@/lib/api";
+import { api, errorMessage, Recruiter } from "@/lib/api";
 import { ACCENT, avatarColor, initials } from "@/lib/stages";
 
 const MONO = "var(--font-jetbrains), monospace";
@@ -104,7 +104,7 @@ export default function NuevaVacante() {
         questions,
       });
       router.push("/");
-    } catch (e) { setErr(String(e)); setSaving(false); }
+    } catch (e) { setErr(errorMessage(e)); setSaving(false); }
   };
 
   return (

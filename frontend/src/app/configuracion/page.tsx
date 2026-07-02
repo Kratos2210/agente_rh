@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Shell, Card, BackLink } from "@/components/Shell";
-import { api, AutoContactConfig, InactivityConfig, SchedulingConfig } from "@/lib/api";
+import { api, errorMessage, AutoContactConfig, InactivityConfig, SchedulingConfig } from "@/lib/api";
 
 export default function ConfiguracionPage() {
   const [cfg, setCfg] = useState<AutoContactConfig | null>(null);
@@ -26,9 +26,9 @@ export default function ConfiguracionPage() {
         setCfg(c);
         setTimesText((c.times || []).join(", "));
       })
-      .catch((e) => setError(String(e)));
-    api.getInactivity().then(setInact).catch((e) => setError(String(e)));
-    api.getScheduling().then(setSched).catch((e) => setError(String(e)));
+      .catch((e) => setError(errorMessage(e)));
+    api.getInactivity().then(setInact).catch((e) => setError(errorMessage(e)));
+    api.getScheduling().then(setSched).catch((e) => setError(errorMessage(e)));
   }, []);
 
   const saveSched = async () => {
@@ -45,7 +45,7 @@ export default function ConfiguracionPage() {
       setSched(saved);
       setMsgSched("Configuración guardada ✅");
     } catch (e) {
-      setMsgSched("Error: " + String(e));
+      setMsgSched("Error: " + errorMessage(e));
     } finally {
       setSavingSched(false);
     }
@@ -64,7 +64,7 @@ export default function ConfiguracionPage() {
       setInact(saved);
       setMsgInact("Configuración guardada ✅");
     } catch (e) {
-      setMsgInact("Error: " + String(e));
+      setMsgInact("Error: " + errorMessage(e));
     } finally {
       setSavingInact(false);
     }
@@ -90,7 +90,7 @@ export default function ConfiguracionPage() {
       setTimesText((saved.times || []).join(", "));
       setMsg("Configuración guardada ✅");
     } catch (e) {
-      setMsg("Error: " + String(e));
+      setMsg("Error: " + errorMessage(e));
     } finally {
       setSaving(false);
     }

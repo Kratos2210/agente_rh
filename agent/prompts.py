@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+# Versión de los prompts de evaluación (auditoría · pipeline LLM). Se sella en cada
+# scorecard y en `llm_usage`: sin esto, cambiar EVALUATE_ANSWER_PROMPT deja scorecards
+# no comparables sin registro. SUBIR la versión al cambiar materialmente cualquier
+# prompt que afecte puntajes (evaluate/scorecard/prescreen).
+PROMPT_VERSION = "2026-07-02.1"
+
 # Clasifica si el mensaje del candidato responde la pregunta actual o es una duda
 # sobre el puesto/empresa que el agente debería contestar antes de continuar.
 CLASSIFY_TURN_PROMPT = """Sos un asistente de selección. La pregunta que le hiciste al candidato fue:

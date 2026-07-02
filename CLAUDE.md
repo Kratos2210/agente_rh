@@ -514,6 +514,63 @@ embeddings) para responder dudas del candidato sobre el puesto.
   **Verificado en vivo** (Supabase real): búsqueda "dan" → Daniela 🟢 92.8 con embed real, offset
   pagina, global con `vacancy_title`, roster con carga; `/pipeline` y `/vacantes/{id}` → 200; tsc OK.
 
+- **2026-07-02 — Backlog de auditoría: 4 lotes (seguridad+operación · bajas rápidas · refactor A2 ·
+  pipeline LLM)**: cierra 12 hallazgos de `docs/auditoria_e2e.md` (tabla actualizada). **Lote 1**:
+  (S2) revocación de sesión — `get_current_user` consulta `users.active` con caché TTL 60 s
+  (`api.auth._is_user_revoked`; fail-open ante DB caída: revocar = DESACTIVAR el usuario, no borrarlo);
+  (S3) credenciales del examen psicológico enmascaradas para `viewer` (`_psych_exam_for_role`);
+  (O2) alertas de reconciliación visibles — `_collect_ops_alerts` (fuente única, filtro por tenant) +
+  `GET /api/ops/alerts` (admin) + sección "Alertas operativas" en `/observabilidad`; de paso FIX real:
+  `list_meetings_without_link` ahora excluye `modality=onsite` (las presenciales no llevan Meet —
+  falso positivo detectado en vivo); (A3) `threading.Lock` por `thread_id` en `InterviewService`
+  (sweep de inactividad vs mensaje del candidato ya no pisan el mismo checkpoint). **Lote 2**: (S5)
+  `CORS_ORIGINS` por settings; (A4) purga del set `fired` del scheduler; (U2) errores humanos en el
+  frontend (`req()` usa el `detail` del backend + `errorMessage()`); (U4) 401 con sesión previa →
+  `/login?expired=1` con aviso. **Lote 3 (A2)**: `api/main.py` (1 667 líneas) partido en
+  `api/runtime.py` (estado/defaults) + `api/scheduler.py` (loop+barridos+contacto) + `api/deps.py`
+  (guards) + `api/routes/{vacancies,candidates,recruiters,settings,observability}.py`; main (~240)
+  = lifespan + login/me + ensamblaje + **re-exports de compat** (los tests parchean `main.repo`/
+  `main._state` — mismos objetos). Gotcha FastAPI: `include_router` queda como `_IncludedRouter`
+  anidado (no aplana APIRoute) → el introspector de `test_tenant_guards` ahora recorre
+  `original_router.routes`. **Lote 4 (pipeline LLM)**: `agent/prompts.PROMPT_VERSION` sellado en
+  scorecard + `llm_usage` (migración `0021`, aplicada en vivo vía psql+NOTIFY; escrituras
+  retro-compatibles); RAG conectado config-gated (`INTERVIEW_RAG_ENABLED`, default off) —
+  `agent/rag.py` `build_company_retriever` inyectado en el runner como el LLM (motor puro, carga
+  lazy, fail-safe) enriquece las dudas del candidato con Chroma; suite **golden**
+  (`tests/golden/golden_set.json` + `scripts/golden_eval.py`, respuestas reales de Alberto +
+  contraejemplos) — **primera corrida 9/9 con Groq qwen3-32b**. **206/206 tests (+21: hardening 14,
+  pipeline 7); tsc OK. Verificado en vivo** (backend :8000 --reload + Supabase): login/401/200,
+  `/api/ops/alerts` con alertas reales (y limpio tras el fix onsite), round-trip `prompt_version`
+  en `llm_usage`. Backlog restante: S4, R4, A5, D2–D5, U3, O3, G3, G4 (todos BAJA/menores).
+
+- **2026-07-02 — Cierre TOTAL del backlog e2e (11 hallazgos: S4, R4, A5, D2–D5, U3, O3, G3, G4)**:
+  la auditoría `docs/auditoria_e2e.md` queda **sin hallazgos abiertos**. Migración
+  `0022_backlog_close.sql` (**aplicada en vivo** vía psql directo + `NOTIFY pgrst`, patrón conocido;
+  como 0019/0020 quedó fuera del registro del CLI): FK cascade `outbox.candidate_id`, tabla
+  `state_transitions` (+RLS por tenant), `candidates.updated_at` + trigger, `conversations.
+  last_delivery_failed_at`, RPCs `app_replace_vacancy_questions`/`app_claim_candidate_chat`.
+  (S4) erasure y `_retention_sweep` purgan PII residual — `repo.delete_outbox_by_candidate` +
+  `repo.scrub_audit_for_entity`; el audit del borrado ya no incluye el nombre. (R4) `_sync_limiter`
+  2/min por tenant en `sync-applicants` → 429. (A5) `get_or_create_candidate` retry-on-conflict
+  (el unique existía desde 0001; el insert perdedor relee la fila del ganador). (D2)
+  `document_db_max_bytes` (config, 5 MB): sobre el umbral el PDF queda `stored="disk"`. (D3)
+  RPCs atómicos con fallback retro-compat en `repo.replace_vacancy_questions` y
+  `repo.claim_candidate_chat` (usado por `scheduler._claim_chat`). (D4)
+  `repo.purge_stale_checkpoints(days)` + `_checkpoint_purge_sweep` (a lo sumo cada 6 h; config
+  `checkpoint_retention_days`, default 30, 0=off). (D5) `_retention_reference_ts` usa `updated_at`
+  (trigger) con fallback `created_at`. (U3) modal "escribe el nombre para confirmar" en el erasure
+  (sin nombre → `BORRAR`). (O3) `api/httpmetrics.py` (singleton por plantilla de ruta) + middleware
+  en `api/main.py` + `GET /api/ops/http-metrics` (admin) + tarjeta "Rendimiento HTTP" en
+  `/observabilidad`. (G3) `_mark_delivery_result` en el bot + marca en `_inactivity_sweep`
+  (`repo.set_delivery_failure`); alerta `delivery_failed` en `_collect_ops_alerts` solo si el
+  candidato no interactuó después del fallo. (G4) `repo.add_state_transition` en
+  `service._sync_business` al cambiar de fase; `get_candidate_detail` devuelve `transitions`.
+  **Tests: `test_backlog_close.py` (+16: 429 por tenant, retry A5, RPC+fallback D3, purgas S4
+  erasure/retención, D5, gating D4, umbral D2, filtro G3, transición única G4, HttpMetrics+RBAC
+  O3) → 222/222 verde; tsc OK.** `docs/auditoria_e2e.md` actualizado (los 11 ✅ + resumen: backlog
+  vacío). **Pendiente**: verificación en vivo (reiniciar backend, smoke `/api/ops/http-metrics`,
+  sync doble → 429, erasure con modal) + commit.
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.

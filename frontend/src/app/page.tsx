@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Shell } from "@/components/Shell";
 import { Funnel, MiniBar } from "@/components/ui";
-import { api, Metrics, Recruiter, Vacancy } from "@/lib/api";
+import { api, errorMessage, Metrics, Recruiter, Vacancy } from "@/lib/api";
 import { ACCENT, avatarColor, initials } from "@/lib/stages";
 
 const MONO = "var(--font-jetbrains), monospace";
@@ -26,7 +26,7 @@ export default function Home() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api.listVacancies().then(setVacancies).catch((e) => setError(String(e)));
+    api.listVacancies().then(setVacancies).catch((e) => setError(errorMessage(e)));
     api.getMetrics().then(setMetrics).catch(() => {});
     api.listRecruiters().then(setRecruiters).catch(() => {});
   }, []);

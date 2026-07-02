@@ -43,6 +43,37 @@ _CAP_NOTICE_TEXT = (
     "tu proceso queda guardado justo donde lo dejamos. ¡Gracias por tu comprensión! 🙌"
 )
 
+# G3 (auditoría): threads con la última entrega fallida (para limpiar la marca en DB
+# apenas un envío posterior sí llegue, sin costar una escritura por turno sano).
+_delivery_failed_threads: set[str] = set()
+
+
+def _mark_delivery_result(chat_id: int, ok: bool) -> None:
+    """Registra en la conversación si el envío por Telegram llegó o no (audit G3).
+
+    El servicio persiste los mensajes en la transcripción ANTES del envío; si Telegram
+    falla, la transcripción afirmaría una entrega que no pasó — esta marca alimenta la
+    alerta operativa `delivery_failed` y se limpia al volver a entregar con éxito."""
+    from datetime import datetime, timezone
+
+    from db import repositories as repo
+
+    thread = f"{CHANNEL_TELEGRAM}:{chat_id}"
+    if ok:
+        if thread not in _delivery_failed_threads:
+            return
+        _delivery_failed_threads.discard(thread)
+        when = None
+    else:
+        _delivery_failed_threads.add(thread)
+        when = datetime.now(timezone.utc).isoformat()
+    try:
+        conv = repo.get_conversation_by_thread(thread)
+        if conv:
+            repo.set_delivery_failure(conv["id"], when)
+    except Exception:  # noqa: BLE001 — la marca nunca rompe el turno
+        logger.exception("No se pudo registrar el resultado de entrega (chat %s)", chat_id)
+
 
 def _init_allowed_users(settings: Settings) -> None:
     global _allowed_users
@@ -70,7 +101,13 @@ def build_bot_app(settings: Settings, state: dict[str, Any]) -> Application:
         max_turns_per_day=settings.bot_max_turns_per_day,
     )
 
-    runner = make_postgres_runner(MeteredLLM(build_default_llm()), get_database_url())
+    # RAG de dudas del candidato (config-gated, lazy): None si interview_rag_enabled=False.
+    from agent.rag import build_company_retriever
+
+    runner = make_postgres_runner(
+        MeteredLLM(build_default_llm()), get_database_url(),
+        retriever=build_company_retriever(settings),
+    )
     notifier = _build_notifier(settings)
     service = InterviewService(
         runner,
@@ -156,9 +193,16 @@ async def _dispatch(
         )
         return
 
-    await send_messages(
-        context.bot, chat.id, result.messages, show_consent_buttons=result.show_consent_buttons
-    )
+    try:
+        await send_messages(
+            context.bot, chat.id, result.messages, show_consent_buttons=result.show_consent_buttons
+        )
+    except Exception:  # noqa: BLE001 — G3: la transcripción ya registró estos mensajes
+        logger.exception("No se pudo entregar la respuesta por Telegram (chat %s)", chat.id)
+        await asyncio.to_thread(_mark_delivery_result, chat.id, False)
+        return
+    if _delivery_failed_threads:
+        await asyncio.to_thread(_mark_delivery_result, chat.id, True)
 
 
 async def _on_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
