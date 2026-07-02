@@ -80,5 +80,10 @@ _DEFAULT_LLM_PRICING = {"models": {}, "default": {"input_per_1m": 0.0, "output_p
 # Presupuesto LLM mensual (O-2): al alcanzar `alert_pct`% del monto, alerta una vez por
 # tenant/mes (ops alert en el dashboard + correo vía outbox si hay `notify_email`).
 _DEFAULT_LLM_BUDGET = {"enabled": False, "monthly_usd": 0.0, "alert_pct": 80, "notify_email": ""}
+
+# SLAs push (O-4): correo al incumplirse una condición, UNA vez por condición/día.
+# `ops_alerts` empuja las alertas operativas (dead-letter, reuniones sin link, etc.);
+# `turn_p95_ms` es el umbral de latencia p95 del turno del candidato (últimas 24 h, 0 = off).
+_DEFAULT_SLA_ALERTS = {"enabled": False, "notify_email": "", "ops_alerts": True, "turn_p95_ms": 0}
 # Estados terminales-descartados cuya PII se anonimiza tras el período de retención.
 _RETENTION_STATUSES = ["rejected", "declined", "no_response", "prescreen_rejected", "no_show"]

@@ -1006,9 +1006,10 @@ def _aggregate_tokens(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def usage_rows_since(since_iso: str) -> list[dict[str, Any]]:
-    """Filas de `llm_usage` desde un instante (para el gasto del mes en curso — O-2)."""
+    """Filas de `llm_usage` desde un instante (gasto del mes — O-2; SLA de latencia — O-4)."""
     return (
-        get_supabase().table("llm_usage").select("vacancy_id,model,input_tokens,output_tokens,total_tokens")
+        get_supabase().table("llm_usage")
+        .select("vacancy_id,model,stage,calls,duration_ms,input_tokens,output_tokens,total_tokens")
         .gte("created_at", since_iso)
         .execute()
         .data

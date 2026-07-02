@@ -19,6 +19,7 @@ from api.runtime import (
     _DEFAULT_LLM_PRICING,
     _DEFAULT_RETENTION,
     _DEFAULT_SCHEDULING,
+    _DEFAULT_SLA_ALERTS,
     _RETENTION_STATUSES,
     _now_local,
     _parse_dt,
@@ -699,6 +700,131 @@ def _budget_sweep(settings: Settings) -> dict[str, int]:
     return report
 
 
+# ── SLAs push (O-4) ───────────────────────────────────────────────────────────────
+
+# Evaluar los SLAs escanea alertas operativas + `llm_usage` por tenant; cada 15 min basta.
+_SLA_SWEEP_INTERVAL_SECONDS = 15 * 60
+
+
+def _day_ago_iso(now: Any = None) -> str:
+    from datetime import datetime, timedelta, timezone
+
+    now = now or datetime.now(timezone.utc)
+    return (now - timedelta(hours=24)).isoformat()
+
+
+def _tenant_turn_p95(now: Any = None) -> dict[str, int]:
+    """p95 (ms) de la latencia end-to-end del turno del candidato en las últimas 24 h,
+    por tenant. Usa las filas sintéticas `stage="turn"` de `llm_usage` (O-3); una sola
+    consulta para todos los tenants (patrón `_tenant_month_costs`)."""
+    from db.repositories import TURN_STAGE, _percentile
+
+    vac_tenant = _vacancy_tenant_map()
+    samples: dict[str, list[float]] = {}
+    for r in repo.usage_rows_since(_day_ago_iso(now)):
+        if (r.get("stage") or "") != TURN_STAGE:
+            continue
+        tid = vac_tenant.get(r.get("vacancy_id"))
+        calls = int(r.get("calls", 0) or 0)
+        if not tid or calls <= 0:
+            continue
+        samples.setdefault(tid, []).extend(
+            [int(r.get("duration_ms", 0) or 0) / calls] * calls
+        )
+    return {tid: round(_percentile(sorted(vals), 95)) for tid, vals in samples.items()}
+
+
+def _sla_breaches(
+    cfg: dict[str, Any], ops_alerts: list[dict[str, Any]], turn_p95: int | None
+) -> list[tuple[str, str]]:
+    """(condición, detalle) de SLAs incumplidos según la config del tenant. Puro.
+
+    Las alertas operativas se agrupan por tipo (una condición por tipo/día);
+    `budget_exceeded` se excluye — ya la empuja `_budget_sweep` con su propio dedupe."""
+    breaches: list[tuple[str, str]] = []
+    if cfg.get("ops_alerts", True):
+        by_type: dict[str, list[dict[str, Any]]] = {}
+        for alert in ops_alerts:
+            kind = str(alert.get("type") or "?")
+            if kind == "budget_exceeded":
+                continue
+            by_type.setdefault(kind, []).append(alert)
+        for kind, items in sorted(by_type.items()):
+            extra = f" (+{len(items) - 1} más)" if len(items) > 1 else ""
+            breaches.append((kind, f"{items[0].get('detail', '')}{extra}"))
+    threshold = int(cfg.get("turn_p95_ms", 0) or 0)
+    if threshold > 0 and turn_p95 is not None and turn_p95 > threshold:
+        breaches.append((
+            "turn_p95",
+            f"Latencia del turno del candidato: p95 de las últimas 24 h = {turn_p95} ms "
+            f"supera el SLA de {threshold} ms.",
+        ))
+    return breaches
+
+
+def _sla_sweep(settings: Settings) -> dict[str, int]:
+    """SLAs push (O-4): evalúa por tenant las condiciones configuradas (alertas operativas
+    + umbral de latencia del turno) y avisa UNA vez por condición por día (log + correo
+    `ops_email` vía outbox si hay `notify_email`). Corre a lo sumo cada 15 min."""
+    import time
+    from datetime import datetime, timezone
+
+    last = _state.get("sla_sweep_last") or 0.0
+    now_mono = time.monotonic()
+    if now_mono - last < _SLA_SWEEP_INTERVAL_SECONDS:
+        return {"alerted": 0}
+    _state["sla_sweep_last"] = now_mono
+
+    report = {"alerted": 0}
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    alerted: set[str] = _state.setdefault("sla_alerted", set())
+    # Dedupe una-por-condición-por-día: las claves de días previos ya no deduplican nada.
+    alerted -= {k for k in alerted if k.split("|")[1] != today}
+    p95s: dict[str, int] | None = None  # lazy: solo si algún tenant tiene umbral de latencia
+    for tenant in repo.list_tenants():
+        tid = tenant["id"]
+        cfg = repo.get_app_setting("sla_alerts", _DEFAULT_SLA_ALERTS, tid) or {}
+        if not cfg.get("enabled"):
+            continue
+        turn_p95 = None
+        if int(cfg.get("turn_p95_ms", 0) or 0) > 0:
+            if p95s is None:
+                p95s = _tenant_turn_p95()
+            turn_p95 = p95s.get(tid)
+        try:
+            ops = _collect_ops_alerts(tid) if cfg.get("ops_alerts", True) else []
+        except Exception:  # noqa: BLE001 — un fallo del colector no debe frenar el resto
+            logger.exception("SLA: colector de alertas falló (tenant %s)", tid)
+            ops = []
+        fresh: list[tuple[str, str]] = []
+        for cond, detail in _sla_breaches(cfg, ops, turn_p95):
+            key = f"{tid}|{today}|{cond}"
+            if key in alerted:
+                continue
+            alerted.add(key)
+            fresh.append((cond, detail))
+            logger.warning("SLA (tenant %s): [%s] %s", tid, cond, detail)
+        if not fresh:
+            continue
+        report["alerted"] += len(fresh)
+        email = str(cfg.get("notify_email") or "").strip()
+        if email:
+            lines = "\n".join(f"• [{cond}] {detail}" for cond, detail in fresh)
+            items = "".join(f"<li><b>{cond}</b>: {detail}</li>" for cond, detail in fresh)
+            outbox.deliver(
+                settings,
+                "ops_email",
+                {
+                    "recipients": [email],
+                    "subject": f"⚠ SLA: {len(fresh)} condición(es) incumplida(s) ({today})",
+                    "text": f"Condiciones SLA incumplidas hoy:\n\n{lines}",
+                    "html": f"<p>Condiciones SLA incumplidas hoy:</p><ul>{items}</ul>",
+                },
+                tenant_id=tid,
+            )
+    return report
+
+
 # ── Loop principal ────────────────────────────────────────────────────────────────
 
 def _prune_fired_slots(fired: set[str], today) -> set[str]:
@@ -774,6 +900,10 @@ async def _scheduler_loop() -> None:
             budget = await asyncio.to_thread(_budget_sweep, settings)
             if budget.get("alerted"):
                 logger.info("Presupuesto LLM → %s", budget)
+            # SLAs push (O-4): condiciones incumplidas → correo, una vez por condición/día.
+            sla = await asyncio.to_thread(_sla_sweep, settings)
+            if sla.get("alerted"):
+                logger.info("SLA → %s", sla)
         except Exception:  # noqa: BLE001 — el scheduler nunca debe morir
             logger.exception("Error en el tick del scheduler")
         await asyncio.sleep(30)

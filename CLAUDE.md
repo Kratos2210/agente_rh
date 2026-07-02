@@ -680,6 +680,26 @@ embeddings) para responder dudas del candidato sobre el puesto.
   `/` y `/observabilidad` → 200. Pendientes del plan: O-4 (SLAs push), O-5 (golden + groundedness),
   O-6 (logs JSON/Sentry).
 
+- **2026-07-02 — Observabilidad · Fase O-4 (SLAs push)**: sin migraciones (settings por-tenant con
+  fallback en código, patrón 0017/O-2). Setting **`sla_alerts`** por tenant
+  (`_DEFAULT_SLA_ALERTS` = {enabled:false, notify_email, ops_alerts:true, turn_p95_ms:0}) +
+  endpoints `GET/PUT /api/settings/sla-alerts` (PUT admin, auditado, umbral negativo→422).
+  **`_sla_sweep`** en el scheduler (a lo sumo cada 15 min, patrón budget): por tenant evalúa
+  (1) las **alertas operativas** de `_collect_ops_alerts(tid)` agrupadas por tipo — excluye
+  `budget_exceeded`, que ya la empuja `_budget_sweep` con su dedupe propio — y (2) el **umbral de
+  latencia p95 del turno** del candidato en las últimas 24 h (`_tenant_turn_p95`: filas
+  `stage="turn"` de O-3 vía `usage_rows_since`, que ahora también trae `stage/calls/duration_ms`;
+  una consulta para todos los tenants). Helper puro `_sla_breaches(cfg, ops, p95)`. **Dedupe
+  una-por-condición-por-día** (set `sla_alerted` con clave `tenant|fecha|condición`, purga de días
+  previos); condición nueva el mismo día → correo solo con esa. Aviso = log warning + correo
+  **`ops_email`** vía outbox (reuso O-2) con la lista de condiciones. Frontend: tarjeta "Alertas
+  SLA (push)" en Configuración (toggle, incluir ops alerts, umbral ms, correo) + tipos/métodos en
+  `api.ts`. **269/269 tests (test_sla.py +8); tsc OK.** **Verificado en vivo** (backend --reload +
+  Supabase): 401 sin token, GET default off, PUT persiste por tenant; sweep contra DB real con fila
+  turn sembrada (5000 ms vs umbral 1000) → 1 alerta + correo a ops@datawith.ai, segunda corrida
+  dedupe 0; config restaurada y `/configuracion` → 200. Pendientes del plan: O-5 (golden ampliado +
+  juez groundedness), O-6 (logs JSON/Sentry).
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.

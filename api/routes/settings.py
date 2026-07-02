@@ -18,6 +18,7 @@ from api.runtime import (
     _DEFAULT_LLM_PRICING,
     _DEFAULT_RETENTION,
     _DEFAULT_SCHEDULING,
+    _DEFAULT_SLA_ALERTS,
 )
 from db import repositories as repo
 
@@ -117,6 +118,14 @@ class LlmBudgetIn(BaseModel):
     notify_email: str = ""
 
 
+class SlaAlertsIn(BaseModel):
+    """SLAs push del tenant (O-4): correo al incumplirse una condición (1×/condición/día)."""
+    enabled: bool = False
+    notify_email: str = ""
+    ops_alerts: bool = True                       # empuja las alertas operativas
+    turn_p95_ms: int = Field(default=0, ge=0)     # umbral p95 del turno (últimas 24 h; 0 = off)
+
+
 @router.get("/api/settings/scheduling")
 def get_scheduling(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     return repo.get_app_setting("scheduling", _DEFAULT_SCHEDULING, user["tenant_id"])
@@ -199,3 +208,17 @@ def put_llm_budget(
     repo.set_app_setting("llm_budget", payload.model_dump(), user["tenant_id"])
     _audit(user, "settings.update", entity_type="settings", entity_id="llm_budget")
     return repo.get_app_setting("llm_budget", _DEFAULT_LLM_BUDGET, user["tenant_id"])
+
+
+@router.get("/api/settings/sla-alerts")
+def get_sla_alerts(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    return repo.get_app_setting("sla_alerts", _DEFAULT_SLA_ALERTS, user["tenant_id"])
+
+
+@router.put("/api/settings/sla-alerts")
+def put_sla_alerts(
+    payload: SlaAlertsIn, user: dict[str, Any] = Depends(require_role("admin"))
+) -> dict[str, Any]:
+    repo.set_app_setting("sla_alerts", payload.model_dump(), user["tenant_id"])
+    _audit(user, "settings.update", entity_type="settings", entity_id="sla_alerts")
+    return repo.get_app_setting("sla_alerts", _DEFAULT_SLA_ALERTS, user["tenant_id"])

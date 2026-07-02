@@ -236,6 +236,14 @@ export interface LlmBudgetConfig {
   notify_email: string;
 }
 
+// SLAs push (O-4): correo al incumplirse una condición, una vez por condición/día.
+export interface SlaAlertsConfig {
+  enabled: boolean;
+  notify_email: string;
+  ops_alerts: boolean;   // empuja las alertas operativas (dead-letter, reuniones sin link, …)
+  turn_p95_ms: number;   // umbral p95 de latencia del turno, últimas 24 h (0 = sin umbral)
+}
+
 export interface PerCriterion {
   question: string;
   label?: string;
@@ -430,6 +438,9 @@ export const api = {
   getLlmBudget: () => req<LlmBudgetConfig>("/api/settings/llm-budget"),
   setLlmBudget: (body: LlmBudgetConfig) =>
     req<LlmBudgetConfig>("/api/settings/llm-budget", { method: "PUT", body: JSON.stringify(body) }),
+  getSlaAlerts: () => req<SlaAlertsConfig>("/api/settings/sla-alerts"),
+  setSlaAlerts: (body: SlaAlertsConfig) =>
+    req<SlaAlertsConfig>("/api/settings/sla-alerts", { method: "PUT", body: JSON.stringify(body) }),
   // Observabilidad (solo admin).
   getOpsAlerts: () => req<{ alerts: OpsAlert[] }>("/api/ops/alerts"),
   getAudit: () => req<AuditEntry[]>("/api/audit"),

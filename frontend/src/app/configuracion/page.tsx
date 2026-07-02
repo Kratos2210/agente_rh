@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Shell, Card, BackLink } from "@/components/Shell";
-import { api, errorMessage, AutoContactConfig, InactivityConfig, LlmBudgetConfig, LlmPricingConfig, SchedulingConfig } from "@/lib/api";
+import { api, errorMessage, AutoContactConfig, InactivityConfig, LlmBudgetConfig, LlmPricingConfig, SchedulingConfig, SlaAlertsConfig } from "@/lib/api";
 
 // Fila editable del precio de un modelo (los montos se editan como texto y se parsean al guardar).
 type PriceRow = { model: string; input: string; output: string };
@@ -28,6 +28,10 @@ export default function ConfiguracionPage() {
   const [savingCost, setSavingCost] = useState(false);
   const [msgCost, setMsgCost] = useState("");
 
+  const [sla, setSla] = useState<SlaAlertsConfig | null>(null);
+  const [savingSla, setSavingSla] = useState(false);
+  const [msgSla, setMsgSla] = useState("");
+
   useEffect(() => {
     api
       .getAutoContact()
@@ -50,7 +54,26 @@ export default function ConfiguracionPage() {
       })
       .catch((e) => setError(errorMessage(e)));
     api.getLlmBudget().then(setBudget).catch((e) => setError(errorMessage(e)));
+    api.getSlaAlerts().then(setSla).catch((e) => setError(errorMessage(e)));
   }, []);
+
+  const saveSla = async () => {
+    if (!sla) return;
+    setSavingSla(true);
+    setMsgSla("");
+    try {
+      const saved = await api.setSlaAlerts({
+        ...sla,
+        turn_p95_ms: Math.max(0, Number(sla.turn_p95_ms) || 0),
+      });
+      setSla(saved);
+      setMsgSla("Configuración guardada ✅");
+    } catch (e) {
+      setMsgSla("Error: " + errorMessage(e));
+    } finally {
+      setSavingSla(false);
+    }
+  };
 
   const saveCost = async () => {
     if (priceRows === null || !budget) return;
@@ -458,6 +481,50 @@ export default function ConfiguracionPage() {
               {savingCost ? "Guardando…" : "Guardar"}
             </button>
             {msgCost && <span className="text-sm" style={{ color: "var(--accent)" }}>{msgCost}</span>}
+          </div>
+        </Card>
+      )}
+
+      {sla && (
+        <Card style={{ marginTop: 16 }}>
+          <h2 className="font-semibold mb-1">Alertas SLA (push)</h2>
+          <p className="text-sm mb-4" style={{ color: "var(--muted)" }}>
+            Envía un correo cuando una condición operativa se incumple (una vez por condición por día):
+            alertas del panel de observabilidad y, si defines un umbral, la latencia p95 del turno del
+            candidato en las últimas 24 horas.
+          </p>
+          <label className="flex items-center gap-3 mb-3 cursor-pointer">
+            <input type="checkbox" checked={sla.enabled}
+              onChange={(e) => setSla({ ...sla, enabled: e.target.checked })}
+              style={{ width: 18, height: 18, accentColor: "var(--accent)" }} />
+            <span className="text-sm font-medium">Activar alertas SLA</span>
+          </label>
+          <label className="flex items-center gap-3 mb-3 cursor-pointer">
+            <input type="checkbox" checked={sla.ops_alerts}
+              onChange={(e) => setSla({ ...sla, ops_alerts: e.target.checked })}
+              style={{ width: 18, height: 18, accentColor: "var(--accent)" }} />
+            <span className="text-sm font-medium">Incluir alertas operativas (envíos detenidos, reuniones sin enlace, …)</span>
+          </label>
+          <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 2fr", maxWidth: 560 }}>
+            <div>
+              <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>Umbral p95 del turno (ms, 0 = sin umbral)</label>
+              <input type="number" min={0} value={sla.turn_p95_ms}
+                onChange={(e) => setSla({ ...sla, turn_p95_ms: Number(e.target.value) })}
+                className="px-3 py-2 rounded-lg w-full" style={inputStyle} />
+            </div>
+            <div>
+              <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>Correo de aviso</label>
+              <input value={sla.notify_email} placeholder="ops@empresa.com"
+                onChange={(e) => setSla({ ...sla, notify_email: e.target.value })}
+                className="px-3 py-2 rounded-lg w-full" style={inputStyle} />
+            </div>
+          </div>
+          <div className="mt-4 flex items-center gap-3">
+            <button onClick={saveSla} disabled={savingSla} className="px-4 py-2 rounded-lg font-medium"
+              style={{ background: "var(--accent)", color: "var(--accent-ink)", opacity: savingSla ? 0.6 : 1 }}>
+              {savingSla ? "Guardando…" : "Guardar"}
+            </button>
+            {msgSla && <span className="text-sm" style={{ color: "var(--accent)" }}>{msgSla}</span>}
           </div>
         </Card>
       )}
