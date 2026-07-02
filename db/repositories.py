@@ -925,6 +925,21 @@ def list_llm_traces(candidate_id: str, limit: int = 200) -> list[dict[str, Any]]
     )
 
 
+def list_llm_traces_by_stage(stage: str, limit: int = 50) -> list[dict[str, Any]]:
+    """Trazas recientes de una etapa con respuesta (para el juez de groundedness — O-5)."""
+    return (
+        get_supabase().table("llm_traces")
+        .select("id,candidate_id,stage,model,prompt_version,prompt_text,response_text,created_at")
+        .eq("stage", stage)
+        .not_.is_("response_text", "null")
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+        .data
+        or []
+    )
+
+
 def delete_llm_traces_by_candidate(candidate_id: str) -> None:
     """Purga las trazas de un candidato (retención/erasure: los prompts llevan PII)."""
     get_supabase().table("llm_traces").delete().eq("candidate_id", candidate_id).execute()

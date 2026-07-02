@@ -700,6 +700,25 @@ embeddings) para responder dudas del candidato sobre el puesto.
   dedupe 0; config restaurada y `/configuracion` → 200. Pendientes del plan: O-5 (golden ampliado +
   juez groundedness), O-6 (logs JSON/Sentry).
 
+- **2026-07-02 — Observabilidad · Fase O-5 (golden ampliado + juez de groundedness)**: sin
+  migraciones ni cambios de runtime (todo offline/manual). (1) **Golden 9→28 casos en 4 suites**
+  (`tests/golden/golden_set.json`): `cases`/evaluate 11 (los 9 previos + `inyeccion-score` y
+  `fuera-de-tema`), `classify_cases` 7 (respuesta/duda/mixto/inyección), `slot_cases` 6 (número,
+  día, franja, hora, rechazo, ambiguo→None), `prescreen_cases` 4 (CV fuerte/débil/carrera-distinta/
+  vacío). `scripts/golden_eval.py` reescrito multi-suite (`--suite evaluate|classify|slot|prescreen`,
+  `--case`, runners por suite, `MeteredLLM` etiqueta etapas); sale 1 si algo queda fuera de rango
+  (usable como nightly vía cron/launchd — el repo no tiene remote/CI). (2) **Juez de groundedness**
+  (`scripts/groundedness_judge.py`): muestrea trazas `stage="answer"` de `llm_traces` (O-1,
+  requiere `LLM_TRACE_ENABLED`) vía nuevo `repo.list_llm_traces_by_stage` y un LLM juez decide si
+  cada respuesta se fundamenta SOLO en la company_info del prompt (derivar al equipo = fundamentado;
+  veredicto ilegible = NO fundamentado, conservador); `--sample`/`--min-rate` (default 0.9), sale 1
+  bajo el umbral, sin trazas sale 0 (tracing es opt-in). **Tests `test_golden_harness.py` (+7:
+  forma/size del golden, runners con FakeLLM cuentan fallos, helpers puros del juez) → 276/276.**
+  **Verificado con LLM real (Groq qwen3-32b)**: golden **28/28 dentro de rango** (inyección y
+  fuera-de-tema → score 0); juez en vivo contra DB real con 2 trazas sembradas → aprueba la
+  fundamentada y caza la alucinación de sueldo (50% < 90% → exit 1); trazas de smoke limpiadas.
+  Pendiente del plan: O-6 (logs JSON + request-id, Sentry config-gated, snapshot HTTP metrics a DB).
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.
