@@ -127,7 +127,15 @@ async def lifespan(app: FastAPI):
     _state["scheduler_task"] = scheduler_task
     logger.info("Scheduler de auto-contacto iniciado")
 
-    yield
+    # Servidor MCP (config-gated): el mount de /mcp es una sub-app Starlette cuyo
+    # lifespan FastAPI no ejecuta — su session manager se corre aquí explícitamente.
+    from contextlib import AsyncExitStack
+
+    async with AsyncExitStack() as _mcp_stack:
+        if _mcp_server is not None:
+            await _mcp_stack.enter_async_context(_mcp_server.session_manager.run())
+            logger.info("Servidor MCP activo en /mcp")
+        yield
 
     scheduler_task.cancel()
     lock_conn = _state.get("scheduler_lock_conn")
@@ -256,3 +264,12 @@ app.include_router(candidates_router)
 app.include_router(recruiters_router)
 app.include_router(settings_router)
 app.include_router(observability_router)
+
+# ── Servidor MCP (config-gated, default off) ──────────────────────────────────────
+# Herramientas read-only en /mcp para clientes LLM externos, con el MISMO JWT,
+# tenancy y auditoría del dashboard. Ver api/mcp.py.
+_mcp_server = None
+if get_settings().mcp_enabled:
+    from api.mcp import mount_mcp
+
+    _mcp_server = mount_mcp(app)

@@ -141,6 +141,11 @@ class Settings(BaseSettings):
     # por el dominio real del frontend (audit S5); el default cubre el dev local.
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
+    # Servidor MCP (Model Context Protocol): expone herramientas read-only del agente
+    # en /mcp (streamable HTTP, mismo proceso) para clientes LLM externos. Requiere el
+    # MISMO JWT del dashboard (Authorization: Bearer) y respeta tenant + rol.
+    mcp_enabled: bool = False
+
     # SMTP para enviar el scorecard al reclutador (patrón de qrs).
     smtp_host: str = ""
     smtp_port: int = 587

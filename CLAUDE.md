@@ -571,6 +571,34 @@ embeddings) para responder dudas del candidato sobre el puesto.
   vacío). **Pendiente**: verificación en vivo (reiniciar backend, smoke `/api/ops/http-metrics`,
   sync doble → 429, erasure con modal) + commit.
 
+- **2026-07-02 — Servidor MCP (Model Context Protocol) read-only**: `api/mcp.py` expone 5
+  herramientas de consulta en `/mcp` (streamable HTTP montado en la MISMA app FastAPI) para
+  clientes LLM externos (Claude Code/Desktop u otro orquestador): `list_vacancies`,
+  `list_candidates` (por vacante o pipeline global, con `q`/paginado), `get_candidate_detail`,
+  `get_metrics`, `get_ops_alerts` (admin). **Capa de adaptación pura**: cada tool invoca la MISMA
+  función del endpoint FastAPI (`api/routes/*`) pasándole el user resuelto → hereda tenancy,
+  enmascarado por rol (psych-exam) y los listados sin N+1; v1 sin mutaciones (capability ≠
+  autoridad). **Auth**: `MCPAuthMiddleware` (ASGI, envuelve el mount) exige el MISMO Bearer JWT
+  del dashboard — firma+rotación (`decode_access_token`), revocación y tenant — y deja el user en
+  un contextvar que SÍ llega a la tool (el session manager arranca el server con
+  `task_group.start()` desde el task del request en modo stateless). RBAC dentro de la tool
+  (`_require_user(min_role)` — el Depends de FastAPI no corre al llamar la función directo).
+  **Auditoría**: cada invocación → `audit_log` action `mcp.<tool>` (detalle de candidato usa
+  entity_type=candidate → la purga S4 también lo cubre). Config: `MCP_ENABLED` default **off**
+  (`src/config.py` + `.env.example`); el lifespan corre `session_manager.run()` explícito
+  (gotcha: FastAPI NO ejecuta el lifespan de sub-apps montadas). Dep: `mcp` **1.28.1 pineado <2**
+  (la 2.0 beta renombra FastMCP→MCPServer). Gotchas: anti DNS-rebinding del SDK desactivado
+  (valida Host, pensado para servers locales sin auth; aquí el JWT por header lo mitiga);
+  endpoint en `/mcp/` (Route "/" dentro del mount). **Tests: `test_mcp.py` (9: gating off→404,
+  401 sin/mal token/revocado, tools/list, tenancy del token, cross-tenant→error, RBAC admin,
+  auditoría) → 231/231 verde.** El mount es sub-app ASGI (no APIRoute): `test_tenant_guards` no
+  lo recorre; `test_mcp.py` cubre su perímetro. **Verificado en vivo** (Supabase real, uvicorn
+  :8010 con MCP_ENABLED=true): sin token→401; tools/list→5; `list_vacancies`→vacante demo con 3
+  candidatos; `list_candidates q=dan`→`get_candidate_detail`→Daniela 92.8; `get_ops_alerts`
+  admin→0 alertas. Conexión: `claude mcp add --transport http leia http://localhost:8000/mcp/
+  --header "Authorization: Bearer <token>"`. Extensión futura: tools de mutación
+  (contactar/decidir) gated por rol + confirmación.
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.
