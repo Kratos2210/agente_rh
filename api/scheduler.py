@@ -15,6 +15,8 @@ from typing import Any
 from api.runtime import (
     _DEFAULT_AUTO_CONTACT,
     _DEFAULT_INACTIVITY,
+    _DEFAULT_LLM_BUDGET,
+    _DEFAULT_LLM_PRICING,
     _DEFAULT_RETENTION,
     _DEFAULT_SCHEDULING,
     _RETENTION_STATUSES,
@@ -465,6 +467,24 @@ def _collect_ops_alerts(tenant_id: str | None = None) -> list[dict[str, Any]]:
                     "type": "state_divergence", "conversation_id": conv.get("id"), "candidate_id": conv.get("candidate_id"),
                     "detail": f"Conversación {conv.get('id')} divergente (motor={engine_phase}, negocio={conv.get('state')}) — revisar.",
                 })
+    # Presupuesto LLM (O-2): SOLO en la vista por-tenant del dashboard — el camino
+    # global corre cada tick de reconciliación y el gasto escanea `llm_usage` (el
+    # push con dedupe lo hace `_budget_sweep` a su propio ritmo). Best-effort: un
+    # fallo del cálculo de costo no debe tumbar el resto de las alertas.
+    if tenant_id is not None:
+        try:
+            cfg = repo.get_app_setting("llm_budget", _DEFAULT_LLM_BUDGET, tenant_id) or {}
+            monthly = float(cfg.get("monthly_usd", 0) or 0)
+            if cfg.get("enabled") and monthly > 0:
+                spend = _tenant_month_costs().get(tenant_id, 0.0)
+                pct = int(cfg.get("alert_pct", 80) or 80)
+                if spend >= monthly * pct / 100:
+                    alerts.append({
+                        "type": "budget_exceeded",
+                        "detail": _budget_alert_detail(spend, monthly, pct),
+                    })
+        except Exception:  # noqa: BLE001
+            logger.exception("Ops alerts: cálculo de presupuesto falló (tenant %s)", tenant_id)
     return alerts
 
 
@@ -544,6 +564,8 @@ def _retention_sweep(settings: Settings) -> dict[str, int]:
         try:
             repo.delete_outbox_by_candidate(cand["id"])
             repo.scrub_audit_for_entity(cand["id"])
+            # Trazas LLM (O-1): los prompts llevan las respuestas crudas del candidato.
+            repo.delete_llm_traces_by_candidate(cand["id"])
         except Exception:  # noqa: BLE001 — la purga extra no frena la anonimización
             logger.exception("Retención: purga de outbox/auditoría falló para %s", cand.get("id"))
         repo.anonymize_candidate(cand["id"])
@@ -577,6 +599,104 @@ def _checkpoint_purge_sweep(settings: Settings) -> dict[str, int]:
         return {"purged": 0}
     _state["checkpoint_purge_last"] = now
     return {"purged": repo.purge_stale_checkpoints(days)}
+
+
+# ── Presupuesto LLM (O-2): gasto del mes por tenant + alerta al alcanzar el umbral ─
+
+# El gasto del mes escanea `llm_usage`; correrlo cada tick de 30 s sería desperdicio.
+_BUDGET_SWEEP_INTERVAL_SECONDS = 15 * 60
+
+
+def _month_start_iso(now: Any = None) -> str:
+    from datetime import datetime, timezone
+
+    now = now or datetime.now(timezone.utc)
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+
+def _tenant_month_costs(now: Any = None) -> dict[str, float]:
+    """Gasto LLM (USD) del mes en curso por tenant: tokens de `llm_usage` agrupados por
+    modelo × los precios del tenant (`llm_pricing`). Una consulta para todos los tenants."""
+    from api.deps import compute_cost
+
+    vac_tenant = _vacancy_tenant_map()
+    by_tenant: dict[str, dict[str, dict[str, int]]] = {}
+    for r in repo.usage_rows_since(_month_start_iso(now)):
+        tid = vac_tenant.get(r.get("vacancy_id"))
+        if not tid:
+            continue
+        m = by_tenant.setdefault(tid, {}).setdefault(
+            r.get("model") or "?", {"input": 0, "output": 0, "total": 0}
+        )
+        m["input"] += int(r.get("input_tokens", 0) or 0)
+        m["output"] += int(r.get("output_tokens", 0) or 0)
+        m["total"] += int(r.get("total_tokens", 0) or 0)
+    costs: dict[str, float] = {}
+    for tid, by_model in by_tenant.items():
+        pricing = repo.get_app_setting("llm_pricing", _DEFAULT_LLM_PRICING, tid) or _DEFAULT_LLM_PRICING
+        costs[tid] = compute_cost(by_model, pricing)["total"]
+    return costs
+
+
+def _budget_alert_detail(spend: float, monthly: float, pct: int) -> str:
+    reached = round(spend / monthly * 100) if monthly else 0
+    return (
+        f"Presupuesto LLM: el gasto del mes (${spend:.2f}) alcanzó el {reached}% "
+        f"del presupuesto (${monthly:.2f}, umbral de alerta {pct}%)."
+    )
+
+
+def _budget_sweep(settings: Settings) -> dict[str, int]:
+    """Alerta de presupuesto LLM (O-2): compara el gasto del mes de cada tenant contra su
+    `llm_budget` y avisa UNA vez por tenant/mes/umbral (log + correo vía outbox si hay
+    `notify_email`). Corre a lo sumo cada 15 min; el dashboard además muestra la señal
+    en las alertas operativas (`_collect_ops_alerts`)."""
+    import time
+    from datetime import datetime, timezone
+
+    last = _state.get("budget_sweep_last") or 0.0
+    now_mono = time.monotonic()
+    if now_mono - last < _BUDGET_SWEEP_INTERVAL_SECONDS:
+        return {"alerted": 0}
+    _state["budget_sweep_last"] = now_mono
+
+    report = {"alerted": 0}
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
+    alerted: set[str] = _state.setdefault("budget_alerted", set())
+    costs: dict[str, float] | None = None  # lazy: solo si algún tenant tiene presupuesto activo
+    for tenant in repo.list_tenants():
+        tid = tenant["id"]
+        cfg = repo.get_app_setting("llm_budget", _DEFAULT_LLM_BUDGET, tid) or {}
+        monthly = float(cfg.get("monthly_usd", 0) or 0)
+        pct = int(cfg.get("alert_pct", 80) or 80)
+        if not cfg.get("enabled") or monthly <= 0:
+            continue
+        if costs is None:
+            costs = _tenant_month_costs()
+        spend = costs.get(tid, 0.0)
+        if spend < monthly * pct / 100:
+            continue
+        key = f"{tid}|{month}|{pct}"
+        if key in alerted:
+            continue
+        alerted.add(key)
+        report["alerted"] += 1
+        detail = _budget_alert_detail(spend, monthly, pct)
+        logger.warning("Presupuesto (tenant %s): %s", tid, detail)
+        email = str(cfg.get("notify_email") or "").strip()
+        if email:
+            outbox.deliver(
+                settings,
+                "ops_email",
+                {
+                    "recipients": [email],
+                    "subject": f"⚠ Presupuesto LLM: umbral alcanzado ({month})",
+                    "text": detail,
+                    "html": f"<p>{detail}</p>",
+                },
+                tenant_id=tid,
+            )
+    return report
 
 
 # ── Loop principal ────────────────────────────────────────────────────────────────
@@ -650,6 +770,10 @@ async def _scheduler_loop() -> None:
             purged = await asyncio.to_thread(_checkpoint_purge_sweep, settings)
             if purged.get("purged"):
                 logger.info("Checkpoints purgados → %s", purged)
+            # Presupuesto LLM (O-2): alerta una vez por tenant/mes al alcanzar el umbral.
+            budget = await asyncio.to_thread(_budget_sweep, settings)
+            if budget.get("alerted"):
+                logger.info("Presupuesto LLM → %s", budget)
         except Exception:  # noqa: BLE001 — el scheduler nunca debe morir
             logger.exception("Error en el tick del scheduler")
         await asyncio.sleep(30)

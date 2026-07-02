@@ -213,6 +213,8 @@ export default function ObservabilidadPage() {
                   <th style={{ padding: "6px 10px", fontWeight: 600, textAlign: "right" }}>4xx</th>
                   <th style={{ padding: "6px 10px", fontWeight: 600, textAlign: "right" }}>5xx</th>
                   <th style={{ padding: "6px 10px", fontWeight: 600, textAlign: "right" }}>Prom. (ms)</th>
+                  <th style={{ padding: "6px 10px", fontWeight: 600, textAlign: "right" }}>p95 (ms)</th>
+                  <th style={{ padding: "6px 10px", fontWeight: 600, textAlign: "right" }}>p99 (ms)</th>
                   <th style={{ padding: "6px 10px", fontWeight: 600, textAlign: "right" }}>Máx. (ms)</th>
                 </tr>
               </thead>
@@ -224,6 +226,8 @@ export default function ObservabilidadPage() {
                     <td style={{ padding: "7px 10px", textAlign: "right", color: r.client_errors ? "#d97706" : "var(--muted)" }}>{r.client_errors}</td>
                     <td style={{ padding: "7px 10px", textAlign: "right", color: r.errors ? "#f87171" : "var(--muted)", fontWeight: r.errors ? 700 : 400 }}>{r.errors}</td>
                     <td style={{ padding: "7px 10px", textAlign: "right", color: "#dbe2ee" }}>{r.avg_ms}</td>
+                    <td style={{ padding: "7px 10px", textAlign: "right", color: "#dbe2ee" }}>{r.p95_ms ?? "—"}</td>
+                    <td style={{ padding: "7px 10px", textAlign: "right", color: "#dbe2ee" }}>{r.p99_ms ?? "—"}</td>
                     <td style={{ padding: "7px 10px", textAlign: "right", color: "var(--muted)" }}>{r.max_ms}</td>
                   </tr>
                 ))}

@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { Shell, Card, BackLink } from "@/components/Shell";
-import { api, errorMessage, AutoContactConfig, InactivityConfig, SchedulingConfig } from "@/lib/api";
+import { api, errorMessage, AutoContactConfig, InactivityConfig, LlmBudgetConfig, LlmPricingConfig, SchedulingConfig } from "@/lib/api";
+
+// Fila editable del precio de un modelo (los montos se editan como texto y se parsean al guardar).
+type PriceRow = { model: string; input: string; output: string };
 
 export default function ConfiguracionPage() {
   const [cfg, setCfg] = useState<AutoContactConfig | null>(null);
@@ -19,6 +22,12 @@ export default function ConfiguracionPage() {
   const [savingSched, setSavingSched] = useState(false);
   const [msgSched, setMsgSched] = useState("");
 
+  const [priceRows, setPriceRows] = useState<PriceRow[] | null>(null);
+  const [defPrice, setDefPrice] = useState<{ input: string; output: string }>({ input: "0", output: "0" });
+  const [budget, setBudget] = useState<LlmBudgetConfig | null>(null);
+  const [savingCost, setSavingCost] = useState(false);
+  const [msgCost, setMsgCost] = useState("");
+
   useEffect(() => {
     api
       .getAutoContact()
@@ -29,7 +38,53 @@ export default function ConfiguracionPage() {
       .catch((e) => setError(errorMessage(e)));
     api.getInactivity().then(setInact).catch((e) => setError(errorMessage(e)));
     api.getScheduling().then(setSched).catch((e) => setError(errorMessage(e)));
+    api
+      .getLlmPricing()
+      .then((p) => {
+        setPriceRows(
+          Object.entries(p.models || {}).map(([model, v]) => ({
+            model, input: String(v.input_per_1m ?? 0), output: String(v.output_per_1m ?? 0),
+          })),
+        );
+        setDefPrice({ input: String(p.default?.input_per_1m ?? 0), output: String(p.default?.output_per_1m ?? 0) });
+      })
+      .catch((e) => setError(errorMessage(e)));
+    api.getLlmBudget().then(setBudget).catch((e) => setError(errorMessage(e)));
   }, []);
+
+  const saveCost = async () => {
+    if (priceRows === null || !budget) return;
+    setSavingCost(true);
+    setMsgCost("");
+    try {
+      const models: LlmPricingConfig["models"] = {};
+      for (const r of priceRows) {
+        if (!r.model.trim()) continue;
+        models[r.model.trim()] = {
+          input_per_1m: Math.max(0, Number(r.input) || 0),
+          output_per_1m: Math.max(0, Number(r.output) || 0),
+        };
+      }
+      await api.setLlmPricing({
+        models,
+        default: {
+          input_per_1m: Math.max(0, Number(defPrice.input) || 0),
+          output_per_1m: Math.max(0, Number(defPrice.output) || 0),
+        },
+      });
+      const savedBudget = await api.setLlmBudget({
+        ...budget,
+        monthly_usd: Math.max(0, Number(budget.monthly_usd) || 0),
+        alert_pct: Math.min(100, Math.max(1, Number(budget.alert_pct) || 80)),
+      });
+      setBudget(savedBudget);
+      setMsgCost("Configuración guardada ✅");
+    } catch (e) {
+      setMsgCost("Error: " + errorMessage(e));
+    } finally {
+      setSavingCost(false);
+    }
+  };
 
   const saveSched = async () => {
     if (!sched) return;
@@ -320,6 +375,89 @@ export default function ConfiguracionPage() {
               {savingSched ? "Guardando…" : "Guardar"}
             </button>
             {msgSched && <span className="text-sm" style={{ color: "var(--accent)" }}>{msgSched}</span>}
+          </div>
+        </Card>
+      )}
+
+      {priceRows !== null && budget && (
+        <Card style={{ marginTop: 16 }}>
+          <h2 className="font-semibold mb-1">Costos y presupuesto LLM</h2>
+          <p className="text-sm mb-4" style={{ color: "var(--muted)" }}>
+            Precio en USD por millón de tokens de cada modelo (los publica tu proveedor: Groq, OpenAI, etc.).
+            Con esto el dashboard estima el costo real por vacante y global. El presupuesto mensual
+            genera una alerta operativa (y un correo, si lo configuras) al alcanzar el umbral.
+          </p>
+
+          <div className="grid gap-2" style={{ maxWidth: 560 }}>
+            <div className="grid gap-2 text-xs" style={{ gridTemplateColumns: "2fr 1fr 1fr 32px", color: "var(--muted)" }}>
+              <span>Modelo</span><span>Entrada $/1M</span><span>Salida $/1M</span><span />
+            </div>
+            {priceRows.map((r, i) => (
+              <div key={i} className="grid gap-2" style={{ gridTemplateColumns: "2fr 1fr 1fr 32px" }}>
+                <input value={r.model} placeholder="qwen/qwen3-32b"
+                  onChange={(e) => setPriceRows(priceRows.map((x, j) => (j === i ? { ...x, model: e.target.value } : x)))}
+                  className="px-3 py-2 rounded-lg w-full" style={inputStyle} />
+                <input value={r.input} inputMode="decimal"
+                  onChange={(e) => setPriceRows(priceRows.map((x, j) => (j === i ? { ...x, input: e.target.value } : x)))}
+                  className="px-3 py-2 rounded-lg w-full" style={inputStyle} />
+                <input value={r.output} inputMode="decimal"
+                  onChange={(e) => setPriceRows(priceRows.map((x, j) => (j === i ? { ...x, output: e.target.value } : x)))}
+                  className="px-3 py-2 rounded-lg w-full" style={inputStyle} />
+                <button onClick={() => setPriceRows(priceRows.filter((_, j) => j !== i))} title="Quitar modelo"
+                  className="rounded-lg" style={{ ...inputStyle, cursor: "pointer" }}>✕</button>
+              </div>
+            ))}
+            <button onClick={() => setPriceRows([...priceRows, { model: "", input: "0", output: "0" }])}
+              className="px-3 py-2 rounded-lg text-sm" style={{ ...inputStyle, cursor: "pointer", justifySelf: "start" }}>
+              + Añadir modelo
+            </button>
+            <div className="grid gap-2 mt-2" style={{ gridTemplateColumns: "2fr 1fr 1fr 32px" }}>
+              <span className="text-sm self-center" style={{ color: "var(--muted)" }}>Default (modelos sin fila)</span>
+              <input value={defPrice.input} inputMode="decimal"
+                onChange={(e) => setDefPrice({ ...defPrice, input: e.target.value })}
+                className="px-3 py-2 rounded-lg w-full" style={inputStyle} />
+              <input value={defPrice.output} inputMode="decimal"
+                onChange={(e) => setDefPrice({ ...defPrice, output: e.target.value })}
+                className="px-3 py-2 rounded-lg w-full" style={inputStyle} />
+              <span />
+            </div>
+          </div>
+
+          <div className="mt-5 pt-4" style={{ borderTop: "1px solid var(--edge)" }}>
+            <label className="flex items-center gap-3 mb-3 cursor-pointer">
+              <input type="checkbox" checked={budget.enabled}
+                onChange={(e) => setBudget({ ...budget, enabled: e.target.checked })}
+                style={{ width: 18, height: 18, accentColor: "var(--accent)" }} />
+              <span className="text-sm font-medium">Activar presupuesto mensual</span>
+            </label>
+            <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr 2fr", maxWidth: 560 }}>
+              <div>
+                <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>Presupuesto (USD/mes)</label>
+                <input type="number" min={0} value={budget.monthly_usd}
+                  onChange={(e) => setBudget({ ...budget, monthly_usd: Number(e.target.value) })}
+                  className="px-3 py-2 rounded-lg w-full" style={inputStyle} />
+              </div>
+              <div>
+                <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>Alertar al (%)</label>
+                <input type="number" min={1} max={100} value={budget.alert_pct}
+                  onChange={(e) => setBudget({ ...budget, alert_pct: Number(e.target.value) })}
+                  className="px-3 py-2 rounded-lg w-full" style={inputStyle} />
+              </div>
+              <div>
+                <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>Correo de aviso (opcional)</label>
+                <input value={budget.notify_email} placeholder="ops@empresa.com"
+                  onChange={(e) => setBudget({ ...budget, notify_email: e.target.value })}
+                  className="px-3 py-2 rounded-lg w-full" style={inputStyle} />
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-center gap-3">
+            <button onClick={saveCost} disabled={savingCost} className="px-4 py-2 rounded-lg font-medium"
+              style={{ background: "var(--accent)", color: "var(--accent-ink)", opacity: savingCost ? 0.6 : 1 }}>
+              {savingCost ? "Guardando…" : "Guardar"}
+            </button>
+            {msgCost && <span className="text-sm" style={{ color: "var(--accent)" }}>{msgCost}</span>}
           </div>
         </Card>
       )}

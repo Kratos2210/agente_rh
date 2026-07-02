@@ -115,7 +115,7 @@ def list_all_candidates(
 
 @router.get("/api/metrics")
 def global_metrics_endpoint(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
-    return _with_cost(repo.global_metrics(tenant_id=user["tenant_id"]))
+    return _with_cost(repo.global_metrics(tenant_id=user["tenant_id"]), user["tenant_id"])
 
 
 # Campos internos del candidato que NO deben salir en las respuestas de la API (P1: PII/IDs
@@ -475,9 +475,23 @@ def erase_candidate(
     try:
         repo.delete_outbox_by_candidate(candidate_id)
         repo.scrub_audit_for_entity(candidate_id)
+        # Trazas LLM (O-1): la FK cascade de 0024 las cubre; explícito para entornos sin ella.
+        repo.delete_llm_traces_by_candidate(candidate_id)
     except Exception:  # noqa: BLE001 — la purga extra no debe frenar el erasure
         pass
     repo.delete_candidate(candidate_id)
     _audit(user, "candidate.delete", entity_type="candidate", entity_id=candidate_id,
            summary="borrado (derecho al olvido)")
     return {"deleted": True}
+
+
+@router.get("/api/candidates/{candidate_id}/traces")
+def list_candidate_traces(
+    candidate_id: str, user: dict[str, Any] = Depends(require_role("admin"))
+) -> dict[str, Any]:
+    """Trazas LLM crudas del candidato (prompt/respuesta por llamada — O-1, replay/debug).
+
+    Solo admin: los prompts contienen las respuestas del candidato (PII) y el texto
+    íntegro de los prompts del sistema. Vacío si `LLM_TRACE_ENABLED` está apagado."""
+    _require_candidate_in_tenant(candidate_id, user)
+    return {"items": repo.list_llm_traces(candidate_id)}

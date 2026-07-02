@@ -48,7 +48,13 @@ class Settings(BaseSettings):
     # LangSmith
     langsmith_tracing: str = "false"
     langsmith_api_key: str = ""
-    langsmith_project: str = "rag-pdfs-python"
+    langsmith_project: str = "agente-rh"
+
+    # Trazas LLM propias (observabilidad O-1): persistir prompt/respuesta POR LLAMADA
+    # en `llm_traces` para replay/debug de evaluaciones. Off por default: los prompts
+    # llevan respuestas del candidato (PII) — retención/erasure las purgan igual.
+    llm_trace_enabled: bool = False
+    llm_trace_max_chars: int = 8000
 
     # Documentos. El env var se llama PDF_PATHS (alias) pero el atributo es pdf_paths_raw.
     pdf_paths_raw: str = Field(default="", validation_alias="PDF_PATHS")

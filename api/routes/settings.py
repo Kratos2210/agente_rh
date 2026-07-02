@@ -14,6 +14,8 @@ from api.deps import _audit
 from api.runtime import (
     _DEFAULT_AUTO_CONTACT,
     _DEFAULT_INACTIVITY,
+    _DEFAULT_LLM_BUDGET,
+    _DEFAULT_LLM_PRICING,
     _DEFAULT_RETENTION,
     _DEFAULT_SCHEDULING,
 )
@@ -95,6 +97,26 @@ class RetentionIn(BaseModel):
     days: int = Field(default=180, ge=0)
 
 
+class ModelPriceIn(BaseModel):
+    """Precio por millón de tokens (USD) de un modelo."""
+    input_per_1m: float = Field(default=0.0, ge=0)
+    output_per_1m: float = Field(default=0.0, ge=0)
+
+
+class LlmPricingIn(BaseModel):
+    """Precios LLM del tenant (O-2): por modelo + default para modelos sin fila propia."""
+    models: dict[str, ModelPriceIn] = {}
+    default: ModelPriceIn = ModelPriceIn()
+
+
+class LlmBudgetIn(BaseModel):
+    """Presupuesto LLM mensual del tenant (O-2): alerta al alcanzar `alert_pct`%."""
+    enabled: bool = False
+    monthly_usd: float = Field(default=0.0, ge=0)
+    alert_pct: int = Field(default=80, ge=1, le=100)
+    notify_email: str = ""
+
+
 @router.get("/api/settings/scheduling")
 def get_scheduling(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     return repo.get_app_setting("scheduling", _DEFAULT_SCHEDULING, user["tenant_id"])
@@ -149,3 +171,31 @@ def put_retention(
     repo.set_app_setting("retention", payload.model_dump(), user["tenant_id"])
     _audit(user, "settings.update", entity_type="settings", entity_id="retention")
     return repo.get_app_setting("retention", _DEFAULT_RETENTION, user["tenant_id"])
+
+
+@router.get("/api/settings/llm-pricing")
+def get_llm_pricing(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    return repo.get_app_setting("llm_pricing", _DEFAULT_LLM_PRICING, user["tenant_id"])
+
+
+@router.put("/api/settings/llm-pricing")
+def put_llm_pricing(
+    payload: LlmPricingIn, user: dict[str, Any] = Depends(require_role("admin"))
+) -> dict[str, Any]:
+    repo.set_app_setting("llm_pricing", payload.model_dump(), user["tenant_id"])
+    _audit(user, "settings.update", entity_type="settings", entity_id="llm_pricing")
+    return repo.get_app_setting("llm_pricing", _DEFAULT_LLM_PRICING, user["tenant_id"])
+
+
+@router.get("/api/settings/llm-budget")
+def get_llm_budget(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    return repo.get_app_setting("llm_budget", _DEFAULT_LLM_BUDGET, user["tenant_id"])
+
+
+@router.put("/api/settings/llm-budget")
+def put_llm_budget(
+    payload: LlmBudgetIn, user: dict[str, Any] = Depends(require_role("admin"))
+) -> dict[str, Any]:
+    repo.set_app_setting("llm_budget", payload.model_dump(), user["tenant_id"])
+    _audit(user, "settings.update", entity_type="settings", entity_id="llm_budget")
+    return repo.get_app_setting("llm_budget", _DEFAULT_LLM_BUDGET, user["tenant_id"])

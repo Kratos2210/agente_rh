@@ -599,6 +599,87 @@ embeddings) para responder dudas del candidato sobre el puesto.
   --header "Authorization: Bearer <token>"`. Extensión futura: tools de mutación
   (contactar/decidir) gated por rol + confirmación.
 
+- **2026-07-02 — Smoke UI del backlog + fix de idempotencia del re-sync (source_ref)**: paseo en vivo
+  de los 3 pendientes: (1) `/api/ops/http-metrics` + tarjeta "Rendimiento HTTP" en `/observabilidad`
+  verificados (Playwright headless: login → página renderiza alertas/outbox/tabla de rutas/bitácora);
+  (2) sync doble → 3.ª llamada **429** con mensaje humano; (3) erasure con modal ejercitado por el
+  usuario desde la UI (2 `candidate.delete` auditados; scrub S4 confirmado: summaries vacíos en DB —
+  los nombres visibles en bitácora son entradas históricas pre-S4 de datos demo). **BUG encontrado por
+  el smoke**: el sync doble **duplicaba** al candidato ya contactado en modo demo — el dedupe era por
+  `(vacancy, channel, channel_user_id)` y el claim del chat demo reasigna `channel_user_id` al chat
+  real, así el re-sync no lo encontraba (creaba otra Daniela y le robaba el chat vía `_claim_chat`).
+  Fix: migración `0023_source_ref.sql` (columna `candidates.source_ref` = id estable de plataforma +
+  índice parcial + backfill de sourced no-reasignados; **aplicada en vivo** por psql + `NOTIFY pgrst`,
+  patrón conocido) + `repo.find_candidate_by_source_ref` + `get_or_create_candidate(source_ref=)`;
+  `sourcing_service` dedupea por `source_ref` primero y lo sana en el refresh de filas legadas.
+  Datos demo reparados (duplicada fuera, Daniela reseteada con `source_ref=bmn-10241`). **Verificado
+  en vivo**: doble sync → siguen 3 candidatos, 1 sola Daniela `invited`, `contacted:0` (ni duplica ni
+  re-contacta). **232/232 tests (test_contact.py +1 regresión del claim demo).**
+
+- **2026-07-02 — Observabilidad · Fase O-1 (trazas LLM con contenido)**: primera fase del plan de
+  observabilidad estilo LangSmith/Phoenix (mapeo previo: ya existían metering por etapa en `llm_usage`,
+  costo estimado `_with_cost`, HTTP metrics, ops alerts, golden suite y el gancho LangSmith; gaps = trazas
+  con contenido, costos por modelo/tenant, percentiles, SLAs push, groundedness). **Decisión**: tabla
+  propia como fuente de verdad (PII Ley 29733, sin SaaS externo) + LangSmith opcional para dev. Migración
+  `0024_llm_traces.sql` (**aplicada en vivo** vía docker psql + `NOTIFY pgrst`, patrón conocido): tabla
+  `llm_traces` (prompt_text/response_text/error/duration_ms/stage/model/prompt_version + FKs cascade,
+  índices, RLS por tenant patrón 0018). `MeteredLLM(trace=, trace_max_chars=)` captura POR LLAMADA
+  (prompt/respuesta capados; error del proveedor también se traza) + `drain_traces()`; `set_context()`
+  propaga metadata al LLM interno y `LangChainLLM.metadata` la pasa al `invoke` (runs LangSmith agrupados
+  por conversación; `langsmith_project` default ahora `agente-rh`). Config `LLM_TRACE_ENABLED` (default
+  **off**) + `LLM_TRACE_MAX_CHARS` (8000) en `src/config.py` + `.env.example`; cableado en el bot y en
+  sync-applicants. Persistencia: `repo.record_traces` (best-effort como `record_usage`) desde
+  `service._record_usage` y `_record_prescreen_usage`; PII cubierta: `delete_llm_traces_by_candidate` en
+  `_retention_sweep` y en el erasure (+ FK cascade). API: `GET /api/candidates/{id}/traces` (**admin**,
+  tenant-guarded — los prompts llevan respuestas del candidato). Frontend: sección colapsable "Trazas LLM ·
+  evaluación cruda" (admin-only, carga perezosa, tarjetas por llamada con stage/modelo/latencia/error) en el
+  detalle del candidato; `api.getTraces` + tipo `LlmTrace`. **242/242 tests (test_traces.py +10); tsc OK.**
+  **Verificado en vivo** (Supabase + backend :8000): 0024 aplicada; round-trip insert→list→purge OK contra
+  DB real; endpoint sin token→401, admin→200. Pendientes del plan: O-2 (costos por modelo/tenant +
+  presupuesto), O-3 (percentiles + latencia del turno), O-4 (SLAs push), O-5 (golden ampliado + juez
+  groundedness, depende de O-1), O-6 (logs JSON/Sentry). **Preguntar al usuario antes de iniciar cada fase.**
+
+- **2026-07-02 — Observabilidad · Fase O-2 (costos por modelo/tenant + presupuesto)**: sin migraciones
+  (settings por-tenant con fallback en código, patrón 0017). (1) **Costo real por modelo**:
+  `_aggregate_tokens` suma también `by_model` {model: {input,output,total}}; `api/deps.compute_cost`
+  (puro: tokens por modelo × `llm_pricing` = {"models": {m: {input_per_1m, output_per_1m}}, "default"})
+  y `_with_cost(metrics, tenant_id)` lee los precios del tenant (`_DEFAULT_LLM_PRICING` en runtime;
+  retro-compat: sin precios por modelo cae al escalar legado `token_price_per_1k`); los 2 endpoints de
+  métricas pasan el tenant y devuelven `est_cost` + `cost_by_model`. Endpoints admin
+  `GET/PUT /api/settings/llm-pricing` + `llm-budget` (auditados). (2) **Presupuesto mensual**:
+  `_DEFAULT_LLM_BUDGET` {enabled, monthly_usd, alert_pct 80, notify_email}; `_budget_sweep` en el
+  scheduler (a lo sumo cada 15 min, patrón checkpoint-purge): `_tenant_month_costs()` (una consulta
+  `usage_rows_since(inicio de mes)` agrupada por vacante→tenant×modelo) vs presupuesto → alerta UNA vez
+  por tenant/mes/umbral (log + correo vía outbox kind **`ops_email`** genérico —lo reusará O-4— si hay
+  notify_email). (3) La vista por-tenant de `_collect_ops_alerts` agrega `budget_exceeded` (best-effort
+  con try/except: el cálculo no tumba el resto de alertas; el camino global NO la computa para no
+  escanear `llm_usage` cada tick). Frontend: tarjeta "Costos y presupuesto LLM" en Configuración
+  (filas por modelo + default + presupuesto), costo estimado junto a tokens en home y detalle de
+  vacante (+ desglose por modelo). **252/252 tests (test_costs.py +10); tsc OK.** **Verificado en
+  vivo** (backend :8000 --reload + Supabase): PUT pricing → `/api/metrics` `est_cost=0.0385` =
+  18682/1M×$1 + 9917/1M×$2 con `cost_by_model` correcto; budget $0.03 → `budget_exceeded` al 91%
+  (el presupuesto mide el MES en curso; est_cost es histórico); defaults restaurados tras el smoke.
+
+- **2026-07-02 — Observabilidad · Fase O-3 (percentiles p95/p99 + latencia end-to-end del turno)**: sin
+  migraciones. (1) **HTTP**: `api/httpmetrics.py` acumula un histograma de buckets fijos por ruta
+  (≤5…≤10 000 ms + desborde, memoria O(1)); `percentile_from_buckets` (puro) estima p95/p99 con el techo
+  del bucket del cuantil (desborde → `max_ms`); `snapshot()` añade `p95_ms`/`p99_ms`. (2) **LLM**:
+  `_aggregate_tokens` agrega bloque `latency` = {etapa: {calls, avg_ms, p50/p95/p99_ms}} calculado por
+  `_latency_summary` desde las filas de `llm_usage` (muestra por llamada = duration_ms/calls ponderada
+  por calls; `_percentile` nearest-rank puro). (3) **Turno end-to-end**: `service.process()` mide el
+  wall-clock del turno del candidato (t0 ANTES del lock: la espera también es latencia percibida) y
+  `_record_usage` registra una fila sintética **`stage="turn"`** (calls=1, duration_ms≥1, 0 tokens; no
+  depende del metering del LLM); el guard de `record_usage` ahora acepta filas solo-latencia. Las filas
+  "turn" quedan **excluidas** de los agregados de tokens/llamadas/costo (`TURN_STAGE` filtrado en
+  `_aggregate_tokens`) y solo aparecen en `latency`. Frontend: tipos `StageLatency` + `p95_ms/p99_ms`
+  en `HttpRouteMetric`; columnas p95/p99 en la tabla "Rendimiento HTTP" de `/observabilidad`; línea
+  "Latencia del turno" (prom · p95 · p99) en home y detalle de vacante (`fmtMs`). **261/261 tests
+  (test_latency.py +9); tsc OK.** **Verificado en vivo** (backend --reload + Supabase): `/api/metrics`
+  con `latency` real (prescreen p50 1.37 s / p95 16.4 s), `/api/ops/http-metrics` con p95/p99;
+  round-trip DB de la fila "turn" (aparece en latency con p95=4321, tokens/calls intactos, limpieza OK);
+  `/` y `/observabilidad` → 200. Pendientes del plan: O-4 (SLAs push), O-5 (golden + groundedness),
+  O-6 (logs JSON/Sentry).
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.

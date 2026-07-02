@@ -68,6 +68,8 @@ _HANDLERS: dict[str, Callable[[Settings, dict[str, Any]], None]] = {
     "meeting_recruiter_telegram": _handle_telegram,
     "candidate_notify": _handle_telegram,
     "psych_exam_email": _handle_email,
+    # Correo operativo genérico (O-2 presupuesto, O-4 SLAs): payload = recipients/subject/text/html.
+    "ops_email": _handle_email,
 }
 
 

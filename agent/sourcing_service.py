@@ -65,12 +65,28 @@ def sync_applicants(
     report = SyncReport()
 
     for applicant in connector.fetch_applicants(vacancy):
-        candidate = repositories.get_or_create_candidate(
-            vacancy_id, channel, applicant.platform_user_id, applicant.name, source=connector.name
+        # Dedupe por el id ESTABLE de plataforma (source_ref): el contacto demo reasigna
+        # channel_user_id al chat real, así que la clave (vacancy, channel, chat) deja de
+        # matchear en el re-sync y duplicaría al candidato ya contactado.
+        candidate = repositories.find_candidate_by_source_ref(
+            vacancy_id, connector.name, applicant.platform_user_id
+        ) or repositories.get_or_create_candidate(
+            vacancy_id,
+            channel,
+            applicant.platform_user_id,
+            applicant.name,
+            source=connector.name,
+            source_ref=applicant.platform_user_id,
         )
         existing_status = candidate.get("status")
         repositories.update_candidate(
-            candidate["id"], {"cv_profile": applicant.cv_profile, "name": applicant.name}
+            candidate["id"],
+            {
+                "cv_profile": applicant.cv_profile,
+                "name": applicant.name,
+                # Sana filas previas a 0023 encontradas por la clave vieja.
+                "source_ref": applicant.platform_user_id,
+            },
         )
         report.imported += 1
 
@@ -116,4 +132,16 @@ def _record_prescreen_usage(llm: Any, vacancy_id: str, candidate_id: str) -> Non
     for stage, tokens in (drain() or {}).items():
         repositories.record_usage(
             stage, model, tokens, vacancy_id=vacancy_id, candidate_id=candidate_id
+        )
+    # Trazas con contenido (O-1): el gate del CV también es auditable/reproducible.
+    drain_traces = getattr(llm, "drain_traces", None)
+    if callable(drain_traces):
+        from agent.prompts import PROMPT_VERSION
+
+        repositories.record_traces(
+            drain_traces() or [],
+            vacancy_id=vacancy_id,
+            candidate_id=candidate_id,
+            model=model,
+            prompt_version=PROMPT_VERSION,
         )

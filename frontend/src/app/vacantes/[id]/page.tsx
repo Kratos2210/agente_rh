@@ -10,6 +10,8 @@ import { ACCENT, avatarColor, buildColumns, cvChip, initials, stageMeta } from "
 
 const MONO = "var(--font-jetbrains), monospace";
 const PAGE_SIZE = 100;
+// Latencia legible: segundos con un decimal a partir de 1000 ms.
+const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`);
 const EMOJI_PREFIX = /^[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}️‍]+\s*/u;
 
 // Renderiza el detalle del puesto (texto plano con emojis para Telegram) como secciones.
@@ -162,7 +164,28 @@ export default function VacancyPage() {
           </div>
         ))}
       </div>
-      <div style={{ fontSize: 12, color: "var(--muted-2)", marginBottom: 24, paddingLeft: 2 }}>Tokens consumidos: <b style={{ fontFamily: MONO, color: "#9aa4b8", fontWeight: 600 }}>{(metrics?.tokens?.total ?? 0).toLocaleString()}</b></div>
+      <div style={{ fontSize: 12, color: "var(--muted-2)", marginBottom: 24, paddingLeft: 2 }}>
+        Tokens consumidos: <b style={{ fontFamily: MONO, color: "#9aa4b8", fontWeight: 600 }}>{(metrics?.tokens?.total ?? 0).toLocaleString()}</b>
+        {metrics?.est_cost ? (
+          <>
+            {" · "}Costo estimado: <b style={{ fontFamily: MONO, color: "#9aa4b8", fontWeight: 600 }}>${metrics.est_cost.toFixed(2)}</b>
+            {Object.entries(metrics.cost_by_model || {}).map(([m, c]) => (
+              <span key={m} style={{ marginLeft: 8, color: "var(--muted-2)" }}>({m}: ${c.toFixed(2)})</span>
+            ))}
+          </>
+        ) : null}
+        {metrics?.tokens?.latency?.turn ? (
+          <>
+            {" · "}Latencia del turno:{" "}
+            <b style={{ fontFamily: MONO, color: "#9aa4b8", fontWeight: 600 }}>
+              {fmtMs(metrics.tokens.latency.turn.avg_ms)} prom
+            </b>
+            <span style={{ color: "var(--muted-2)" }}>
+              {" "}· p95 {fmtMs(metrics.tokens.latency.turn.p95_ms)} · p99 {fmtMs(metrics.tokens.latency.turn.p99_ms)}
+            </span>
+          </>
+        ) : null}
+      </div>
 
       {msg && <p style={{ fontSize: 13, color: "var(--ac)", marginBottom: 14 }}>{msg}</p>}
 

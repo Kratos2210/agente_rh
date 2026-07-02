@@ -9,6 +9,7 @@ supabase-py son síncronos.
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
@@ -124,14 +125,27 @@ class InterviewService:
             return self._thread_locks.setdefault(thread_id, threading.Lock())
 
     def process(self, inbound: InboundMessage) -> TurnResult:
+        # t0 ANTES del lock: la espera por otro turno en curso también es latencia
+        # que percibe el candidato (O-3).
+        t0 = time.perf_counter()
         with self._thread_lock(inbound.thread_id):
-            return self._process(inbound)
+            return self._process(inbound, turn_started=t0)
 
-    def _process(self, inbound: InboundMessage) -> TurnResult:
+    def _process(self, inbound: InboundMessage, turn_started: float | None = None) -> TurnResult:
         resolved = self._resolve_context(inbound)
         if isinstance(resolved, TurnResult):
             return resolved
         vacancy, candidate, conv = resolved
+
+        # Contexto para el tracing LangSmith (no-op si el LLM no lo soporta): así los
+        # runs dejan de ser invocaciones sueltas y se agrupan por conversación.
+        set_ctx = getattr(self.runner.llm, "set_context", None)
+        if callable(set_ctx):
+            set_ctx(
+                vacancy_id=vacancy.get("id"),
+                candidate_id=candidate.get("id"),
+                conversation_id=conv.get("id"),
+            )
 
         state = self.runner.get_state(inbound.thread_id)
         first_contact = not state or not state.get("phase")
@@ -159,7 +173,7 @@ class InterviewService:
         # Si el candidato acaba de elegir horario, crea la reunión y agrega la confirmación.
         self._finalize_scheduling(vacancy, candidate, conv, new_state)
         self._persist_outbound(conv, new_state)
-        self._record_usage(vacancy, candidate, conv)
+        self._record_usage(vacancy, candidate, conv, turn_started=turn_started)
         # El candidato acaba de interactuar: reinicia el reloj de inactividad.
         repositories.update_conversation(
             conv["id"], {"last_activity_at": _now_iso(), "reminders_sent": 0}
@@ -495,20 +509,45 @@ class InterviewService:
             except Exception:  # noqa: BLE001 — no romper la conversación por la notificación
                 pass
 
-    def _record_usage(self, vacancy: dict, candidate: dict, conv: dict) -> None:
+    def _record_usage(
+        self, vacancy: dict, candidate: dict, conv: dict, turn_started: float | None = None
+    ) -> None:
         """Vuelca el uso de tokens acumulado este turno (si el LLM está instrumentado)."""
         from agent.prompts import PROMPT_VERSION
 
+        model = getattr(self.runner.llm, "model", "") or ""
+        # Latencia end-to-end del turno del candidato (O-3): fila sintética stage="turn"
+        # sin tokens; no depende de que el LLM esté instrumentado.
+        if turn_started is not None:
+            # min 1 ms: el guard de record_usage descarta filas sin señal (todo en 0).
+            turn_ms = max(1, int((time.perf_counter() - turn_started) * 1000))
+            repositories.record_usage(
+                repositories.TURN_STAGE, model, {"calls": 1, "duration_ms": turn_ms},
+                vacancy_id=vacancy.get("id"),
+                candidate_id=candidate.get("id"),
+                conversation_id=conv.get("id"),
+                prompt_version=PROMPT_VERSION,
+            )
         drain = getattr(self.runner.llm, "drain", None)
         if not callable(drain):
             return
-        model = getattr(self.runner.llm, "model", "")
         for stage, tokens in (drain() or {}).items():
             repositories.record_usage(
                 stage, model, tokens,
                 vacancy_id=vacancy.get("id"),
                 candidate_id=candidate.get("id"),
                 conversation_id=conv.get("id"),
+                prompt_version=PROMPT_VERSION,
+            )
+        # Trazas con contenido (O-1): prompt/respuesta por llamada, si el metering las capturó.
+        drain_traces = getattr(self.runner.llm, "drain_traces", None)
+        if callable(drain_traces):
+            repositories.record_traces(
+                drain_traces() or [],
+                vacancy_id=vacancy.get("id"),
+                candidate_id=candidate.get("id"),
+                conversation_id=conv.get("id"),
+                model=model,
                 prompt_version=PROMPT_VERSION,
             )
 

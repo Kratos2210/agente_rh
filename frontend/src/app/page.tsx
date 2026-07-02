@@ -8,6 +8,8 @@ import { api, errorMessage, Metrics, Recruiter, Vacancy } from "@/lib/api";
 import { ACCENT, avatarColor, initials } from "@/lib/stages";
 
 const MONO = "var(--font-jetbrains), monospace";
+// Latencia legible: segundos con un decimal a partir de 1000 ms.
+const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`);
 
 const VAC_STATUS: Record<string, { label: string; color: string; bg: string; bd: string }> = {
   open: { label: "Abierta", color: "#34d399", bg: "rgba(52,211,153,.12)", bd: "rgba(52,211,153,.3)" },
@@ -39,7 +41,13 @@ export default function Home() {
     { icon: "⚇", label: "Postulantes", value: String(imported) },
     { icon: "▤", label: "Pasan filtro CV", value: `${passRate}%` },
     { icon: "▲", label: "Avanzados", value: String(f.advanced ?? 0) },
-    { icon: "◇", label: "Tokens IA", value: tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}K` : String(tokens) },
+    {
+      icon: "◇",
+      label: metrics?.est_cost ? "Tokens IA · costo" : "Tokens IA",
+      value:
+        (tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}K` : String(tokens)) +
+        (metrics?.est_cost ? ` · $${metrics.est_cost.toFixed(2)}` : ""),
+    },
   ];
   const funnelRows: [string, number, string][] = [
     ["Importados", f.imported ?? 0, "#94a3b8"],
@@ -82,6 +90,16 @@ export default function Home() {
           </div>
         ))}
       </div>
+
+      {/* Latencia del turno del candidato (O-3): mensaje entrante → respuesta enviada. */}
+      {metrics?.tokens?.latency?.turn && (
+        <div style={{ fontSize: 12, color: "var(--muted-2)", margin: "-6px 0 16px", paddingLeft: 2 }}>
+          Latencia del turno del candidato:{" "}
+          <b style={{ fontFamily: MONO, color: "#9aa4b8", fontWeight: 600 }}>{fmtMs(metrics.tokens.latency.turn.avg_ms)} prom</b>
+          {" "}· p95 {fmtMs(metrics.tokens.latency.turn.p95_ms)} · p99 {fmtMs(metrics.tokens.latency.turn.p99_ms)}
+          {" "}· {metrics.tokens.latency.turn.calls.toLocaleString()} turnos
+        </div>
+      )}
 
       {/* Embudo + Equipo */}
       <div style={{ display: "grid", gridTemplateColumns: "1.55fr 1fr", gap: 14, marginBottom: 16 }}>

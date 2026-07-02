@@ -105,7 +105,12 @@ def build_bot_app(settings: Settings, state: dict[str, Any]) -> Application:
     from agent.rag import build_company_retriever
 
     runner = make_postgres_runner(
-        MeteredLLM(build_default_llm()), get_database_url(),
+        MeteredLLM(
+            build_default_llm(),
+            trace=settings.llm_trace_enabled,
+            trace_max_chars=settings.llm_trace_max_chars,
+        ),
+        get_database_url(),
         retriever=build_company_retriever(settings),
     )
     notifier = _build_notifier(settings)

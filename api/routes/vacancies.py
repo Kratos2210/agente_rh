@@ -164,7 +164,11 @@ def sync_applicants_endpoint(
     from integrations.sourcing import get_connector
 
     settings = current_settings()
-    llm = MeteredLLM(build_default_llm())
+    llm = MeteredLLM(
+        build_default_llm(),
+        trace=settings.llm_trace_enabled,
+        trace_max_chars=settings.llm_trace_max_chars,
+    )
     connector = get_connector(settings)
     vacancy = repo.get_vacancy(vacancy_id)
 
@@ -189,4 +193,4 @@ def vacancy_metrics_endpoint(
     vacancy_id: str, user: dict[str, Any] = Depends(get_current_user)
 ) -> dict[str, Any]:
     _require_vacancy_in_tenant(vacancy_id, user)
-    return _with_cost(repo.vacancy_metrics(vacancy_id))
+    return _with_cost(repo.vacancy_metrics(vacancy_id), user["tenant_id"])

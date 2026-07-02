@@ -71,5 +71,14 @@ _DEFAULT_INACTIVITY = {"enabled": True, "reminder_minutes": 2, "max_reminders": 
 
 # Retención de datos (Ley 29733): anonimiza la PII de candidatos descartados con más de N días.
 _DEFAULT_RETENTION = {"enabled": False, "days": 180}
+
+# Costos LLM (O-2): precio por millón de tokens POR MODELO (cada tenant configura los
+# suyos desde el dashboard). "default" aplica a modelos sin fila propia. Todo en 0 =
+# sin costo estimado (cae al escalar legado `token_price_per_1k` si está seteado).
+_DEFAULT_LLM_PRICING = {"models": {}, "default": {"input_per_1m": 0.0, "output_per_1m": 0.0}}
+
+# Presupuesto LLM mensual (O-2): al alcanzar `alert_pct`% del monto, alerta una vez por
+# tenant/mes (ops alert en el dashboard + correo vía outbox si hay `notify_email`).
+_DEFAULT_LLM_BUDGET = {"enabled": False, "monthly_usd": 0.0, "alert_pct": 80, "notify_email": ""}
 # Estados terminales-descartados cuya PII se anonimiza tras el período de retención.
 _RETENTION_STATUSES = ["rejected", "declined", "no_response", "prescreen_rejected", "no_show"]

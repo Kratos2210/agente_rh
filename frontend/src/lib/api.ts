@@ -194,10 +194,46 @@ export interface SyncReport {
   contacted: number;
 }
 
+// Latencia por etapa del pipeline LLM + etapa sintética "turn" (O-3):
+// percentiles calculados en el backend desde las filas de llm_usage.
+export interface StageLatency {
+  calls: number;
+  avg_ms: number;
+  p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
+}
+
 export interface Metrics {
   funnel: Record<string, number>;
-  tokens: { total: number; input: number; output: number; by_stage: Record<string, number> };
+  tokens: {
+    total: number;
+    input: number;
+    output: number;
+    by_stage: Record<string, number>;
+    by_model?: Record<string, { input: number; output: number; total: number }>;
+    latency?: Record<string, StageLatency>;
+  };
   est_cost: number;
+  cost_by_model?: Record<string, number>;
+}
+
+// Costos LLM (O-2): precio USD por millón de tokens, por modelo + default.
+export interface ModelPrice {
+  input_per_1m: number;
+  output_per_1m: number;
+}
+
+export interface LlmPricingConfig {
+  models: Record<string, ModelPrice>;
+  default: ModelPrice;
+}
+
+export interface LlmBudgetConfig {
+  enabled: boolean;
+  monthly_usd: number;
+  alert_pct: number;
+  notify_email: string;
 }
 
 export interface PerCriterion {
@@ -388,6 +424,12 @@ export const api = {
   getInactivity: () => req<InactivityConfig>("/api/settings/inactivity"),
   setInactivity: (body: InactivityConfig) =>
     req<InactivityConfig>("/api/settings/inactivity", { method: "PUT", body: JSON.stringify(body) }),
+  getLlmPricing: () => req<LlmPricingConfig>("/api/settings/llm-pricing"),
+  setLlmPricing: (body: LlmPricingConfig) =>
+    req<LlmPricingConfig>("/api/settings/llm-pricing", { method: "PUT", body: JSON.stringify(body) }),
+  getLlmBudget: () => req<LlmBudgetConfig>("/api/settings/llm-budget"),
+  setLlmBudget: (body: LlmBudgetConfig) =>
+    req<LlmBudgetConfig>("/api/settings/llm-budget", { method: "PUT", body: JSON.stringify(body) }),
   // Observabilidad (solo admin).
   getOpsAlerts: () => req<{ alerts: OpsAlert[] }>("/api/ops/alerts"),
   getAudit: () => req<AuditEntry[]>("/api/audit"),
@@ -397,7 +439,22 @@ export const api = {
   eraseCandidate: (id: string) =>
     req<{ deleted: boolean }>(`/api/candidates/${id}`, { method: "DELETE" }),
   getHttpMetrics: () => req<{ routes: HttpRouteMetric[] }>("/api/ops/http-metrics"),
+  getTraces: (candidateId: string) =>
+    req<{ items: LlmTrace[] }>(`/api/candidates/${candidateId}/traces`),
 };
+
+// Traza LLM cruda (O-1): una llamada al modelo (prompt/respuesta) — solo admin.
+export interface LlmTrace {
+  id: string;
+  stage: string;
+  model: string;
+  prompt_version: string;
+  prompt_text: string;
+  response_text: string | null;
+  error: string | null;
+  duration_ms: number;
+  created_at: string;
+}
 
 export interface AuditEntry {
   id: string;
@@ -426,13 +483,15 @@ export interface OutboxHealth {
   items: OutboxItem[];
 }
 
-// Métricas HTTP por ruta del proceso (O3): conteo, errores y latencia.
+// Métricas HTTP por ruta del proceso (O3): conteo, errores y latencia (p95/p99 O-3).
 export interface HttpRouteMetric {
   route: string;
   count: number;
   errors: number;
   client_errors: number;
   avg_ms: number;
+  p95_ms: number;
+  p99_ms: number;
   max_ms: number;
 }
 

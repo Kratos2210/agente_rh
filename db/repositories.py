@@ -89,6 +89,26 @@ def replace_vacancy_questions(vacancy_id: str, questions: list[dict[str, Any]]) 
 
 # ── Candidatos ──────────────────────────────────────────────────────────────────
 
+def find_candidate_by_source_ref(
+    vacancy_id: str, source: str, source_ref: str
+) -> Optional[dict[str, Any]]:
+    """Busca al candidato por su id estable de plataforma (`source_ref`), que sobrevive
+    a la reasignación de chat del contacto demo (el channel_user_id sí muta)."""
+    if not source_ref:
+        return None
+    res = (
+        get_supabase()
+        .table("candidates")
+        .select("*")
+        .eq("vacancy_id", vacancy_id)
+        .eq("source", source)
+        .eq("source_ref", source_ref)
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
 def get_or_create_candidate(
     vacancy_id: str,
     channel: str,
@@ -96,6 +116,7 @@ def get_or_create_candidate(
     name: str = "",
     *,
     source: str = "telegram",
+    source_ref: str = "",
 ) -> dict[str, Any]:
     sb = get_supabase()
     res = (
@@ -109,21 +130,17 @@ def get_or_create_candidate(
     )
     if res.data:
         return res.data[0]
+    payload = {
+        "vacancy_id": vacancy_id,
+        "channel": channel,
+        "channel_user_id": channel_user_id,
+        "name": name,
+        "source": source,
+    }
+    if source_ref:
+        payload["source_ref"] = source_ref
     try:
-        return (
-            sb.table("candidates")
-            .insert(
-                {
-                    "vacancy_id": vacancy_id,
-                    "channel": channel,
-                    "channel_user_id": channel_user_id,
-                    "name": name,
-                    "source": source,
-                }
-            )
-            .execute()
-            .data[0]
-        )
+        return sb.table("candidates").insert(payload).execute().data[0]
     except Exception:  # noqa: BLE001 — audit A5: dos mensajes concurrentes pueden pasar
         # ambos el select vacío; el unique (vacancy_id, channel, channel_user_id) hace
         # que solo un insert gane — el perdedor relee la fila del ganador (sin duplicar).
@@ -831,6 +848,7 @@ def record_usage(
         and not tokens.get("input_tokens")
         and not tokens.get("output_tokens")
         and not tokens.get("errors")  # un fallo con 0 tokens TAMBIÉN es señal (fallback)
+        and not tokens.get("duration_ms")  # latencia sola también (stage="turn", O-3)
     ):
         return
     base = {
@@ -858,6 +876,60 @@ def record_usage(
             pass
 
 
+def record_traces(
+    traces: list[dict[str, Any]],
+    *,
+    vacancy_id: Optional[str] = None,
+    candidate_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+    model: str = "",
+    prompt_version: str = "",
+) -> None:
+    """Persiste las trazas LLM del turno (prompt/respuesta por llamada — O-1).
+
+    Best-effort como `record_usage`: las trazas no deben tumbar la conversación
+    (tabla ausente si la migración 0024 no está aplicada, DB caída, etc.)."""
+    if not traces:
+        return
+    rows = [
+        {
+            "vacancy_id": vacancy_id,
+            "candidate_id": candidate_id,
+            "conversation_id": conversation_id,
+            "stage": t.get("stage", ""),
+            "model": model or "",
+            "prompt_version": prompt_version or "",
+            "prompt_text": t.get("prompt", "") or "",
+            "response_text": t.get("response"),
+            "error": t.get("error"),
+            "duration_ms": int(t.get("duration_ms", 0) or 0),
+        }
+        for t in traces
+    ]
+    try:
+        get_supabase().table("llm_traces").insert(rows).execute()
+    except Exception:  # noqa: BLE001 — observabilidad, nunca rompe el flujo
+        pass
+
+
+def list_llm_traces(candidate_id: str, limit: int = 200) -> list[dict[str, Any]]:
+    """Trazas LLM de un candidato, de la más reciente a la más antigua."""
+    return (
+        get_supabase().table("llm_traces").select("*")
+        .eq("candidate_id", candidate_id)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+        .data
+        or []
+    )
+
+
+def delete_llm_traces_by_candidate(candidate_id: str) -> None:
+    """Purga las trazas de un candidato (retención/erasure: los prompts llevan PII)."""
+    get_supabase().table("llm_traces").delete().eq("candidate_id", candidate_id).execute()
+
+
 def _usage_rows(vacancy_id: Optional[str] = None) -> list[dict[str, Any]]:
     q = get_supabase().table("llm_usage").select("*")
     if vacancy_id:
@@ -865,22 +937,83 @@ def _usage_rows(vacancy_id: Optional[str] = None) -> list[dict[str, Any]]:
     return q.execute().data or []
 
 
-def _aggregate_tokens(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    total = sum(int(r.get("total_tokens", 0) or 0) for r in rows)
-    inp = sum(int(r.get("input_tokens", 0) or 0) for r in rows)
-    out = sum(int(r.get("output_tokens", 0) or 0) for r in rows)
-    by_stage: dict[str, int] = {}
+# Etapa sintética (O-3): una fila por turno del candidato con la latencia end-to-end
+# (mensaje entrante → respuestas persistidas), sin tokens. Se excluye de los agregados
+# de tokens/llamadas LLM y se resume solo en el bloque `latency`.
+TURN_STAGE = "turn"
+
+
+def _percentile(sorted_samples: list[float], q: float) -> float:
+    """Percentil nearest-rank sobre muestras YA ordenadas (puro, sin numpy)."""
+    if not sorted_samples:
+        return 0.0
+    rank = max(1, int(-(-q * len(sorted_samples) // 100)))  # ceil(q/100 * n)
+    return sorted_samples[rank - 1]
+
+
+def _latency_summary(rows: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    """Latencia por etapa con percentiles (O-3), desde las filas de `llm_usage`.
+
+    Cada fila trae la SUMA de `duration_ms` de sus `calls` en ese turno; la muestra
+    por llamada es duration_ms/calls, ponderada por `calls`. Incluye la etapa
+    sintética "turn" (latencia end-to-end del turno del candidato)."""
+    samples: dict[str, list[float]] = {}
     for r in rows:
+        calls = int(r.get("calls", 0) or 0)
+        duration = int(r.get("duration_ms", 0) or 0)
+        if calls <= 0:
+            continue
+        samples.setdefault(r.get("stage") or "?", []).extend([duration / calls] * calls)
+    out: dict[str, dict[str, int]] = {}
+    for stage, vals in samples.items():
+        vals.sort()
+        out[stage] = {
+            "calls": len(vals),
+            "avg_ms": round(sum(vals) / len(vals)),
+            "p50_ms": round(_percentile(vals, 50)),
+            "p95_ms": round(_percentile(vals, 95)),
+            "p99_ms": round(_percentile(vals, 99)),
+        }
+    return out
+
+
+def _aggregate_tokens(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    # Las filas "turn" son solo-latencia: fuera de los agregados de tokens/llamadas LLM.
+    llm_rows = [r for r in rows if (r.get("stage") or "") != TURN_STAGE]
+    total = sum(int(r.get("total_tokens", 0) or 0) for r in llm_rows)
+    inp = sum(int(r.get("input_tokens", 0) or 0) for r in llm_rows)
+    out = sum(int(r.get("output_tokens", 0) or 0) for r in llm_rows)
+    by_stage: dict[str, int] = {}
+    # Desglose por modelo (O-2): base del costo real — cada modelo tiene su precio.
+    by_model: dict[str, dict[str, int]] = {}
+    for r in llm_rows:
         by_stage[r.get("stage", "?")] = by_stage.get(r.get("stage", "?"), 0) + int(r.get("total_tokens", 0) or 0)
+        m = by_model.setdefault(r.get("model") or "?", {"input": 0, "output": 0, "total": 0})
+        m["input"] += int(r.get("input_tokens", 0) or 0)
+        m["output"] += int(r.get("output_tokens", 0) or 0)
+        m["total"] += int(r.get("total_tokens", 0) or 0)
     # Observabilidad O1: llamadas, errores (≈ fallbacks) y latencia media por llamada.
-    calls = sum(int(r.get("calls", 0) or 0) for r in rows)
-    errors = sum(int(r.get("errors", 0) or 0) for r in rows)
-    duration = sum(int(r.get("duration_ms", 0) or 0) for r in rows)
+    calls = sum(int(r.get("calls", 0) or 0) for r in llm_rows)
+    errors = sum(int(r.get("errors", 0) or 0) for r in llm_rows)
+    duration = sum(int(r.get("duration_ms", 0) or 0) for r in llm_rows)
     return {
-        "total": total, "input": inp, "output": out, "by_stage": by_stage,
+        "total": total, "input": inp, "output": out, "by_stage": by_stage, "by_model": by_model,
         "calls": calls, "errors": errors, "duration_ms": duration,
         "avg_ms": round(duration / calls) if calls else 0,
+        # O-3: percentiles por etapa (incluida "turn" = latencia end-to-end del turno).
+        "latency": _latency_summary(rows),
     }
+
+
+def usage_rows_since(since_iso: str) -> list[dict[str, Any]]:
+    """Filas de `llm_usage` desde un instante (para el gasto del mes en curso — O-2)."""
+    return (
+        get_supabase().table("llm_usage").select("vacancy_id,model,input_tokens,output_tokens,total_tokens")
+        .gte("created_at", since_iso)
+        .execute()
+        .data
+        or []
+    )
 
 
 # ── Métricas: embudo de candidatos ──────────────────────────────────────────────

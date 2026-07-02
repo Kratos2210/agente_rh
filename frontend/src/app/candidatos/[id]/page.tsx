@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Shell, BackLink } from "@/components/Shell";
 import { Radar, ScoreRing, Stepper, Toast } from "@/components/ui";
-import { api, errorMessage, CandidateDetail, MeetingStage, PHASE_STEPS, phaseMeta } from "@/lib/api";
+import { api, errorMessage, CandidateDetail, LlmTrace, MeetingStage, PHASE_STEPS, phaseMeta } from "@/lib/api";
 import { isAdmin } from "@/lib/auth";
 import { ACCENT, avatarColor, initials, scoreColor, sourceIcon, stageMeta } from "@/lib/stages";
 
@@ -51,6 +51,8 @@ export default function CandidatePage() {
   const [eraseName, setEraseName] = useState("");
   const [admin, setAdmin] = useState(false);
   const [txOpen, setTxOpen] = useState(false);
+  const [tracesOpen, setTracesOpen] = useState(false);
+  const [traces, setTraces] = useState<LlmTrace[] | null>(null);
   const [feedback, setFeedback] = useState("");
   const [nextModality, setNextModality] = useState<"virtual" | "onsite">("onsite");
   const [exam, setExam] = useState({ link: "", code: "", key: "" });
@@ -63,6 +65,15 @@ export default function CandidatePage() {
   useEffect(() => setAdmin(isAdmin()), []);
 
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(""), 3500); };
+
+  // Trazas LLM (O-1): carga perezosa al abrir la sección (son pesadas y solo-admin).
+  const toggleTraces = () => {
+    const next = !tracesOpen;
+    setTracesOpen(next);
+    if (next && traces === null) {
+      api.getTraces(id).then((r) => setTraces(r.items)).catch((e) => { setTraces([]); flash("Error: " + errorMessage(e)); });
+    }
+  };
 
   // U3 (auditoría): el borrado definitivo exige tipear el nombre del candidato (modal
   // propio en lugar del window.confirm nativo). Si el candidato no tiene nombre
@@ -407,6 +418,43 @@ export default function CandidatePage() {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Trazas LLM crudas (O-1): prompt/respuesta por llamada — replay/debug, solo admin */}
+      {admin && (
+        <>
+          <div onClick={toggleTraces} style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 9, padding: "14px 18px", borderRadius: 12, background: "rgba(255,255,255,.025)", border: "1px solid var(--edge)", cursor: "pointer", fontSize: 13.5, fontWeight: 600, color: "#aeb8cc" }}>
+            <span style={{ transform: tracesOpen ? "rotate(0deg)" : "rotate(-90deg)" }}>▾</span>
+            Trazas LLM · evaluación cruda{traces ? ` (${traces.length} llamadas)` : ""}
+          </div>
+          {tracesOpen && (
+            <div style={{ padding: "18px 20px", borderRadius: 12, background: "rgba(255,255,255,.015)", border: "1px solid var(--edge-soft)", marginTop: 9, display: "flex", flexDirection: "column", gap: 12 }}>
+              {traces === null && <div style={{ fontSize: 12.5, color: "var(--muted)" }}>Cargando…</div>}
+              {traces?.length === 0 && (
+                <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
+                  Sin trazas registradas. Activa <span style={{ fontFamily: MONO }}>LLM_TRACE_ENABLED=true</span> en el backend para guardar prompt/respuesta de cada llamada.
+                </div>
+              )}
+              {traces?.map((t) => (
+                <div key={t.id} style={{ padding: "12px 14px", borderRadius: 11, background: "rgba(255,255,255,.02)", border: `1px solid ${t.error ? "rgba(248,113,113,.3)" : "var(--edge)"}` }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 8, fontSize: 11.5, color: "var(--muted)" }}>
+                    <span style={{ padding: "2px 8px", borderRadius: 6, background: "var(--ac-soft)", color: "#eef2f9", fontWeight: 700 }}>{t.stage}</span>
+                    <span>{t.model}</span>
+                    <span>{t.duration_ms} ms</span>
+                    <span>{formatWhen(t.created_at)}</span>
+                    {t.prompt_version && <span>prompt {t.prompt_version}</span>}
+                    {t.error && <span style={{ color: "#f87171", fontWeight: 700 }}>error → fallback</span>}
+                  </div>
+                  <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontFamily: MONO, fontSize: 11, lineHeight: 1.5, color: "#8b95a8", maxHeight: 180, overflowY: "auto" }}>{t.prompt_text}</pre>
+                  {t.response_text && (
+                    <pre style={{ margin: "8px 0 0", whiteSpace: "pre-wrap", fontFamily: MONO, fontSize: 11, lineHeight: 1.5, color: "#cfd8e8", maxHeight: 180, overflowY: "auto", borderTop: "1px solid var(--edge-soft)", paddingTop: 8 }}>{t.response_text}</pre>
+                  )}
+                  {t.error && <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 11, color: "#f87171" }}>{t.error}</div>}
+                </div>
+              ))}
             </div>
           )}
         </>

@@ -90,9 +90,43 @@ def _page_params(limit: int, offset: int) -> tuple[int, int]:
     return (max(1, min(limit, 500)), max(0, offset))
 
 
-def _with_cost(metrics: dict[str, Any]) -> dict[str, Any]:
-    """Añade la estimación de costo (tokens × precio configurado) a un dict de métricas."""
-    price = float(getattr(current_settings(), "token_price_per_1k", 0.0) or 0.0)
-    total = int((metrics.get("tokens") or {}).get("total", 0))
-    metrics["est_cost"] = round(total / 1000 * price, 4) if price else 0.0
+def compute_cost(by_model: dict[str, dict[str, int]], pricing: dict[str, Any]) -> dict[str, Any]:
+    """Costo estimado a partir de tokens por modelo × precios por millón (O-2). Puro.
+
+    `pricing` = {"models": {model: {input_per_1m, output_per_1m}}, "default": {...}};
+    un modelo sin fila propia usa "default". Devuelve {"total", "by_model"} en USD."""
+    models = pricing.get("models") or {}
+    default = pricing.get("default") or {}
+    per_model: dict[str, float] = {}
+    total = 0.0
+    for model, toks in (by_model or {}).items():
+        p = models.get(model) or default
+        cost = (
+            int(toks.get("input", 0) or 0) / 1_000_000 * float(p.get("input_per_1m", 0) or 0)
+            + int(toks.get("output", 0) or 0) / 1_000_000 * float(p.get("output_per_1m", 0) or 0)
+        )
+        if cost > 0:
+            per_model[model] = round(cost, 4)
+        total += cost
+    return {"total": round(total, 4), "by_model": per_model}
+
+
+def _with_cost(metrics: dict[str, Any], tenant_id: str | None = None) -> dict[str, Any]:
+    """Añade la estimación de costo a un dict de métricas (O-2): tokens por modelo ×
+    precios por-tenant (`app_settings.llm_pricing`). Retro-compat: sin precios por
+    modelo configurados cae al escalar global `token_price_per_1k` (legado)."""
+    from api.runtime import _DEFAULT_LLM_PRICING
+
+    pricing = (
+        repo.get_app_setting("llm_pricing", _DEFAULT_LLM_PRICING, tenant_id)
+        if tenant_id else _DEFAULT_LLM_PRICING
+    ) or _DEFAULT_LLM_PRICING
+    tokens = metrics.get("tokens") or {}
+    cost = compute_cost(tokens.get("by_model") or {}, pricing)
+    if cost["total"] <= 0:
+        price = float(getattr(current_settings(), "token_price_per_1k", 0.0) or 0.0)
+        total = int(tokens.get("total", 0))
+        cost = {"total": round(total / 1000 * price, 4) if price else 0.0, "by_model": {}}
+    metrics["est_cost"] = cost["total"]
+    metrics["cost_by_model"] = cost["by_model"]
     return metrics

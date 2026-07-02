@@ -27,7 +27,7 @@ def _fake_repo(monkeypatch):
     def get_vacancy_questions(vid):
         return [{"criterion": "experiencia en automatización"}]
 
-    def get_or_create_candidate(vid, channel, cuid, name="", source="telegram"):
+    def get_or_create_candidate(vid, channel, cuid, name="", source="telegram", source_ref=""):
         for c in cands.values():
             if (c["vacancy_id"], c["channel"], c["channel_user_id"]) == (vid, channel, cuid):
                 return c
@@ -35,10 +35,19 @@ def _fake_repo(monkeypatch):
         cid = str(seq["n"])
         c = {
             "id": cid, "vacancy_id": vid, "channel": channel, "channel_user_id": cuid,
-            "name": name, "source": source, "status": "pending", "cv_profile": {}, "prescreen": {},
+            "name": name, "source": source, "source_ref": source_ref,
+            "status": "pending", "cv_profile": {}, "prescreen": {},
         }
         cands[cid] = c
         return c
+
+    def find_candidate_by_source_ref(vid, source, source_ref):
+        if not source_ref:
+            return None
+        for c in cands.values():
+            if (c["vacancy_id"], c.get("source"), c.get("source_ref")) == (vid, source, source_ref):
+                return c
+        return None
 
     def update_candidate(cid, payload):
         cands[cid].update(payload)
@@ -50,6 +59,7 @@ def _fake_repo(monkeypatch):
     monkeypatch.setattr(ss.repositories, "get_vacancy", get_vacancy)
     monkeypatch.setattr(ss.repositories, "get_vacancy_questions", get_vacancy_questions)
     monkeypatch.setattr(ss.repositories, "get_or_create_candidate", get_or_create_candidate)
+    monkeypatch.setattr(ss.repositories, "find_candidate_by_source_ref", find_candidate_by_source_ref)
     monkeypatch.setattr(ss.repositories, "update_candidate", update_candidate)
     monkeypatch.setattr(ss.repositories, "get_candidate", get_candidate)
     return cands
@@ -96,6 +106,29 @@ def test_resync_does_not_recontact_or_downgrade(monkeypatch):
     ss.sync_applicants("v1", llm=None, connector=SimulatedConnector(), contact_fn=contact_fn)
     assert cands[passed["id"]]["status"] == "interviewing"  # no se retrocede
     assert passed["id"] not in calls  # no se re-contacta
+
+
+def test_resync_after_demo_chat_claim_does_not_duplicate(monkeypatch):
+    """Regresión: el contacto demo reasigna channel_user_id al chat real; el re-sync
+    debe reencontrar al candidato por source_ref (no duplicarlo ni re-contactarlo)."""
+    cands = _fake_repo(monkeypatch)
+    ss.sync_applicants("v1", llm=None, connector=SimulatedConnector())
+    passed = next(c for c in cands.values() if c["status"] == "prescreen_passed")
+    # Simula _claim_chat + contacto: el chat demo reemplaza al id de plataforma.
+    passed["channel_user_id"] = "5016550129"
+    passed["status"] = "invited"
+
+    calls: list[str] = []
+
+    def contact_fn(c):
+        calls.append(c["id"])
+        return True
+
+    report = ss.sync_applicants("v1", llm=None, connector=SimulatedConnector(), contact_fn=contact_fn)
+    assert len(cands) == 3  # sin duplicados
+    assert cands[passed["id"]]["status"] == "invited"  # no se retrocede
+    assert calls == [] and report.contacted == 0  # no se re-contacta
+    assert cands[passed["id"]]["channel_user_id"] == "5016550129"  # conserva su chat
 
 
 # ── Regla de horario laboral para el contacto (9–18, L–V) ────────────────────────
