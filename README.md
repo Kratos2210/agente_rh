@@ -82,7 +82,21 @@ uv run python scripts/demo.py --alberto
 | **Kubernetes** | `deploy/k8s/` (kustomize; validado con kubeconform) | Producción. Backend `replicas: 1` (bot en polling — la decisión y el camino a escalar están documentados), frontend escala libre. |
 | **Serverless** | `docs/despliegue.md` | Decisión argumentada: NO para el núcleo (bot long-lived, scheduler, RAG con estado), sí viable para API/notificaciones tras migrar el bot a webhook. |
 
-Detalle completo: **`docs/despliegue.md`**.
+Automatización: **`deploy/deploy.sh`** (`build`, `push`, `compose-up/down`, `validate`,
+`k8s-apply`, `k8s-status`, `scale <n>` — el escalado del backend exige `--force` y explica la
+restricción del bot en polling). Detalle completo: **`docs/despliegue.md`**.
+
+## Métricas clave y umbrales
+
+| Métrica | Dónde se mide | Umbral / alerta |
+|---|---|---|
+| Latencia del turno del candidato (end-to-end) | fila sintética `stage="turn"` en `llm_usage` → `latency` en `/api/metrics` (p50/p95/p99) | umbral p95 configurable por empresa → correo SLA (`sla_alerts.turn_p95_ms`) |
+| Latencia por etapa de IA y por ruta HTTP | `llm_usage.duration_ms` + histograma `api/httpmetrics.py` → `/api/ops/http-metrics` | inspección en `/observabilidad` (p95/p99 por ruta) |
+| Tasa de alucinaciones (groundedness) | juez LLM sobre trazas reales de la etapa `answer` (`scripts/groundedness_judge.py`) | `--min-rate 0.9` — bajo el umbral el script sale 1 (usable como gate nightly) |
+| Calidad del pipeline (regresiones de prompts/modelo) | golden suite 28 casos × 4 etapas (`scripts/golden_eval.py`) | cualquier caso fuera de rango → exit 1 |
+| Costo LLM (tokens × precio por modelo/empresa) | `llm_usage` × `llm_pricing` → `est_cost`/`cost_by_model` en `/api/metrics` | presupuesto mensual por empresa con alerta al 80% (`llm_budget`) |
+| Entregas fallidas (correo/Telegram) | tabla `outbox` (backoff 1 min→6 h, dead-letter a los 6 intentos) | dead-letters visibles en `/observabilidad` + alerta operativa + correo SLA |
+| Salud operativa (reuniones sin link, estados colgados, divergencia motor↔negocio) | barrido de reconciliación del scheduler → `/api/ops/alerts` | push por correo vía SLA (`sla_alerts.ops_alerts`) |
 
 ## Calidad y verificación
 

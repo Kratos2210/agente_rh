@@ -783,6 +783,28 @@ embeddings) para responder dudas del candidato sobre el puesto.
   283/283 tests (test_pipeline_llm ajustado al retriever nuevo + default on). Matriz de cobertura
   completa en el plan (`~/.claude/plans/quiero-que-revises-toda-wondrous-fox.md`).
 
+- **2026-07-02 — Doble check del entregable: cierre de las 4 brechas del checklist granular**:
+  (1) **Re-ranker en el camino VIVO** — `agent/rag.py` ahora replica el pipeline del chatbot clásico:
+  hybrid search (BM25 sobre el corpus de `company_kb` materializado con `collection.get()` + vectorial
+  con sobre-muestreo `retrieve_k`) → dedupe → `CrossEncoderReranker` (config `reranker`/
+  `cross_encoder_model`, patrón RAGChatbot) → top `final_k`; degradación en capas (sin BM25/re-ranker
+  sigue vectorial; sin colección → company_info). **Verificado en vivo**: pregunta de salario/beneficios
+  ahora trae el chunk del rango salarial PRIMERO (antes el orden vectorial ponía "Funciones").
+  (2) **`deploy/deploy.sh`** — automatización con subcomandos build/push/compose-up (espera health)/
+  compose-down/validate (kubeconform vía docker)/k8s-apply (exige secret.yaml)/k8s-status/scale
+  (frontend libre; backend exige `--force` y explica la restricción del polling). `validate` verificado
+  (7/7 recursos). (3) **Arize Phoenix opcional** (rúbrica pedía LangSmith+Arize) — deps
+  `arize-phoenix-otel`+`openinference-instrumentation-langchain`; `PHOENIX_ENABLED/ENDPOINT/PROJECT`
+  (default off) + `init_phoenix` en `api/runtime.py` (patrón init_sentry: best-effort) cableado en el
+  lifespan; PII queda en infra propia (Phoenix self-hosted). **Verificado en vivo**: Phoenix en Docker +
+  llamada LangChain real a Groq → span `ChatOpenAI` con modelo y 165 tokens visible vía
+  `/v1/projects/agente-rh/spans`. (4) **Cliente MCP demo** — `scripts/mcp_client_demo.py` (SDK `mcp`,
+  streamable HTTP): login→tools/list→list_vacancies→list_candidates→bitácora con acciones `mcp.*`;
+  **verificado contra instancia efímera :8010** (5 tools, vacante demo, 2 candidatos, 8 invocaciones
+  auditadas); gotcha del SDK: la lista viene en `structuredContent.result` (un content block por ítem).
+  + Tabla "Métricas clave y umbrales" en README (7 métricas con dónde se miden y sus alertas).
+  **287/287 tests (+4: hybrid+rerank con fakes, gating/best-effort de Phoenix ×3).**
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.
