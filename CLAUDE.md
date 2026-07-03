@@ -866,6 +866,26 @@ embeddings) para responder dudas del candidato sobre el puesto.
   verde (297 tests en Actions); nightly disparado manual → golden 28/28 dentro de rango contra Groq
   desde Actions; juez omitido con aviso limpio.**
 
+- **2026-07-03 — Roadmap paso 2 (ENTORNOS SEPARADOS + fix del gate de producción)**: `deploy/k8s/`
+  pasa de manifests planos a **base + overlays kustomize** (`base/` común sin namespace ni valores de
+  entorno; `overlays/dev` y `overlays/prod`). Cada entorno en su namespace (`agente-rh-dev`/`-prod`)
+  con `ENVIRONMENT`, tag de imagen, réplicas de frontend (1 vs 2), recursos del backend y dominio/CORS
+  propios; backend queda en `replicas:1` en ambos (polling Telegram). **Bug real destapado al mapear
+  las env vars**: el ConfigMap usaba `APP_ENV` y `OPENAI_BASE_URL` — nombres que **pydantic ignora**
+  (`extra="ignore"`; lee `ENVIRONMENT` y `OPENAI_API_BASE`) → en el deploy k8s el backend corría como
+  `development` (**`assert_secure_config` nunca bloqueaba**) con el LLM apuntando al default localhost.
+  Corregidos en `base/configmap.yaml`; el overlay prod fija `ENVIRONMENT=production` que ahora SÍ
+  activa el gate. Detalles: cada overlay declara su `Namespace` (el transformer `namespace:` reubica
+  recursos pero no renombra un objeto Namespace); `secret.example.yaml` sin namespace fijo (se aplica
+  por entorno con `-n`); `deploy.sh` `validate` valida AMBOS overlays y `k8s-apply/k8s-status/scale`
+  toman `<env>`; el job `k8s-manifests` del CI valida dev+prod. **Verificado: kubeconform strict 7/7
+  en cada overlay (local y en Actions, CI 5/5 verde); render correcto de namespace/ENVIRONMENT/imagen/
+  réplicas/host; prueba directa de que `ENVIRONMENT=production` bloquea el arranque con secretos default
+  (`RuntimeError`) y `development` solo avisa.** README de k8s y `docs/despliegue.md` al día. **Pendiente
+  del paso 2 (requiere cuenta externa, decisión del usuario): migrar los secretos del `.env`/Secret
+  plano a un secret manager (External Secrets/Vault/Doppler) — el runbook `docs/gestion_secretos.md`
+  ya documenta el camino.**
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.
