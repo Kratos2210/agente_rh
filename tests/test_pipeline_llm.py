@@ -99,6 +99,64 @@ def test_retriever_fails_safe_and_does_not_retry(monkeypatch):
     assert calls["n"] == 1
 
 
+def test_retriever_hybrid_dedupes_and_respects_reranker(monkeypatch):
+    """El camino vivo combina vectorial + BM25 (dedupe) y el orden final lo pone el re-ranker."""
+    from langchain_core.documents import Document
+
+    from agent import rag
+    from src.config import Settings
+
+    doc = lambda t: Document(page_content=t)  # noqa: E731
+
+    class FakeCollection:
+        def count(self):
+            return 4
+
+        def get(self):
+            return {"documents": ["A", "B", "C", "D"], "metadatas": [{}] * 4}
+
+    class FakeChroma:
+        def __init__(self, **kwargs):
+            self._collection = FakeCollection()
+
+        def similarity_search(self, q, k):
+            return [doc("A"), doc("B")]
+
+    class FakeBM25:
+        k = 0
+
+        @classmethod
+        def from_documents(cls, corpus):
+            return cls()
+
+        def invoke(self, q):
+            return [doc("A"), doc("D")]  # "A" duplica al vectorial → dedupe
+
+    class FakeReranker:
+        def __init__(self, **kwargs):
+            pass
+
+        def rerank(self, q, docs):
+            return [(d, 1.0) for d in reversed(docs)]  # invierte: el orden final es SUYO
+
+    import langchain_chroma
+    import langchain_community.retrievers as lcr
+    import src.embeddings as emb
+    import src.reranker as rr
+
+    monkeypatch.setattr(emb, "get_embeddings", lambda model: object())
+    monkeypatch.setattr(langchain_chroma, "Chroma", FakeChroma)
+    monkeypatch.setattr(lcr, "BM25Retriever", FakeBM25)
+    monkeypatch.setattr(rr, "CrossEncoderReranker", FakeReranker)
+
+    retrieve = rag.build_company_retriever(
+        Settings(interview_rag_enabled=True, retrieve_k=4, final_k=2, reranker="cross")
+    )
+    ctx = retrieve("¿duda?")
+    # Candidatos deduplicados A,B,D → re-ranker invierte → D,B → top final_k=2.
+    assert ctx == "D\n\nB"
+
+
 # ── Golden set: existe y está bien formado ─────────────────────────────────────
 
 
