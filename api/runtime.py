@@ -49,6 +49,35 @@ def init_sentry(settings: Settings) -> bool:
         return False
 
 
+def init_phoenix(settings: Settings) -> bool:
+    """Observabilidad LLM config-gated: Arize Phoenix vía OpenInference/OTel.
+
+    Con `PHOENIX_ENABLED=true`, las llamadas LangChain emiten spans (prompt, respuesta,
+    latencia, tokens) al collector `PHOENIX_ENDPOINT` — pensado para un Phoenix
+    SELF-HOSTED, coherente con la decisión de PII (Ley 29733): los datos no salen a un
+    SaaS. Best-effort como Sentry: si el SDK falta o el endpoint es inválido, el
+    arranque sigue (quedan las trazas propias de `llm_traces`)."""
+    if not getattr(settings, "phoenix_enabled", False):
+        return False
+    try:
+        from openinference.instrumentation.langchain import LangChainInstrumentor
+        from phoenix.otel import register
+
+        tracer_provider = register(
+            project_name=getattr(settings, "phoenix_project", "agente-rh"),
+            endpoint=getattr(settings, "phoenix_endpoint", "http://localhost:6006/v1/traces"),
+            set_global_tracer_provider=False,
+            batch=True,
+        )
+        LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
+        return True
+    except Exception:  # noqa: BLE001
+        from src.logging_config import get_logger
+
+        get_logger("api.runtime").exception("Phoenix no pudo inicializarse (se sigue sin él)")
+        return False
+
+
 def _now_iso() -> str:
     """Timestamp UTC ISO (usado al registrar el envío del examen psicológico)."""
     from datetime import datetime, timezone

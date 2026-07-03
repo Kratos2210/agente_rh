@@ -86,6 +86,62 @@ def test_init_sentry_initializes_with_dsn(monkeypatch):
     assert seen["send_default_pii"] is False  # PII fuera de Sentry (Ley 29733)
 
 
+# ── Phoenix (Arize) config-gated ──────────────────────────────────────────────
+
+def test_init_phoenix_noop_when_disabled():
+    from api.runtime import init_phoenix
+
+    assert init_phoenix(SimpleNamespace(phoenix_enabled=False)) is False
+
+
+def test_init_phoenix_registers_and_instruments(monkeypatch):
+    from api.runtime import init_phoenix
+
+    seen: dict = {}
+
+    fake_otel = types.ModuleType("phoenix.otel")
+    fake_otel.register = lambda **kw: seen.update(kw) or "TP"
+    fake_phoenix = types.ModuleType("phoenix")
+    fake_phoenix.otel = fake_otel
+
+    instrumented: dict = {}
+
+    class FakeInstrumentor:
+        def instrument(self, tracer_provider=None):
+            instrumented["tp"] = tracer_provider
+
+    fake_oi = types.ModuleType("openinference.instrumentation.langchain")
+    fake_oi.LangChainInstrumentor = FakeInstrumentor
+    monkeypatch.setitem(sys.modules, "phoenix", fake_phoenix)
+    monkeypatch.setitem(sys.modules, "phoenix.otel", fake_otel)
+    monkeypatch.setitem(sys.modules, "openinference.instrumentation.langchain", fake_oi)
+
+    cfg = SimpleNamespace(phoenix_enabled=True, phoenix_project="p",
+                          phoenix_endpoint="http://x/v1/traces")
+    assert init_phoenix(cfg) is True
+    assert seen["project_name"] == "p" and seen["endpoint"] == "http://x/v1/traces"
+    assert seen["set_global_tracer_provider"] is False
+    assert instrumented["tp"] == "TP"  # el instrumentor recibió el provider
+
+
+def test_init_phoenix_best_effort_on_failure(monkeypatch):
+    from api.runtime import init_phoenix
+
+    broken = types.ModuleType("phoenix.otel")
+
+    def boom(**kw):
+        raise RuntimeError("endpoint inválido")
+
+    broken.register = boom
+    fake_phoenix = types.ModuleType("phoenix")
+    fake_phoenix.otel = broken
+    monkeypatch.setitem(sys.modules, "phoenix", fake_phoenix)
+    monkeypatch.setitem(sys.modules, "phoenix.otel", broken)
+
+    cfg = SimpleNamespace(phoenix_enabled=True, phoenix_project="p", phoenix_endpoint="x")
+    assert init_phoenix(cfg) is False  # no tumba el arranque
+
+
 # ── Snapshot de métricas HTTP a DB ────────────────────────────────────────────
 
 def _snap_settings(minutes=60, days=14):

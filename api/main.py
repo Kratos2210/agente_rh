@@ -38,6 +38,7 @@ from api.runtime import (  # noqa: F401 — re-export (compat tests/consumidores
     _parse_dt,
     _state,
     current_settings,
+    init_phoenix,
     init_sentry,
 )
 from api.scheduler import (  # noqa: F401 — re-export (compat tests/consumidores)
@@ -96,6 +97,10 @@ async def lifespan(app: FastAPI):
     _state["sentry_on"] = init_sentry(settings)
     if _state["sentry_on"]:
         logger.info("Sentry activo (environment=%s)", settings.environment)
+    # Observabilidad LLM (config-gated): spans OpenInference → Phoenix self-hosted.
+    _state["phoenix_on"] = init_phoenix(settings)
+    if _state["phoenix_on"]:
+        logger.info("Phoenix activo (endpoint=%s)", settings.phoenix_endpoint)
     _state["event_loop"] = asyncio.get_running_loop()
 
     # Seguridad (P0): en producción, rechaza secretos por defecto/débiles ANTES de servir.

@@ -59,6 +59,8 @@ dependencies = [
     "docx2txt>=0.8",
     "mcp>=1.0,<2",
     "sentry-sdk>=2.64.0",
+    "arize-phoenix-otel>=0.16.1",
+    "openinference-instrumentation-langchain>=0.1.67",
 ]
 
 [project.optional-dependencies]

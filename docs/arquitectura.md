@@ -48,7 +48,7 @@ bitácora de `CLAUDE.md`; la explicación divulgativa, en la ruta `/guia` del da
 
 | Decisión | Alternativas | Por qué |
 |---|---|---|
-| **Tablas propias como fuente de verdad** (`llm_usage`, `llm_traces`, `http_metrics_snapshots`) + gancho LangSmith opcional | SaaS externo (LangSmith/Arize) como primario | Los prompts contienen respuestas del candidato (PII, Ley 29733): no salen a un SaaS por defecto. LangSmith queda config-gated para desarrollo. |
+| **Tablas propias como fuente de verdad** (`llm_usage`, `llm_traces`, `http_metrics_snapshots`) + ganchos LangSmith y Phoenix opcionales | SaaS externo (LangSmith/Arize) como primario | Los prompts contienen respuestas del candidato (PII, Ley 29733): no salen a un SaaS por defecto. LangSmith queda config-gated para desarrollo; **Arize Phoenix** (OpenInference/OTel, `PHOENIX_ENABLED`) apunta a una instancia **self-hosted** — misma capacidad de inspección de spans LLM sin ceder los datos. |
 | **Percentiles con histograma de buckets fijos** (HTTP) y nearest-rank sobre `llm_usage` (IA) | Prometheus + Grafana | Memoria O(1), cero infra, visible en el propio dashboard (`/observabilidad`). Prometheus es el paso natural si aparece una plataforma de métricas. |
 | **Golden suite (28 casos) + juez de groundedness** como gates ejecutables | Evaluación manual | Regresiones de prompts/modelo se detectan con `exit 1` (usable como nightly); el juez mide la tasa de alucinaciones sobre trazas reales. |
 | **SLAs push por tenant** (correo, dedupe por condición/día) | Solo dashboard pull | Lo crítico (dead-letters, p95 del turno, presupuesto) llega solo, sin esperar que alguien mire el panel. |

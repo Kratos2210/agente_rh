@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     sentry_dsn: str = ""
     sentry_traces_sample_rate: float = 0.0  # 0 = solo errores (sin performance tracing)
 
+    # Arize Phoenix (observabilidad LLM, OpenInference/OTel) config-gated — off por
+    # defecto. Apunta a un Phoenix SELF-HOSTED (los prompts llevan PII, Ley 29733):
+    # `docker run -p 6006:6006 arizephoenix/phoenix` y las llamadas LangChain emiten
+    # spans (prompt/respuesta/latencia/tokens) visibles en http://localhost:6006.
+    phoenix_enabled: bool = False
+    phoenix_endpoint: str = "http://localhost:6006/v1/traces"
+    phoenix_project: str = "agente-rh"
+
     # Snapshot periódico de las métricas HTTP en memoria a la DB (O-6): sobrevive
     # reinicios/redeploys. 0 = apagado. La retención poda snapshots viejos.
     http_snapshot_minutes: int = 60
