@@ -3,6 +3,9 @@
 Manifests declarativos del Agente de Selección. La base de datos NO se despliega aquí:
 se usa un proyecto **Supabase cloud** (o un Postgres gestionado equivalente).
 
+> 🔧 Atajo: `deploy/deploy.sh` automatiza estos pasos (`build`, `push`, `validate`,
+> `k8s-apply`, `k8s-status`, `scale`).
+
 ## Aplicar
 
 ```bash
