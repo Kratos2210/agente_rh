@@ -951,6 +951,36 @@ embeddings) para responder dudas del candidato sobre el puesto.
   retrieval ya cubre hit@k offline; actualizar `/guia` con el paso 4. Siguiente del roadmap: paso 5
   (optimización de costos, oportunista según volumen) — **preguntar antes de arrancar**.
 
+- **2026-07-03 — Roadmap paso 5 (OPTIMIZACIÓN DE COSTOS · ROADMAP LLMOps COMPLETO 1–5)**: cierra el
+  último paso (recomendaciones 2.1.2 y 2.3.3 de `audit/auditoria_final.md`). Tres palancas, sin
+  migraciones (todo config-gated, comportamiento por defecto sin cambios). (1) **Routing de modelo por
+  etapa**: `MeteredLLM` ahora es **multi-modelo** — recibe `overrides={etapa: LLM}` y despacha cada
+  etapa a su LLM (el barato o el principal), con **atribución de modelo POR ETAPA** (nuevo `_models` +
+  `drain_models()`; cada traza lleva su `model`). `build_default_llm(model=)` construye un LLM con otro
+  modelo del MISMO proveedor; `build_stage_overrides(settings)` mapea `llm_cheap_stages`
+  (default `classify,schedule` — las simples y frecuentes) → un LLM `llm_cheap_model` (vacío = sin
+  routing). `service._record_usage` registra el modelo real por etapa (`drain_models`); `record_traces`
+  prefiere el `model` de cada traza. Cableado en `telegram_bot`/`routes/vacancies`. `set_context` hace
+  fan-out a inner+overrides (metadata LangSmith llega a cualquier modelo). (2) **Caché semántica de
+  dudas** (cierra la "caché muerta" 2.3.1): `agent/answer_cache.py` (`AnswerCache`, inyectada en el
+  runner como el retriever; carga LAZY de embeddings, fail-open) cachea por `vacancy_id` la respuesta a
+  dudas del candidato — un hit (coseno ≥ `semantic_cache_threshold`) devuelve la respuesta **sin RAG ni
+  LLM (0 tokens)**; seguro entre candidatos (mismo company_info por vacante). Almacén SQLite propio
+  (sin la FK a `documents` del registry de agente_pro). Se **reactivó `src/semantic_cache`** extrayendo
+  el matching a un helper puro `best_match` (reusado por RAG y por la caché de dudas). Cableada por
+  `nodes.handle_turn`→`graph`→runner (config `interview_answer_cache_enabled`, default off). El nodo de
+  entrevista hace lookup ANTES de RAG/LLM y store después. (3) **ADR** `docs/adr-seleccion-modelo.md`
+  (matriz latencia/costo/calidad/privacidad de Qwen3-32B@Groq + **residencia de datos PII/Ley 29733
+  como pendiente de prod real** + procedimiento de cambio de modelo + tabla de palancas activas).
+  `.env.example` con el bloque paso 5. **330/330 tests (+10 `test_cost_routing.py`: multi-modelo con
+  atribución por etapa, overrides, `best_match` puro, `AnswerCache` round-trip con embeddings fake +
+  aislamiento por vacante, corto-circuito del nodo —hit sin LLM/miss genera+store—); sin cambios de
+  frontend.** **Smoke con objetos reales**: `build_stage_overrides` arma ChatOpenAI reales con el modelo
+  barato (instancia compartida entre etapas), no-op sin cheap; principal = modelo del `.env`. **Roadmap
+  de la auditoría LLMOps: 5/5 pasos cerrados** (CI vivo → entornos → webhook → calidad continua → costos).
+  **Pendiente (menor)**: elegir/medir un modelo barato concreto del proveedor y correr el golden contra
+  él (banco de aceptación, 2.1.2); actualizar `/guia` con pasos 4–5.
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.

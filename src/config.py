@@ -37,6 +37,24 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = 60
     llm_max_retries: int = 2
 
+    # Optimización de costos (paso 5): rutear las etapas SIMPLES a un modelo más barato.
+    # `classify` (binario respuesta/duda) y `schedule` (elegir un número de opción) no
+    # necesitan el modelo grande. Vacío = todo con `openai_model` (comportamiento actual).
+    # El modelo barato usa la MISMA base_url/api_key (mismo proveedor compatible-OpenAI).
+    llm_cheap_model: str = ""
+    # Etapas ruteadas al modelo barato (CSV). Por defecto las dos más simples y frecuentes.
+    llm_cheap_stages: str = "classify,schedule"
+
+    # Caché semántica de las dudas del candidato (paso 5): si una pregunta MUY parecida ya
+    # fue respondida para la MISMA vacante (coseno >= semantic_cache_threshold), se devuelve
+    # la respuesta cacheada sin llamar al LLM (0 tokens). Las respuestas por vacante son
+    # estables (mismo company_info), así que el hit entre candidatos es seguro. Requiere
+    # embeddings (como el RAG). Default OFF (convención config-gated).
+    interview_answer_cache_enabled: bool = False
+    # Almacén SQLite de la caché de dudas (por vacante). Ligero, sin relación con el
+    # registry de agente_pro; se crea al primer uso si la caché está activa.
+    interview_answer_cache_db: str = "./answer_cache.db"
+
     # Robustez de la cola de indexación (1 worker):
     #   - index_max_retries: reintentos ante un fallo transitorio antes de marcar error.
     #   - index_timeout_seconds: corte duro de una indexación colgada (PDF gigante/corrupto).

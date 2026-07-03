@@ -159,7 +159,7 @@ def sync_applicants_endpoint(
         raise HTTPException(
             429, "Sincronización muy frecuente. Espera un minuto e inténtalo de nuevo."
         )
-    from agent.llm import MeteredLLM, build_default_llm
+    from agent.llm import MeteredLLM, build_default_llm, build_stage_overrides
     from agent.sourcing_service import sync_applicants
     from integrations.sourcing import get_connector
 
@@ -168,6 +168,7 @@ def sync_applicants_endpoint(
         build_default_llm(),
         trace=settings.llm_trace_enabled,
         trace_max_chars=settings.llm_trace_max_chars,
+        overrides=build_stage_overrides(settings),  # routing de costos (paso 5)
     )
     connector = get_connector(settings)
     vacancy = repo.get_vacancy(vacancy_id)

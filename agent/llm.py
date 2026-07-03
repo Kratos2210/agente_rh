@@ -61,20 +61,34 @@ class MeteredLLM:
     """
 
     def __init__(
-        self, inner: LLM, stage: str = "answer", *, trace: bool = False, trace_max_chars: int = 8000
+        self,
+        inner: LLM,
+        stage: str = "answer",
+        *,
+        trace: bool = False,
+        trace_max_chars: int = 8000,
+        overrides: dict[str, LLM] | None = None,
     ) -> None:
         self._inner = inner
         self.stage = stage
         self.trace = trace
         self.trace_max_chars = trace_max_chars
+        # Routing de costos (paso 5): etapa→LLM alternativo (modelo barato). El resto usa `inner`.
+        self._overrides = overrides or {}
         # acumulado por stage: {stage: {input/output/total_tokens, calls, errors, duration_ms}}
         self._acc: dict[str, dict[str, int]] = {}
-        # trazas por llamada: [{stage, prompt, response, error, duration_ms}]
+        # modelo REALMENTE usado por etapa (con routing puede diferir de `inner`).
+        self._models: dict[str, str] = {}
+        # trazas por llamada: [{stage, model, prompt, response, error, duration_ms}]
         self._traces: list[dict] = []
 
     @property
     def model(self) -> str:
         return getattr(self._inner, "model", "") or ""
+
+    def _active(self) -> LLM:
+        """El LLM que atiende la etapa actual (barato si está ruteada, si no el principal)."""
+        return self._overrides.get(self.stage, self._inner)
 
     def for_stage(self, stage: str) -> "MeteredLLM":
         self.stage = stage
@@ -86,19 +100,26 @@ class MeteredLLM:
         )
 
     def set_context(self, **ctx) -> None:
-        """Metadata de tracing (LangSmith): se propaga al LLM interno si la soporta."""
-        meta = getattr(self._inner, "metadata", None)
+        """Metadata de tracing (LangSmith): se propaga al LLM principal y a los overrides
+        (routing), para que la metadata llegue a cualquier modelo que atienda una etapa."""
+        for inner in (self._inner, *self._overrides.values()):
+            self._tag_meta(inner, **ctx)
+
+    @staticmethod
+    def _tag_meta(inner: LLM, **ctx) -> None:
+        meta = getattr(inner, "metadata", None)
         if isinstance(meta, dict):
             meta.update({k: str(v) for k, v in ctx.items() if v})
 
     def _cap(self, text: str) -> str:
         return text if len(text) <= self.trace_max_chars else text[: self.trace_max_chars]
 
-    def _add_trace(self, prompt: str, response: str | None, error: str | None, ms: int) -> None:
+    def _add_trace(self, model: str, prompt: str, response: str | None, error: str | None, ms: int) -> None:
         if not self.trace:
             return
         self._traces.append({
             "stage": self.stage,
+            "model": model,
             "prompt": self._cap(prompt),
             "response": self._cap(response) if response is not None else None,
             "error": error,
@@ -108,33 +129,41 @@ class MeteredLLM:
     def complete(self, prompt: str) -> str:
         import time
 
-        # Etiqueta la etapa en la metadata de tracing del LLM interno (LangSmith).
-        self.set_context(stage=self.stage)
+        inner = self._active()
+        model = getattr(inner, "model", "") or self.model
+        self._models[self.stage] = model
+        # Etiqueta la etapa en la metadata de tracing del LLM que atiende (LangSmith).
+        self._tag_meta(inner, stage=self.stage)
         t0 = time.perf_counter()
         try:
-            out = self._inner.complete(prompt)
+            out = inner.complete(prompt)
         except Exception as exc:
             ms = int((time.perf_counter() - t0) * 1000)
             bucket = self._bucket()
             bucket["calls"] = bucket.get("calls", 0) + 1
             bucket["errors"] = bucket.get("errors", 0) + 1
             bucket["duration_ms"] = bucket.get("duration_ms", 0) + ms
-            self._add_trace(prompt, None, repr(exc), ms)
+            self._add_trace(model, prompt, None, repr(exc), ms)
             raise
         ms = int((time.perf_counter() - t0) * 1000)
-        usage = getattr(self._inner, "last_usage", None) or _ZERO_USAGE
+        usage = getattr(inner, "last_usage", None) or _ZERO_USAGE
         bucket = self._bucket()
         for k in ("input_tokens", "output_tokens", "total_tokens"):
             bucket[k] += int(usage.get(k, 0) or 0)
         bucket["calls"] = bucket.get("calls", 0) + 1
         bucket["duration_ms"] = bucket.get("duration_ms", 0) + ms
-        self._add_trace(prompt, out, None, ms)
+        self._add_trace(model, prompt, out, None, ms)
         return out
 
     def drain(self) -> dict[str, dict[str, int]]:
         """Devuelve y limpia el acumulado por stage."""
         acc, self._acc = self._acc, {}
         return acc
+
+    def drain_models(self) -> dict[str, str]:
+        """Devuelve y limpia el modelo usado por etapa (routing de costos)."""
+        models, self._models = self._models, {}
+        return models
 
     def drain_traces(self) -> list[dict]:
         """Devuelve y limpia las trazas por llamada (vacío si `trace=False`)."""
@@ -150,29 +179,49 @@ def complete_staged(llm: LLM, prompt: str, stage: str) -> str:
     return llm.complete(prompt)
 
 
-def build_default_llm() -> LangChainLLM:
-    """LLM por defecto del runtime (temperatura baja, sin <think> en Qwen3).
+def build_default_llm(model: str | None = None) -> LangChainLLM:
+    """LLM del runtime (temperatura baja, sin <think> en Qwen3).
 
     Construye el ChatOpenAI directamente (sin pasar por src.qa_chain) para no
     arrastrar torch/sentence-transformers en el arranque del bot: la entrevista no
     usa RAG. El stack RAG se carga solo si/ cuando se conecte la base de conocimiento.
+
+    `model` permite construir un LLM con OTRO modelo del MISMO proveedor (misma base_url/
+    api_key) — lo usa el routing de costos para el modelo barato de las etapas simples.
     """
     from langchain_openai import ChatOpenAI
 
     from src.config import get_settings
 
     settings = get_settings()
+    model_name = model or settings.openai_model
     kwargs = dict(
-        model=settings.openai_model,
+        model=model_name,
         base_url=settings.openai_api_base,
         api_key=settings.openai_api_key,
         timeout=settings.llm_timeout_seconds,
         max_retries=settings.llm_max_retries,
         temperature=0.2,
     )
-    if "qwen3" in settings.openai_model.lower():
+    if "qwen3" in model_name.lower():
         kwargs["extra_body"] = {"reasoning_effort": "none"}
     return LangChainLLM(ChatOpenAI(**kwargs))
+
+
+def build_stage_overrides(settings) -> dict[str, LLM]:
+    """Mapa etapa→LLM barato para el routing de costos (paso 5), o {} si no aplica.
+
+    Si `llm_cheap_model` está configurado, construye UN LLM barato (mismo proveedor) y lo
+    asocia a cada etapa de `llm_cheap_stages`. Se comparte una sola instancia entre las
+    etapas ruteadas (mismo modelo). Vacío = sin routing (todo con el modelo principal)."""
+    cheap = (getattr(settings, "llm_cheap_model", "") or "").strip()
+    if not cheap:
+        return {}
+    stages = [s.strip() for s in (getattr(settings, "llm_cheap_stages", "") or "").split(",") if s.strip()]
+    if not stages:
+        return {}
+    cheap_llm = build_default_llm(model=cheap)
+    return {stage: cheap_llm for stage in stages}
 
 
 def parse_json_object(raw: str) -> dict:

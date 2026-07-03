@@ -897,7 +897,8 @@ def record_traces(
             "candidate_id": candidate_id,
             "conversation_id": conversation_id,
             "stage": t.get("stage", ""),
-            "model": model or "",
+            # Routing de costos: cada traza puede traer su propio modelo; cae al general.
+            "model": t.get("model") or model or "",
             "prompt_version": prompt_version or "",
             "prompt_text": t.get("prompt", "") or "",
             "response_text": t.get("response"),

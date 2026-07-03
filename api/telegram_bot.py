@@ -134,7 +134,7 @@ def _is_allowed(chat_id: int) -> bool:
 def build_bot_app(settings: Settings, state: dict[str, Any]) -> Application:
     """Construye la Application de PTB con el servicio de entrevista inyectado."""
     from agent.graph import make_postgres_runner
-    from agent.llm import MeteredLLM, build_default_llm
+    from agent.llm import MeteredLLM, build_default_llm, build_stage_overrides
     from db.client import get_database_url
 
     _init_allowed_users(settings)
@@ -148,6 +148,7 @@ def build_bot_app(settings: Settings, state: dict[str, Any]) -> Application:
     )
 
     # RAG de dudas del candidato (config-gated, lazy): None si interview_rag_enabled=False.
+    from agent.answer_cache import build_answer_cache
     from agent.rag import build_company_retriever
 
     runner = make_postgres_runner(
@@ -155,9 +156,11 @@ def build_bot_app(settings: Settings, state: dict[str, Any]) -> Application:
             build_default_llm(),
             trace=settings.llm_trace_enabled,
             trace_max_chars=settings.llm_trace_max_chars,
+            overrides=build_stage_overrides(settings),  # routing de costos (paso 5)
         ),
         get_database_url(),
         retriever=build_company_retriever(settings),
+        answer_cache=build_answer_cache(settings),  # caché de dudas (paso 5)
     )
     notifier = _build_notifier(settings)
     service = InterviewService(
