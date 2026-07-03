@@ -849,6 +849,23 @@ embeddings) para responder dudas del candidato sobre el puesto.
   el guard de sesión del Shell — chequear por payload, no por HTML SSR); SVG verificado visualmente
   con screenshot Playwright (extraído standalone, sin login).**
 
+- **2026-07-03 — Auditoría LLMOps formal + roadmap paso 1 (CI VIVO)**: informe completo en
+  `audit/auditoria_final.md` (frameworks de `audit/auditoria_one.md` + `auditoria_two.md` aplicados
+  al código real: **Nivel 3 — Producción Robusta, 72/100**, 10 sub-áreas × 4 dimensiones, matriz de
+  3 riesgos, roadmap de 5 pasos). **Paso 1 ejecutado**: (1) remote creado —
+  **github.com/Kratos2210/agente_rh** (privado) — y `main` subida; (2) job **`prompt-version-gate`**
+  en `ci.yml` (cambiar `agent/prompts.py` sin subir `PROMPT_VERSION` rompe el build; diff contra
+  base del PR o `event.before` del push, tolera primer push/force-push); (3) workflow
+  **`nightly-quality.yml`** (cron 02:00 Lima + dispatch): suite golden contra el LLM real (secret
+  `OPENAI_API_KEY` + vars `OPENAI_API_BASE`/`OPENAI_MODEL` seteados vía gh) y juez de fundamentación
+  gated a secrets de DB accesible (se auto-omite con aviso mientras la DB sea local). **El primer
+  run de CI destapó un bug latente REAL**: los gates "a lo sumo cada N min" de los sweeps
+  (budget/SLA/http-snapshot/checkpoint-purge) usaban sentinel `0.0` con `time.monotonic()`, que en
+  un host recién booteado (runner CI, contenedor fresco) es < intervalo → el primer barrido se
+  saltaba. Fix: sentinel `None` en los 4 gates (`api/scheduler.py`). **Verificado: CI 5/5 jobs en
+  verde (297 tests en Actions); nightly disparado manual → golden 28/28 dentro de rango contra Groq
+  desde Actions; juez omitido con aviso limpio.**
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.
