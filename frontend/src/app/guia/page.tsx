@@ -1627,6 +1627,12 @@ uv run python scripts/demo.py --alberto</pre>
       (uv + pytest), lint + typecheck del frontend, build Docker, validación de K8s (dev+prod) y un
       <b>gate de <code>PROMPT_VERSION</code></b> (cambiar un prompt sin subir la versión rompe el build).
       Un workflow <b>nightly</b> corre la suite golden contra la IA real.</p></div>
+    <div class="card"><h4>🌿 Flujo de trabajo (rama → PR → CI)</h4>
+      <p>Cada cambio va por <b>rama de feature + Pull Request</b>; el CI corre en el PR y solo se mergea
+      en verde, así <code>main</code> queda siempre estable. Un <b>hook <code>pre-push</code> local</b>
+      rechaza el push directo a <code>main</code> y recuerda el flujo (se salta con
+      <code>--no-verify</code>). La protección server-side (branch protection) queda para cuando el repo
+      sea de equipo (repo privado Free no la incluye).</p></div>
   </div>
   <div class="warn">⚠️ <b>Regla de escala:</b> en <b>polling</b> (dev) el backend corre con <b>una sola
   réplica</b> (estrategia <i>Recreate</i>): ese modo solo admite un lector por token. En <b>webhook</b>
