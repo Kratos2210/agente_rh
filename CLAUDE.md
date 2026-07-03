@@ -996,6 +996,21 @@ embeddings) para responder dudas del candidato sobre el puesto.
   tsc OK.** Con esto **el roadmap LLMOps queda 5/5 sin pendientes sustantivos** (solo quedan "futuro":
   WhatsApp, object store para CVs, secret manager externo, conectores reales de sourcing, RLS efectivo).
 
+- **2026-07-03 — Re-auditoría LLMOps v2 (post-roadmap)**: `audit/auditoria_v2.md` re-aplica los mismos
+  frameworks de la v1 (`auditoria_one` + `auditoria_two`) contra el estado post-roadmap. **Resultado:
+  72→81/100 (+9), 3.2→3.6/5**; Nivel 3 consolidado en el umbral del Nivel 4 (Procesos ya en 4.1 =
+  "Gestionado"). Sub-áreas que más subieron: selección de modelo 2.5→3.75 (ADR + benchmark archivado),
+  testing 3.0→3.75 (CI vivo + nightly), despliegue/costos/RAG +0.5 c/u; Equipo sigue 2.6 (unipersonal,
+  factor limitante declarado). Riesgos v1: #1 CI inerte **cerrado**, #2 punto único y #3 calidad sin
+  medición **mitigados**. **Nuevo top-3 de riesgos**: (1) signos vitales nacen APAGADOS — trace/quality/
+  caché default off y los overlays no los fijan → falta "perfil de producción todo encendido" + guard;
+  (2) residuo unipersonal + secretos planos; (3) **carrera de checkpoint entre réplicas** — el
+  threading.Lock por thread es por-proceso y el overlay prod usa replicas:2 (la advertencia hipotética
+  de la v1 se activó con el webhook) → advisory lock por thread_id pendiente antes de tráfico real.
+  Roadmap v2 (5 pasos): perfil prod → lock distribuido + e2e webhook → relevancia de contexto (tercer
+  criterio RAGAS) → operación a prueba de ausencias (secret manager + 2.º operador) → few-shot + red
+  teaming. Entregado por el flujo nuevo: rama `docs/auditoria-v2` + PR con CI.
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.
