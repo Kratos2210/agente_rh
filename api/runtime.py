@@ -101,7 +101,11 @@ _DEFAULT_RETENTION = {"enabled": False, "days": 180}
 # Costos LLM (O-2): precio por millón de tokens POR MODELO (cada tenant configura los
 # suyos desde el dashboard). "default" aplica a modelos sin fila propia. Todo en 0 =
 # sin costo estimado (cae al escalar legado `token_price_per_1k` si está seteado).
-_DEFAULT_LLM_PRICING = {"models": {}, "default": {"input_per_1m": 0.0, "output_per_1m": 0.0}}
+# Seed con el modelo demo (Groq qwen3-32b) para que el costo sea visible sin configurar.
+_DEFAULT_LLM_PRICING = {
+    "models": {"qwen/qwen3-32b": {"input_per_1m": 0.29, "output_per_1m": 0.59}},
+    "default": {"input_per_1m": 0.0, "output_per_1m": 0.0},
+}
 
 # Presupuesto LLM mensual (O-2): al alcanzar `alert_pct`% del monto, alerta una vez por
 # tenant/mes (ops alert en el dashboard + correo vía outbox si hay `notify_email`).

@@ -113,9 +113,12 @@ def test_llm_pricing_endpoints_rbac_and_tenant(monkeypatch):
     r = client.put("/api/settings/llm-pricing", json=PRICING, headers=_auth("admin", "T_A"))
     assert r.status_code == 200
     assert r.json()["models"]["qwen3-32b"]["input_per_1m"] == 0.29
-    # Otro tenant no ve los precios de T_A (cae al default).
+    # Otro tenant no ve los precios de T_A (cae al default sembrado con el modelo demo).
     r2 = client.get("/api/settings/llm-pricing", headers=_auth("admin", "T_B"))
-    assert r2.json()["models"] == {}
+    from api.runtime import _DEFAULT_LLM_PRICING
+
+    assert r2.json()["models"] == _DEFAULT_LLM_PRICING["models"]
+    assert "qwen3-32b" not in r2.json()["models"]  # las claves de T_A no se filtran
 
 
 def test_llm_budget_endpoint_roundtrip(monkeypatch):
