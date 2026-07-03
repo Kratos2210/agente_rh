@@ -28,8 +28,10 @@ Retriever = Callable[[str], str]
 def build_company_retriever(settings: Settings) -> Optional[Retriever]:
     """Retriever de la base de conocimiento, o None si el RAG está desactivado.
 
-    Gated por `settings.interview_rag_enabled` (default False: comportamiento previo).
-    El vectorstore (Chroma persistido en `persist_directory`) se abre en el primer uso."""
+    Gated por `settings.interview_rag_enabled`. Abre la colección Chroma persistida
+    (`company_kb_collection`, la que escribe scripts/seed_company_kb.py) en modo
+    LECTURA: acá no se indexa nada — si la colección no existe o está vacía, degrada
+    a responder solo con company_info (una vez, sin reintentar cada turno)."""
     if not getattr(settings, "interview_rag_enabled", False):
         return None
 
@@ -41,9 +43,21 @@ def build_company_retriever(settings: Settings) -> Optional[Retriever]:
         try:
             if state["store"] is None:
                 logger.info("RAG: abriendo el vectorstore (primera duda; puede tardar)")
-                from src.vectorstore import build_vectorstore
+                from src import embeddings as emb
 
-                state["store"] = build_vectorstore(settings)
+                embedding_fn = emb.get_embeddings(settings.embedding_model)
+                from langchain_chroma import Chroma
+
+                store = Chroma(
+                    collection_name=getattr(settings, "company_kb_collection", "company_kb"),
+                    persist_directory=settings.persist_directory,
+                    embedding_function=embedding_fn,
+                )
+                if not (store._collection.count() or 0):
+                    raise RuntimeError(
+                        "colección vacía — sembrar con scripts/seed_company_kb.py"
+                    )
+                state["store"] = store
             k = max(1, int(getattr(settings, "final_k", 5) or 5))
             docs = state["store"].similarity_search(question, k=k)
             return "\n\n".join(d.page_content.strip() for d in docs if d.page_content)

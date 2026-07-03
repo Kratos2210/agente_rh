@@ -220,8 +220,12 @@ class Settings(BaseSettings):
     # RAG en las dudas del candidato (pipeline LLM · auditoría): si True, las preguntas
     # del candidato sobre el puesto se responden recuperando fragmentos de la base de
     # conocimiento (Chroma en persist_directory) además del company_info de la vacante.
-    # Default False: carga lazy (torch tarda ~90 s en Intel) y solo si hay corpus indexado.
-    interview_rag_enabled: bool = False
+    # Carga lazy (torch tarda ~90 s en Intel); sin corpus indexado degrada con gracia
+    # a company_info plano. Sembrar el corpus: `uv run python scripts/seed_company_kb.py`.
+    interview_rag_enabled: bool = True
+    # Colección Chroma de la base de conocimiento de la empresa (la escribe el seed,
+    # la lee el retriever de las dudas — separada de la colección clásica de PDFs).
+    company_kb_collection: str = "company_kb"
     # Umbrales del semáforo sobre el score total 0-100:
     #   score >= green_min  → 🟢 verde   (avanza)
     #   score >= yellow_min → 🟡 amarillo (revisar)

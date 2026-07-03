@@ -68,11 +68,14 @@ def test_broken_retriever_does_not_break_turn():
 # ── build_company_retriever: gate de config + degradación ──────────────────────
 
 
-def test_retriever_disabled_by_default():
+def test_retriever_respects_gate():
     from agent.rag import build_company_retriever
     from src.config import Settings
 
+    # Gate apagado → None (sin RAG); el default del producto es encendido.
     assert build_company_retriever(Settings(interview_rag_enabled=False)) is None
+    assert Settings().interview_rag_enabled is True
+    assert build_company_retriever(Settings()) is not None
 
 
 def test_retriever_fails_safe_and_does_not_retry(monkeypatch):
@@ -84,13 +87,13 @@ def test_retriever_fails_safe_and_does_not_retry(monkeypatch):
 
     calls = {"n": 0}
 
-    def fake_build(settings):
+    def fake_embeddings(model):
         calls["n"] += 1
         raise RuntimeError("sin corpus indexado")
 
-    import src.vectorstore as vs
+    import src.embeddings as emb
 
-    monkeypatch.setattr(vs, "build_vectorstore", fake_build)
+    monkeypatch.setattr(emb, "get_embeddings", fake_embeddings)
     assert retrieve("¿pregunta?") == ""   # degrada a vacío
     assert retrieve("¿otra?") == ""       # marcado failed: no reintenta
     assert calls["n"] == 1
