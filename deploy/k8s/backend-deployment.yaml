@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: agente-rh
+  labels:
+    app.kubernetes.io/name: agente-rh
+    app.kubernetes.io/component: backend
+spec:
+  # ⚠️ replicas: 1 A PROPÓSITO. El bot de Telegram corre en modo POLLING y Telegram
+  # solo admite un consumidor de getUpdates por token: una 2ª réplica recibiría 409
+  # Conflict. El scheduler interno SÍ tolera N réplicas (advisory lock de Postgres,
+  # con takeover si el activo muere), así que el único bloqueante para escalar
+  # horizontalmente es migrar el bot a webhook — ver docs/despliegue.md.
+  replicas: 1
+  strategy:
+    # Recreate (no rolling): evita dos pods poleando Telegram durante el swap.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agente-rh
+      app.kubernetes.io/component: backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agente-rh
+        app.kubernetes.io/component: backend
+    spec:
+      containers:
+        - name: backend
+          image: agente-rh-backend:latest # reemplazar por el registry real
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: agente-rh-config
+            - secretRef:
+                name: agente-rh-secrets
+          # El primer arranque descarga los modelos de embeddings (~500 MB) al
+          # volumen hf-cache; startupProbe le da margen sin aflojar la liveness.
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1.5Gi"
+            limits:
+              memory: "3Gi"
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /models
+            - name: chroma-data
+              mountPath: /app/chroma_db
+            - name: uploads
+              mountPath: /app/uploads
+      volumes:
+        # emptyDir = se pierde al reprogramar el pod. Aceptable: los modelos se
+        # re-descargan, el índice RAG se re-siembra (scripts/seed_company_kb.py) y
+        # los documentos DURABLES ya viven en Postgres (candidate_documents).
+        # Para evitar re-descargas, cambiar hf-cache a un PVC (ver README).
+        - name: hf-cache
+          emptyDir: {}
+        - name: chroma-data
+          emptyDir: {}
+        - name: uploads
+          emptyDir: {}
