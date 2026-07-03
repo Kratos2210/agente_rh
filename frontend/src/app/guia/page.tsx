@@ -1657,7 +1657,7 @@ uv run python scripts/demo.py --alberto</pre>
     <li><span class="badge b-amber">◻</span> Adaptador de WhatsApp Cloud API (hoy Telegram).</li>
     <li><span class="badge b-amber">◻</span> Conectores reales de sourcing (Bumeran/LinkedIn) en vez del simulado.</li>
     <li><span class="badge b-amber">◻</span> Almacenamiento de CVs en object store (hoy contenido en Postgres).</li>
-    <li><span class="badge b-amber">◻</span> Elegir y medir un <b>modelo barato concreto</b> del proveedor para las etapas simples y correr el golden contra él (el mecanismo de routing ya está listo).</li>
+    <li><span class="badge b-green">✓</span> <b>Modelo barato validado</b>: <code>llama-3.1-8b-instant</code> (Groq) rutea las etapas simples (classify/schedule), aprobado contra el banco de aceptación golden (classify 7/7 + slot 6/6). Ver <code>docs/adr-seleccion-modelo.md</code>.</li>
   </ul>
 </section>
 

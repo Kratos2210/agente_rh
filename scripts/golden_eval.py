@@ -16,6 +16,8 @@ Uso (requiere OPENAI_API_KEY/BASE/MODEL reales en .env):
     uv run python scripts/golden_eval.py                    # todas las suites
     uv run python scripts/golden_eval.py --suite classify   # una suite
     uv run python scripts/golden_eval.py --case id          # un caso puntual
+    uv run python scripts/golden_eval.py --model llama-3.1-8b-instant --suite classify
+                                                            # banco de aceptación de un modelo barato candidato
 """
 
 from __future__ import annotations
@@ -121,6 +123,8 @@ def main() -> int:
     parser.add_argument("--suite", default="all", choices=["all", *SUITE_KEYS],
                         help="Suite a correr (default: todas)")
     parser.add_argument("--case", default="", help="ID de un caso puntual (default: todos)")
+    parser.add_argument("--model", default="", help="Modelo a evaluar (override; default: OPENAI_MODEL del .env). "
+                                                     "Úsalo como banco de aceptación de un modelo barato candidato.")
     args = parser.parse_args()
 
     load_dotenv()
@@ -142,7 +146,7 @@ def main() -> int:
 
     # MeteredLLM para que cada llamada quede etiquetada por etapa (los runners internos
     # ya marcan stage con complete_staged).
-    llm = MeteredLLM(build_default_llm())
+    llm = MeteredLLM(build_default_llm(args.model or None))
     total = sum(len(cases) for _, cases in plan)
     print(f"Golden eval · modelo={llm.model} · prompt_version={PROMPT_VERSION} · {total} caso(s)\n")
 

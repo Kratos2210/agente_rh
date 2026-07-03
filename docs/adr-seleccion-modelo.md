@@ -11,8 +11,11 @@ modelo no está justificada por escrito") y 2.3.3 ("ninguna palanca activa de re
 2. **Arquitectura agnóstica de proveedor**: el LLM es inyectable (`agent/llm.build_default_llm`);
    cambiar de proveedor = cambiar `OPENAI_API_BASE` / `OPENAI_API_KEY` / `OPENAI_MODEL`.
 3. **Routing de costos por etapa** (paso 5): las etapas simples y frecuentes (`classify`,
-   `schedule`) pueden ir a un modelo más barato (`LLM_CHEAP_MODEL` + `LLM_CHEAP_STAGES`) sin tocar
-   el motor. El costo real por modelo/etapa queda medido (`llm_usage.model`, O-2).
+   `schedule`) van a un modelo más barato (`LLM_CHEAP_MODEL` + `LLM_CHEAP_STAGES`) sin tocar el
+   motor. **Modelo barato elegido y validado: `llama-3.1-8b-instant`** (Groq, ~$0.05/$0.08 por 1M
+   in/out — un orden de magnitud bajo el principal), aprobado contra el banco de aceptación golden:
+   `classify` 7/7 y `slot` 6/6 (ver 2.1.2 y "Cómo elegir un modelo barato"). El costo real por
+   modelo/etapa queda medido (`llm_usage.model`, O-2).
 4. **Caché semántica de dudas** (paso 5): las respuestas a preguntas del candidato sobre el puesto
    se cachean por vacante (`INTERVIEW_ANSWER_CACHE_ENABLED`); una duda repetida no gasta tokens.
 
@@ -50,11 +53,28 @@ razonamiento intermedio). Ver 2.2.1 de la auditoría.
 4. Comparar costo/latencia con el desglose `by_model` del dashboard (O-2/O-3).
 5. Actualizar los precios en `llm_pricing` del tenant.
 
+## Cómo elegir un modelo barato (banco de aceptación, 2.1.2)
+
+El golden acepta `--model` para benchmarkear un candidato SIN tocar el `.env`. Se validan las
+suites de las etapas ruteadas (`classify` para `classify`, `slot` para `schedule`):
+
+```
+uv run python scripts/golden_eval.py --model <candidato> --suite classify
+uv run python scripts/golden_eval.py --model <candidato> --suite slot
+```
+
+Un candidato se acepta si pasa ambas (sale con código 0). Candidatos medidos (Groq, 2026-07-03):
+
+| Candidato | classify | slot | Veredicto |
+|---|---|---|---|
+| `llama-3.1-8b-instant` | 7/7 | 6/6 | ✅ **elegido** (el más barato) |
+| `openai/gpt-oss-20b` | 7/7 | 6/6 | ✅ apto (alternativa) |
+
 ## Palancas de costo activas (paso 5)
 
 | Palanca | Config | Efecto |
 |---|---|---|
-| Routing por etapa | `LLM_CHEAP_MODEL`, `LLM_CHEAP_STAGES` (`classify,schedule`) | Etapas simples → modelo barato; medible en `llm_usage.model`. |
+| Routing por etapa | `LLM_CHEAP_MODEL=llama-3.1-8b-instant`, `LLM_CHEAP_STAGES` (`classify,schedule`) | Etapas simples → modelo barato validado (golden 13/13); medible en `llm_usage.model`. |
 | Caché de dudas | `INTERVIEW_ANSWER_CACHE_ENABLED` | Duda repetida por vacante → 0 tokens (hit semántico). |
 | Guardrails de consumo | `TurnGovernor`, topes de iteración, cortes sin-LLM | Ya evitan gasto inútil por diseño (auditoría 2.2.1/2.2.2). |
 | Presupuesto + alerta | `llm_budget` por tenant (O-2) | Alerta al 80% del presupuesto mensual. |

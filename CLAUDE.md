@@ -981,6 +981,21 @@ embeddings) para responder dudas del candidato sobre el puesto.
   **Pendiente (menor)**: elegir/medir un modelo barato concreto del proveedor y correr el golden contra
   él (banco de aceptación, 2.1.2); actualizar `/guia` con pasos 4–5.
 
+- **2026-07-03 — Cierre del pendiente del paso 5: modelo barato elegido y validado (banco de
+  aceptación, 2.1.2)**: `scripts/golden_eval.py` gana el flag **`--model`** (benchmarkea un candidato
+  SIN tocar `.env`, vía `build_default_llm(model=)` que ya existía) → banco de aceptación reproducible.
+  Se midieron 2 candidatos baratos de Groq contra las suites de las etapas ruteadas
+  (`classify`→suite classify, `schedule`→suite slot): **`llama-3.1-8b-instant` classify 7/7 + slot 6/6**
+  (✅ elegido, el más barato ~$0.05/$0.08 por 1M) y `openai/gpt-oss-20b` 7/7 + 6/6 (apto, alternativa).
+  Activado en `.env` local (`LLM_CHEAP_MODEL=llama-3.1-8b-instant`, `LLM_CHEAP_STAGES=classify,schedule`)
+  y documentado en `.env.example` con el comando de validación. `docs/adr-seleccion-modelo.md` actualizado
+  (decisión punto 3 + sección "Cómo elegir un modelo barato" con la tabla de candidatos medidos + fila de
+  la palanca). `/guia` sección 17 marca el pendiente como ✓. **Verificado en vivo con Groq real**: golden
+  13/13 en las dos etapas; `build_stage_overrides` rutea classify+schedule→`llama-3.1-8b-instant`,
+  evaluate/prescreen/answer siguen en qwen3-32b. **test_cost_routing + test_golden_harness 17/17 verde;
+  tsc OK.** Con esto **el roadmap LLMOps queda 5/5 sin pendientes sustantivos** (solo quedan "futuro":
+  WhatsApp, object store para CVs, secret manager externo, conectores reales de sourcing, RLS efectivo).
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.
