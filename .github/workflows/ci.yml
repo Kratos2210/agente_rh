@@ -53,3 +53,33 @@ jobs:
         run: |
           kubectl kustomize deploy/k8s/ > /tmp/rendered.yaml
           docker run --rm -i ghcr.io/yannh/kubeconform:latest -strict -summary - < /tmp/rendered.yaml
+
+  prompt-version-gate:
+    # Cambiar agent/prompts.py exige subir PROMPT_VERSION (y correr la suite golden).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verificar bump de PROMPT_VERSION si cambian los prompts
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            echo "Sin base comparable (primer push o force-push); gate omitido."
+            exit 0
+          fi
+          if git diff --quiet "$BASE" HEAD -- agent/prompts.py; then
+            echo "agent/prompts.py sin cambios; OK."
+            exit 0
+          fi
+          OLD=$(git show "$BASE:agent/prompts.py" 2>/dev/null | grep -E '^PROMPT_VERSION' || true)
+          NEW=$(grep -E '^PROMPT_VERSION' agent/prompts.py || true)
+          if [ "$OLD" = "$NEW" ]; then
+            echo "::error file=agent/prompts.py::agent/prompts.py cambió pero PROMPT_VERSION no. Sube la versión y corre scripts/golden_eval.py."
+            exit 1
+          fi
+          echo "PROMPT_VERSION actualizado: ${OLD:-<nuevo>} -> $NEW"

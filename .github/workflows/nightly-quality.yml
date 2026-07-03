@@ -1,0 +1,69 @@
+name: Nightly quality (golden + juez)
+
+# Evaluación NIGHTLY de la calidad del pipeline LLM contra el modelo REAL (roadmap
+# de audit/auditoria_final.md, paso 1). El CI normal valida la lógica con FakeLLM;
+# este job valida los PROMPTS: la suite golden (4 suites, 28+ casos con rangos
+# esperados) y, si hay base de datos accesible, el juez de fundamentación sobre
+# trazas reales. Presupuesto acotado: ~30 llamadas cortas al LLM por corrida.
+
+on:
+  schedule:
+    - cron: "0 7 * * *" # 07:00 UTC = 02:00 America/Lima
+  workflow_dispatch:
+
+jobs:
+  golden:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_API_BASE: ${{ vars.OPENAI_API_BASE || 'https://api.groq.com/openai/v1' }}
+      OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'qwen/qwen3-32b' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verificar secreto del LLM
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::Falta el secret OPENAI_API_KEY; configúralo con 'gh secret set OPENAI_API_KEY'."
+            exit 1
+          fi
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar dependencias
+        run: uv sync --extra dev
+      - name: Suite golden (evaluate + classify + slot + prescreen)
+        run: uv run python scripts/golden_eval.py
+
+  groundedness-judge:
+    # Necesita la base de datos (llm_traces). Con Supabase local no hay acceso desde
+    # Actions: el job se salta con aviso hasta que existan secrets de una DB accesible.
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_API_BASE: ${{ vars.OPENAI_API_BASE || 'https://api.groq.com/openai/v1' }}
+      OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'qwen/qwen3-32b' }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: ¿Hay base de datos accesible?
+        id: gate
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_KEY" ]; then
+            echo "::notice::Sin secrets SUPABASE_URL/SUPABASE_SERVICE_KEY: el juez corre solo contra una DB accesible desde Actions (Supabase cloud). Job omitido."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Instalar uv
+        if: steps.gate.outputs.run == 'true'
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar dependencias
+        if: steps.gate.outputs.run == 'true'
+        run: uv sync --extra dev
+      - name: Juez de fundamentación (muestra 20, umbral 0.9)
+        if: steps.gate.outputs.run == 'true'
+        run: uv run python scripts/groundedness_judge.py --sample 20 --min-rate 0.9
