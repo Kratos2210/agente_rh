@@ -1,22 +1,32 @@
-# Levanta toda la app con un comando:  docker compose up --build
+# Levanta backend + dashboard con un comando:  docker compose up --build
 # Luego abrí  http://localhost:3000
+#
+# La base de datos NO vive acá: es Supabase (local vía `supabase start` en el host,
+# o un proyecto cloud). Con Supabase local, los overrides de `environment` de abajo
+# redirigen 127.0.0.1 → host.docker.internal; con Supabase cloud, comentalos y dejá
+# que valgan las URLs del .env.
 services:
   backend:
     build:
       context: .
       dockerfile: Dockerfile.backend
-    # Variables (LLM key, dominio, etc.). Copiá .env.example a .env y completalo.
+    # Variables (LLM key, Telegram, SMTP, etc.): copiá .env.example a .env.
     env_file: .env
+    environment:
+      # Supabase local corre en el HOST; dentro del contenedor 127.0.0.1 no existe.
+      - SUPABASE_URL=http://host.docker.internal:54321
+      - DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:54322/postgres
+    extra_hosts:
+      # En Linux host.docker.internal no viene solo; esto lo mapea al gateway.
+      - "host.docker.internal:host-gateway"
     volumes:
       # Cache de modelos HuggingFace (embeddings + reranker): se descargan la 1ª
       # vez y quedan acá para que los reinicios sean rápidos.
       - hf-cache:/models
-      # DATOS DEL CLIENTE — persisten entre actualizaciones (rebuild de imagen):
-      # índice vectorial, documentos subidos, hilos e historial (SQLite).
-      # En el 1er arranque se siembran con los datos de demo de la imagen; después
-      # quedan en el volumen y un `up --build` con código nuevo NO los pisa.
+      # DATOS — persisten entre rebuilds: índice vectorial del RAG y staging de
+      # documentos del candidato (el contenido durable ya vive en Postgres).
       - chroma-data:/app/chroma_db
-      - app-data:/app/data
+      - uploads:/app/uploads
     expose:
       - "8000"
     # ports: ["8000:8000"]   # descomentá solo si querés depurar el backend directo
@@ -33,8 +43,8 @@ services:
       - backend
 
   # Reverse proxy: única entrada en http://localhost:3000. Rutea /api/* al backend
-  # (streaming SSE OK) y el resto al frontend. El proxy interno de Next.js corta el
-  # streaming en producción, por eso no se expone el frontend directo.
+  # y el resto al frontend (patrón heredado: el proxy interno de Next.js corta el
+  # streaming en producción, por eso no se expone el frontend directo).
   proxy:
     image: caddy:2-alpine
     ports:
@@ -48,4 +58,4 @@ services:
 volumes:
   hf-cache:
   chroma-data:
-  app-data:
+  uploads:

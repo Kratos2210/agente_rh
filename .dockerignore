@@ -17,17 +17,18 @@ frontend/.next
 # Secretos: el .env real NUNCA va a la imagen (compose lo inyecta como env_file).
 .env
 
-# Lanzadores macOS (no aplican en contenedor).
-*.command
-Asistente RAG.app
+# Datos de runtime: viven en volúmenes (compose) o PVCs (K8s), no en la imagen.
+chroma_db
+uploads
+models
 
-# Docs/material pesado innecesario en runtime.
-*.html
-ui:ux
+# Desarrollo / documentación: no aplican en runtime.
+tests
+docs
+supabase
+deploy
+.github
 .claude
-
-# NOTA: data/ y chroma_db/ SÍ se incluyen (semilla de demo con documentos ya
-# indexados). Si NO querés compartir esos documentos, agregá aquí:
-#   data/uploads
-#   data/registry.db
-#   chroma_db
+CLAUDE.md
+uv.lock
+*.log

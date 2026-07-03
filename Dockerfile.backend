@@ -1,11 +1,9 @@
-# Backend RAG (FastAPI + torch CPU + Piper). Imagen Linux → corre en cualquier
-# SO con Docker (Windows incluido), sin el pin torch 2.2.2 de Mac Intel.
+# Backend del Agente de Selección (FastAPI + bot Telegram + LangGraph + RAG).
+# Imagen Linux CPU-only: corre en cualquier SO con Docker, sin los pins de Mac Intel.
 FROM python:3.12-slim
 
-# libgomp1: OpenMP que necesitan torch y onnxruntime (Piper) en runtime.
-# tesseract-ocr (+ español) y ghostscript: OCR de PDFs escaneados (ocrmypdf).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libgomp1 tesseract-ocr tesseract-ocr-spa ghostscript \
+# libgomp1: OpenMP que necesitan torch y onnxruntime en runtime.
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1 \
@@ -17,20 +15,34 @@ WORKDIR /app
 # uv para instalar dependencias (más rápido que pip).
 RUN pip install --no-cache-dir uv
 
-# torch CPU de Linux ANTES del resto: evita arrastrar el wheel CUDA (~2 GB).
-RUN uv pip install --system torch --index-url https://download.pytorch.org/whl/cpu
+# torch CPU de Linux ANTES del resto: el pin torch==2.2.2 del pyproject se resuelve
+# contra el índice CPU de PyTorch (2.2.2+cpu) y evita arrastrar el wheel CUDA (~2 GB).
+RUN uv pip install --system torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu
 
-# Dependencias de runtime: requirements.txt SIN la sección de desarrollo
-# (pytest/ragas/datasets) para una imagen más liviana y sin conflictos de ragas.
-COPY requirements.txt .
-RUN sed '/# Desarrollo/,$d' requirements.txt > requirements-runtime.txt \
-    && uv pip install --system -r requirements-runtime.txt
+# Dependencias de runtime desde pyproject (sin extra dev: pytest no viaja a prod).
+# El proyecto no se instala como paquete (módulos top-level + WORKDIR): solo sus deps.
+COPY pyproject.toml .
+RUN uv pip install --system -r pyproject.toml
 
-# Código del backend + datos (voz Piper, índice y documentos de demo).
+# Código del backend (el frontend tiene su propia imagen).
 COPY api/ ./api/
+COPY agent/ ./agent/
+COPY channels/ ./channels/
+COPY db/ ./db/
+COPY evaluation/ ./evaluation/
+COPY integrations/ ./integrations/
+COPY notifications/ ./notifications/
 COPY src/ ./src/
-COPY data/ ./data/
-COPY chroma_db/ ./chroma_db/
+COPY scripts/ ./scripts/
+
+# Datos en runtime: uploads/ (staging de documentos) y chroma_db/ (RAG) se montan
+# como volúmenes en compose/K8s para sobrevivir redeploys.
+RUN mkdir -p uploads chroma_db
 
 EXPOSE 8000
+
+# Healthcheck sin curl (slim): urllib contra /api/health.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=4).status==200 else 1)"
+
 CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
