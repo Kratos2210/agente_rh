@@ -594,9 +594,11 @@ def _checkpoint_purge_sweep(settings: Settings) -> dict[str, int]:
     days = int(getattr(settings, "checkpoint_retention_days", 0) or 0)
     if days <= 0 or not _has_database_url():
         return {"purged": 0}
-    last = _state.get("checkpoint_purge_last") or 0.0
+    # Sentinel None (no 0.0): time.monotonic() arranca cerca de 0 en un host recién
+    # booteado (contenedor/CI) y el gate se saltaría el primer intervalo completo.
+    last = _state.get("checkpoint_purge_last")
     now = time.monotonic()
-    if now - last < _CHECKPOINT_PURGE_INTERVAL_SECONDS:
+    if last is not None and now - last < _CHECKPOINT_PURGE_INTERVAL_SECONDS:
         return {"purged": 0}
     _state["checkpoint_purge_last"] = now
     return {"purged": repo.purge_stale_checkpoints(days)}
@@ -655,9 +657,9 @@ def _budget_sweep(settings: Settings) -> dict[str, int]:
     import time
     from datetime import datetime, timezone
 
-    last = _state.get("budget_sweep_last") or 0.0
+    last = _state.get("budget_sweep_last")  # None (no 0.0): ver _checkpoint_purge_sweep
     now_mono = time.monotonic()
-    if now_mono - last < _BUDGET_SWEEP_INTERVAL_SECONDS:
+    if last is not None and now_mono - last < _BUDGET_SWEEP_INTERVAL_SECONDS:
         return {"alerted": 0}
     _state["budget_sweep_last"] = now_mono
 
@@ -769,9 +771,9 @@ def _sla_sweep(settings: Settings) -> dict[str, int]:
     import time
     from datetime import datetime, timezone
 
-    last = _state.get("sla_sweep_last") or 0.0
+    last = _state.get("sla_sweep_last")  # None (no 0.0): ver _checkpoint_purge_sweep
     now_mono = time.monotonic()
-    if now_mono - last < _SLA_SWEEP_INTERVAL_SECONDS:
+    if last is not None and now_mono - last < _SLA_SWEEP_INTERVAL_SECONDS:
         return {"alerted": 0}
     _state["sla_sweep_last"] = now_mono
 
@@ -839,9 +841,9 @@ def _http_snapshot_sweep(settings: Settings) -> dict[str, int]:
     minutes = int(settings.http_snapshot_minutes or 0)
     if minutes <= 0:
         return {"saved": 0}
-    last = _state.get("http_snapshot_last") or 0.0
+    last = _state.get("http_snapshot_last")  # None (no 0.0): ver _checkpoint_purge_sweep
     now_mono = time.monotonic()
-    if now_mono - last < minutes * 60:
+    if last is not None and now_mono - last < minutes * 60:
         return {"saved": 0}
     _state["http_snapshot_last"] = now_mono
 
