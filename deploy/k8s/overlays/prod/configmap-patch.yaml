@@ -1,0 +1,15 @@
+# Valores específicos de PRODUCCIÓN que se fusionan sobre el ConfigMap base.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agente-rh-config
+data:
+  # production ⇒ el arranque EXIGE secretos fuertes (assert_secure_config bloquea).
+  ENVIRONMENT: "production"
+  # Proyecto Supabase de producción (la service key va en el Secret del namespace).
+  SUPABASE_URL: "https://REEMPLAZAR-prod.supabase.co"
+  CORS_ORIGINS: "https://app.REEMPLAZAR.midominio.com"
+  # PII real: trazas de IA OFF por defecto (activarlas solo con retención acorde,
+  # Ley 29733). MCP OFF salvo que se use un cliente LLM externo autenticado.
+  LLM_TRACE_ENABLED: "false"
+  MCP_ENABLED: "false"

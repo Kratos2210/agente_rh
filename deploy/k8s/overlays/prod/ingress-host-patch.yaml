@@ -1,0 +1,31 @@
+# Host de producción para el Ingress.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agente-rh
+spec:
+  rules:
+    - host: app.REEMPLAZAR.midominio.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          - path: /mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000

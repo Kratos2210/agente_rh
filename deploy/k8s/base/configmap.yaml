@@ -1,0 +1,21 @@
+# Configuración NO sensible del backend, COMPARTIDA por todos los entornos. Los valores
+# que cambian entre dev y prod (ENVIRONMENT, SUPABASE_URL, CORS_ORIGINS, dominio del
+# Ingress) se fijan en cada overlay (overlays/dev, overlays/prod). Los secretos van en
+# secret.yaml (ver secret.example.yaml). pydantic-settings lee estas variables por el
+# NOMBRE EXACTO del campo (case-insensitive); un nombre que no matchea un campo se
+# IGNORA silenciosamente (extra="ignore") y el campo queda en su default.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agente-rh-config
+data:
+  # LLM compatible-OpenAI (Groq por defecto; la key va en el Secret).
+  # El campo pydantic es `openai_api_base` → la env var es OPENAI_API_BASE (NO
+  # OPENAI_BASE_URL: ese nombre se ignora y dejaría el LLM en el default localhost).
+  OPENAI_API_BASE: "https://api.groq.com/openai/v1"
+  OPENAI_MODEL: "qwen/qwen3-32b"
+  # Observabilidad (config-gated; cada overlay puede subirlas).
+  LOG_JSON: "true"
+  # RAG en la entrevista (índice Chroma en el volumen del pod).
+  INTERVIEW_RAG_ENABLED: "true"
+  PERSIST_DIRECTORY: "/app/chroma_db"

@@ -7,21 +7,32 @@
 #   push [tag]           Publica las imágenes (requiere REGISTRY, p. ej. ghcr.io/org).
 #   compose-up           Levanta el stack local (backend+frontend+proxy) → :3000.
 #   compose-down         Baja el stack local.
-#   validate             Valida los manifests K8s (kubeconform strict, vía Docker).
-#   k8s-apply            Aplica namespace+secret+kustomization (exige deploy/k8s/secret.yaml).
-#   k8s-status           Pods, deployments y services del namespace.
-#   scale <n> [--force]  Escala el FRONTEND a n réplicas. Para el backend exige --force:
-#                        el bot de Telegram en polling solo admite 1 consumidor por token
-#                        (ver docs/despliegue.md); escalarlo sin migrar a webhook rompe el bot.
+#   validate             Valida AMBOS overlays K8s (dev+prod) con kubeconform strict.
+#   k8s-apply <env>      Aplica el overlay <env> (dev|prod) + secret al namespace
+#                        agente-rh-<env> (exige deploy/k8s/secret.yaml).
+#   k8s-status <env>     Pods, deployments y services del namespace agente-rh-<env>.
+#   scale <env> <n> [--force]
+#                        Escala el FRONTEND a n réplicas en agente-rh-<env>. Para el
+#                        backend exige --force: el bot de Telegram en polling solo admite
+#                        1 consumidor por token (docs/despliegue.md); sin webhook rompe.
 #
-# Variables: REGISTRY (push), NAMESPACE (default agente-rh), KUBECTL (default kubectl).
+# Variables: REGISTRY (push), KUBECTL (default kubectl). El namespace se deriva del env.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NAMESPACE="${NAMESPACE:-agente-rh}"
 KUBECTL="${KUBECTL:-kubectl}"
 TAG="${2:-dev}"
+
+# Resuelve y valida el entorno (dev|prod) de un argumento posicional → namespace.
+resolve_env() {
+  local env="${1:-}"
+  case "$env" in
+    dev|prod) ;;
+    *) echo "Entorno inválido: '${env:-<vacío>}'. Usá 'dev' o 'prod'." >&2; exit 1 ;;
+  esac
+  echo "$env"
+}
 
 cmd_build() {
   docker build -f "$ROOT/Dockerfile.backend" -t "agente-rh-backend:$TAG" "$ROOT"
@@ -57,36 +68,46 @@ cmd_compose_down() {
 }
 
 cmd_validate() {
-  "$KUBECTL" kustomize "$ROOT/deploy/k8s/" \
-    | docker run --rm -i ghcr.io/yannh/kubeconform:latest -strict -summary -
+  # Valida los DOS overlays: un manifest roto en cualquier entorno falla el comando.
+  for env in dev prod; do
+    echo "== overlay $env =="
+    "$KUBECTL" kustomize "$ROOT/deploy/k8s/overlays/$env/" \
+      | docker run --rm -i ghcr.io/yannh/kubeconform:latest -strict -summary -
+  done
 }
 
 cmd_k8s_apply() {
+  local env; env="$(resolve_env "${2:-}")"
+  local ns="agente-rh-$env"
   [ -f "$ROOT/deploy/k8s/secret.yaml" ] || {
     echo "Falta deploy/k8s/secret.yaml (copiá secret.example.yaml y completalo; NO lo commitees)"
     exit 1
   }
-  "$KUBECTL" apply -f "$ROOT/deploy/k8s/namespace.yaml"
-  "$KUBECTL" apply -f "$ROOT/deploy/k8s/secret.yaml"
-  "$KUBECTL" apply -k "$ROOT/deploy/k8s/"
-  echo "OK: aplicado en el namespace $NAMESPACE"
+  # El overlay ya declara el Namespace; se aplica primero para que el secret tenga dónde ir.
+  "$KUBECTL" apply -f "$ROOT/deploy/k8s/overlays/$env/namespace.yaml"
+  "$KUBECTL" apply -f "$ROOT/deploy/k8s/secret.yaml" -n "$ns"
+  "$KUBECTL" apply -k "$ROOT/deploy/k8s/overlays/$env/"
+  echo "OK: overlay $env aplicado en el namespace $ns"
 }
 
 cmd_k8s_status() {
-  "$KUBECTL" -n "$NAMESPACE" get deployments,pods,services,ingress
+  local env; env="$(resolve_env "${2:-}")"
+  "$KUBECTL" -n "agente-rh-$env" get deployments,pods,services,ingress
 }
 
 cmd_scale() {
-  local n="${2:?Uso: deploy.sh scale <n> [--force]}"
-  local force="${3:-}"
-  "$KUBECTL" -n "$NAMESPACE" scale deployment/frontend --replicas="$n"
-  echo "OK: frontend → $n réplicas"
+  local env; env="$(resolve_env "${2:-}")"
+  local ns="agente-rh-$env"
+  local n="${3:?Uso: deploy.sh scale <env> <n> [--force]}"
+  local force="${4:-}"
+  "$KUBECTL" -n "$ns" scale deployment/frontend --replicas="$n"
+  echo "OK: frontend ($env) → $n réplicas"
   if [ "$force" = "--force" ]; then
-    "$KUBECTL" -n "$NAMESPACE" scale deployment/backend --replicas="$n"
+    "$KUBECTL" -n "$ns" scale deployment/backend --replicas="$n"
     echo "⚠️  backend → $n réplicas con --force: asegurate de haber migrado el bot a webhook"
   else
     echo "ℹ️  backend queda en 1 réplica: el polling de Telegram solo admite un consumidor"
-    echo "   por token (docs/despliegue.md). Para forzarlo: deploy.sh scale $n --force"
+    echo "   por token (docs/despliegue.md). Para forzarlo: deploy.sh scale $env $n --force"
   fi
 }
 
@@ -96,8 +117,8 @@ case "${1:-}" in
   compose-up)   cmd_compose_up ;;
   compose-down) cmd_compose_down ;;
   validate)     cmd_validate ;;
-  k8s-apply)    cmd_k8s_apply ;;
-  k8s-status)   cmd_k8s_status ;;
+  k8s-apply)    cmd_k8s_apply "$@" ;;
+  k8s-status)   cmd_k8s_status "$@" ;;
   scale)        cmd_scale "$@" ;;
   *)            grep '^#' "$0" | sed 's/^# \{0,1\}//' | sed -n '2,20p'; exit 1 ;;
 esac

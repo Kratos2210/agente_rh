@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Overlay de PRODUCCIÓN. ENVIRONMENT=production ⇒ api.auth.assert_secure_config
+# BLOQUEA el arranque si JWT_SECRET/JWT_SECRET_PREVIOUS son débiles/default o
+# ADMIN_PASSWORD tiene <12 chars. Fija el tag de imagen versionado y el dominio real.
+namespace: agente-rh-prod
+resources:
+  - namespace.yaml
+  - ../../base
+images:
+  # En prod se despliega un tag INMUTABLE y versionado (no `latest`): reemplazar por el
+  # registry/tag reales al publicar (o `kustomize edit set image` desde CI/deploy.sh).
+  - name: agente-rh-backend
+    newName: REEMPLAZAR-registry/agente-rh-backend
+    newTag: v1
+  - name: agente-rh-frontend
+    newName: REEMPLAZAR-registry/agente-rh-frontend
+    newTag: v1
+patches:
+  - path: configmap-patch.yaml
+  - path: ingress-host-patch.yaml

@@ -1,0 +1,14 @@
+# Valores específicos de DEV que se fusionan sobre el ConfigMap base.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agente-rh-config
+data:
+  # development ⇒ assert_secure_config solo advierte (no bloquea el arranque).
+  ENVIRONMENT: "development"
+  # Proyecto Supabase de dev/staging (la service key va en el Secret del namespace).
+  SUPABASE_URL: "https://REEMPLAZAR-dev.supabase.co"
+  CORS_ORIGINS: "https://dev.REEMPLAZAR.midominio.com,http://localhost:3000"
+  # Trazas de IA ON en dev para depurar (incluyen PII: aceptable en datos de prueba).
+  LLM_TRACE_ENABLED: "true"
+  MCP_ENABLED: "false"

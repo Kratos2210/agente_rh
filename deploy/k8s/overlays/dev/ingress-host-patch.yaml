@@ -1,17 +1,11 @@
-# Única entrada pública: /api/* al backend, el resto al frontend — el mismo patrón
-# del Caddyfile de compose, en versión Ingress (nginx). TLS: agregar cert-manager
-# o el anotado del proveedor cloud.
+# Host de dev para el Ingress.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: agente-rh
-  namespace: agente-rh
-  annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "25m" # PDFs del candidato (límite app: 20 MB)
 spec:
-  ingressClassName: nginx
   rules:
-    - host: agente-rh.REEMPLAZAR.midominio.com
+    - host: dev.REEMPLAZAR.midominio.com
       http:
         paths:
           - path: /api

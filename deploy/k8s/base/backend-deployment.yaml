@@ -2,7 +2,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend
-  namespace: agente-rh
   labels:
     app.kubernetes.io/name: agente-rh
     app.kubernetes.io/component: backend

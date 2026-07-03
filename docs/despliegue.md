@@ -28,8 +28,33 @@ La DB es Supabase local (`supabase start` en el host; el compose redirige
 `host.docker.internal`) o un proyecto cloud. Es el camino de evaluación y de
 instalaciones de una sola máquina.
 
-### 2. Kubernetes (producción) — `deploy/k8s/`
-Manifests declarativos con namespace, ConfigMap/Secret, probes y recursos.
+### 2. Kubernetes (dev/prod) — `deploy/k8s/`
+Manifests declarativos con **base + overlays kustomize por entorno**
+(`base/` común; `overlays/dev/` y `overlays/prod/`). Cada entorno vive en su propio
+namespace (`agente-rh-dev` / `agente-rh-prod`) y difiere en lo que importa:
+
+| | dev | prod |
+|---|---|---|
+| `ENVIRONMENT` | `development` (el arranque solo AVISA ante secretos débiles) | `production` (**bloquea** el arranque: `assert_secure_config`) |
+| Imagen | tag `dev` | registry + tag versionado (no `latest`) |
+| Frontend réplicas | 1 | 2 |
+| Recursos backend | reducidos | plenos |
+| Dominio Ingress / CORS | dev | prod |
+
+Aplicar (el secret NO se commitea; se aplica al namespace del entorno):
+
+```bash
+cp deploy/k8s/secret.example.yaml deploy/k8s/secret.yaml   # completar
+deploy/deploy.sh validate            # valida AMBOS overlays (kubeconform strict)
+deploy/deploy.sh k8s-apply prod      # o 'dev' → namespace agente-rh-prod
+deploy/deploy.sh k8s-status prod
+```
+
+> ⚠️ **Nombres de env var**: pydantic lee por el nombre EXACTO del campo
+> (`OPENAI_API_BASE`, `ENVIRONMENT`, …) e **ignora** los que no matchean. El ConfigMap
+> anterior usaba `OPENAI_BASE_URL`/`APP_ENV` (ignorados) → el LLM caía al default
+> localhost y el gate de producción no se activaba. Corregido en el `base/configmap.yaml`.
+
 Particularidades honestas (no son plantilla genérica):
 
 - **Backend `replicas: 1`** con `strategy: Recreate`. La restricción NO es el diseño

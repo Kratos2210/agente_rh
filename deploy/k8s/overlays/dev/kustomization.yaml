@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Overlay de DESARROLLO / staging. ENVIRONMENT=development ⇒ el arranque solo AVISA
+# ante secretos débiles (no bloquea, ver api.auth.assert_secure_config). Namespace,
+# réplicas y recursos reducidos frente a prod.
+namespace: agente-rh-dev
+resources:
+  - namespace.yaml
+  - ../../base
+images:
+  - name: agente-rh-backend
+    newTag: dev
+  - name: agente-rh-frontend
+    newTag: dev
+replicas:
+  # El dashboard no necesita 2 réplicas en dev. (El backend queda en 1 desde la base:
+  # el bot de Telegram en polling solo admite un consumidor por token.)
+  - name: frontend
+    count: 1
+patches:
+  - path: configmap-patch.yaml
+  - path: backend-resources-patch.yaml
+  - path: ingress-host-patch.yaml

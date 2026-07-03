@@ -49,10 +49,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validar manifests (kubeconform)
+      - name: Validar overlays dev y prod (kubeconform)
         run: |
-          kubectl kustomize deploy/k8s/ > /tmp/rendered.yaml
-          docker run --rm -i ghcr.io/yannh/kubeconform:latest -strict -summary - < /tmp/rendered.yaml
+          for env in dev prod; do
+            echo "== overlay $env =="
+            kubectl kustomize "deploy/k8s/overlays/$env/" > "/tmp/rendered-$env.yaml"
+            docker run --rm -i ghcr.io/yannh/kubeconform:latest -strict -summary - < "/tmp/rendered-$env.yaml"
+          done
 
   prompt-version-gate:
     # Cambiar agent/prompts.py exige subir PROMPT_VERSION (y correr la suite golden).
