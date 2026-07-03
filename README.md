@@ -52,7 +52,7 @@ en Postgres → el contenedor es reemplazable sin perder conversaciones.
 # 1) Dependencias
 uv sync --extra dev
 
-# 2) Base de datos local (aplica las 25 migraciones de supabase/migrations/)
+# 2) Base de datos local (aplica las 26 migraciones de supabase/migrations/)
 supabase start
 supabase migration up
 

@@ -93,18 +93,22 @@ def test_run_prescreen_in_range(capsys):
     assert golden_eval.run_prescreen(_FakeLLM('{"pre_score": 10, "summary": "no", "per_requirement": []}'), cases) == 1
 
 
-# ── Juez de groundedness: helpers puros ───────────────────────────────────────
+# ── Juez de calidad: helpers puros (evaluation/quality.py, compartido) ─────────
 
-def test_judge_verdict_parses_and_defaults_conservative():
-    ok, reason = judge.judge_verdict('{"grounded": true, "reason": "usa el aviso"}')
-    assert ok is True and reason == "usa el aviso"
-    bad, reason = judge.judge_verdict('{"grounded": false, "reason": "inventa salario"}')
-    assert bad is False
-    # Veredicto ilegible → conservador: NO fundamentado.
-    illegible, reason = judge.judge_verdict("no soy json")
-    assert illegible is False and "ilegible" in reason
+def test_judge_verdict_parses_grounded_and_relevance():
+    from evaluation.quality import judge_verdict
+
+    v = judge_verdict('{"grounded": true, "answer_relevant": true, "reason": "usa el aviso"}')
+    assert v["grounded"] is True and v["answer_relevant"] is True and v["reason"] == "usa el aviso"
+    v = judge_verdict('{"grounded": false, "answer_relevant": true, "reason": "inventa salario"}')
+    assert v["grounded"] is False and v["answer_relevant"] is True
+    # Veredicto ilegible → conservador: NO fundamentado NI relevante.
+    v = judge_verdict("no soy json")
+    assert v["grounded"] is False and v["answer_relevant"] is False and "ilegible" in v["reason"]
 
 
-def test_grounded_rate():
-    assert judge.grounded_rate([True, True, False, True]) == 0.75
-    assert judge.grounded_rate([]) == 1.0
+def test_quality_rate():
+    from evaluation.quality import rate
+
+    assert rate([True, True, False, True]) == 0.75
+    assert rate([]) == 1.0

@@ -244,6 +244,14 @@ export interface SlaAlertsConfig {
   turn_p95_ms: number;   // umbral p95 de latencia del turno, últimas 24 h (0 = sin umbral)
 }
 
+// Medición continua de calidad (paso 4): juzga trazas answer 1×/día.
+export interface QualityAlertsConfig {
+  enabled: boolean;
+  sample: number;        // trazas a muestrear por día
+  min_rate: number;      // umbral de fundamentación (0..1)
+  notify_email: string;
+}
+
 export interface PerCriterion {
   question: string;
   label?: string;
@@ -441,6 +449,9 @@ export const api = {
   getSlaAlerts: () => req<SlaAlertsConfig>("/api/settings/sla-alerts"),
   setSlaAlerts: (body: SlaAlertsConfig) =>
     req<SlaAlertsConfig>("/api/settings/sla-alerts", { method: "PUT", body: JSON.stringify(body) }),
+  getQualityAlerts: () => req<QualityAlertsConfig>("/api/settings/quality-alerts"),
+  setQualityAlerts: (body: QualityAlertsConfig) =>
+    req<QualityAlertsConfig>("/api/settings/quality-alerts", { method: "PUT", body: JSON.stringify(body) }),
   // Observabilidad (solo admin).
   getOpsAlerts: () => req<{ alerts: OpsAlert[] }>("/api/ops/alerts"),
   getAudit: () => req<AuditEntry[]>("/api/audit"),
@@ -450,9 +461,19 @@ export const api = {
   eraseCandidate: (id: string) =>
     req<{ deleted: boolean }>(`/api/candidates/${id}`, { method: "DELETE" }),
   getHttpMetrics: () => req<{ routes: HttpRouteMetric[] }>("/api/ops/http-metrics"),
+  getQuality: () => req<{ metrics: QualityMetric[] }>("/api/ops/quality"),
   getTraces: (candidateId: string) =>
     req<{ items: LlmTrace[] }>(`/api/candidates/${candidateId}/traces`),
 };
+
+// Signo vital de calidad (paso 4): tasa diaria de fundamentación/relevancia del bot.
+export interface QualityMetric {
+  metric: "grounded" | "answer_relevance" | string;
+  day: string;
+  rate: number;
+  sample_size: number;
+  threshold: number;
+}
 
 // Traza LLM cruda (O-1): una llamada al modelo (prompt/respuesta) — solo admin.
 export interface LlmTrace {

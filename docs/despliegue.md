@@ -100,7 +100,7 @@ miles/s); el diseño deja el camino pavimentado en vez de pagar hoy la complejid
 
 ## Requisitos transversales (cualquier camino)
 
-- **Migraciones**: `supabase/migrations/0001..0025` aplicadas ANTES del primer arranque
+- **Migraciones**: `supabase/migrations/0001..0026` aplicadas ANTES del primer arranque
   (CLI `supabase db push` o psql). Gotcha conocido: tras DDL por psql directo,
   `NOTIFY pgrst, 'reload schema'`.
 - **Secretos**: `assert_secure_config` bloquea el arranque en producción con secretos

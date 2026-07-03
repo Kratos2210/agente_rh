@@ -916,6 +916,41 @@ embeddings) para responder dudas del candidato sobre el puesto.
   localhost — `setWebhook` reemplazaría su registro de polling). Siguiente del roadmap: paso 4 (medición
   continua de calidad) — **preguntar antes de arrancar**.
 
+- **2026-07-03 — Roadmap paso 4 (MEDICIÓN CONTINUA DE CALIDAD · signo vital)**: ataca el Riesgo 3
+  (calidad LLM sin medición continua); convierte la evaluación de "foto offline" en "signo vital".
+  (1) **Juez compartido** `evaluation/quality.py`: prompt extendido que evalúa en UNA llamada
+  **fundamentación** (¿la respuesta se apoya solo en la info de la vacante?) + **relevancia de
+  respuesta** (¿atiende la pregunta?); helpers puros `judge_verdict` (dict, conservador: ilegible =
+  no fundamentado/no relevante) + `rate`. `scripts/groundedness_judge.py` refactorizado para reusarlo
+  (ahora reporta ambas dimensiones). (2) **Migración `0026_quality_metrics.sql`** (aplicada en vivo por
+  `docker exec -i psql` + `NOTIFY pgrst`, patrón conocido): tabla `quality_metrics`
+  (tenant_id/metric/day/rate/sample_size/threshold, unique(tenant,metric,day), RLS por tenant patrón
+  0018) + seed `app_settings.quality_alerts` {enabled:false, sample:20, min_rate:0.9, notify_email}.
+  Repos: `list_llm_traces_by_stage_since` (con vacancy_id→tenant), `save_quality_metric` (upsert
+  idempotente), `list_quality_metrics`. (3) **`_quality_sweep`** en el scheduler (patrón budget/SLA,
+  a lo sumo cada 60 min; trabajo real 1×/día por dedupe `quality_swept`): por cada tenant con
+  quality_alerts activo, muestrea sus trazas `answer` de 24 h, las juzga (LLM lazy cacheado en `_state`,
+  gated), **persiste** ambas tasas en `quality_metrics` y **alerta** 1×/día (correo `ops_email` vía
+  outbox, reusa `_alert_recipient` del paso 3) si la fundamentación cae bajo `min_rate`. Default OFF
+  (consume LLM + requiere `LLM_TRACE_ENABLED` para tener trazas). Helpers puros `_traces_by_tenant`.
+  Cableado en `_scheduler_loop`. (4) **Endpoints**: `GET/PUT /api/settings/quality-alerts` (PUT admin,
+  auditado, `QualityAlertsIn` valida sample 1–200 / min_rate 0–1) + `GET /api/ops/quality` (admin,
+  por tenant). (5) **Signo vital en el dashboard**: tarjeta "Calidad de las respuestas (IA)" en
+  `/observabilidad` (tasas del día con color semáforo vs umbral) + tarjeta de config en
+  `/configuracion` (toggle + muestra + mínimo + correo). (6) **Golden de RECUPERACIÓN** (cierra la
+  brecha 2.2.3 "sin métricas de retrieval", offline SIN LLM): `tests/golden/retrieval_set.json` (6
+  dudas de la vacante demo → substring esperado) + `scripts/retrieval_eval.py` (corre el retriever real
+  de `agent/rag.py` sobre `company_kb`, mide **hit@k**, exit 1 bajo `min_hit_rate`; helpers puros
+  `hit`/`evaluate_retrieval`/`hit_rate`). **320/320 tests (+12 `test_quality.py`: juez, sweep con fakes
+  —persiste 2 métricas, alerta bajo umbral, dedupe, no-op sin tenants, skip sin trazas—, endpoints
+  RBAC/tenant, ops/quality, golden de retrieval con retriever fake; `test_golden_harness` migrado al
+  módulo nuevo); tsc + build OK.** **Verificado en vivo** (Supabase local): `0026` aplicada (tabla+RLS+
+  seed); round-trip real de `save/list_quality_metric` (upsert idempotente, no duplica); endpoints
+  contra backend real → GET default off, PUT persiste, ops/quality vacío, 401 sin token. **Pendiente
+  (menor)**: relevancia de CONTEXTO/retrieval con juez (RAGAS-like) sobre las trazas —el golden de
+  retrieval ya cubre hit@k offline; actualizar `/guia` con el paso 4. Siguiente del roadmap: paso 5
+  (optimización de costos, oportunista según volumen) — **preguntar antes de arrancar**.
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.

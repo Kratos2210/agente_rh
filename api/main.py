@@ -30,6 +30,7 @@ from api.ratelimit import SlidingWindowLimiter
 from api.runtime import (  # noqa: F401 — re-export (compat tests/consumidores)
     _DEFAULT_AUTO_CONTACT,
     _DEFAULT_INACTIVITY,
+    _DEFAULT_QUALITY_ALERTS,
     _DEFAULT_RETENTION,
     _DEFAULT_SCHEDULING,
     _RETENTION_STATUSES,
@@ -54,6 +55,7 @@ from api.scheduler import (  # noqa: F401 — re-export (compat tests/consumidor
     _inactivity_sweep,
     _is_working_now,
     _prune_fired_slots,
+    _quality_sweep,
     _reconcile_scheduling_stuck,
     _reconciliation_sweep,
     _reminder_messages,

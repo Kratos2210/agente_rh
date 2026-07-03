@@ -17,6 +17,7 @@ from api.runtime import (
     _DEFAULT_INACTIVITY,
     _DEFAULT_LLM_BUDGET,
     _DEFAULT_LLM_PRICING,
+    _DEFAULT_QUALITY_ALERTS,
     _DEFAULT_RETENTION,
     _DEFAULT_SCHEDULING,
     _DEFAULT_SLA_ALERTS,
@@ -833,6 +834,136 @@ def _sla_sweep(settings: Settings) -> dict[str, int]:
     return report
 
 
+# ── Medición continua de calidad (paso 4) ─────────────────────────────────────────
+
+# El juez consume LLM: basta chequear cada 60 min (el trabajo real es 1×/día por el dedupe).
+_QUALITY_SWEEP_INTERVAL_SECONDS = 60 * 60
+
+
+def _quality_judge_llm():
+    """LLM juez, construido perezosamente una vez por proceso (cacheado en _state)."""
+    llm = _state.get("quality_llm")
+    if llm is None:
+        from agent.llm import build_default_llm
+
+        llm = build_default_llm()
+        _state["quality_llm"] = llm
+    return llm
+
+
+def _traces_by_tenant(traces: list[dict[str, Any]], vac_tenant: dict[str, str]) -> dict[str, list[dict]]:
+    """Agrupa trazas por tenant (vía vacancy_id → tenant). Pura."""
+    out: dict[str, list[dict]] = {}
+    for t in traces:
+        tid = vac_tenant.get(t.get("vacancy_id"))
+        if tid:
+            out.setdefault(tid, []).append(t)
+    return out
+
+
+def _judge_traces(llm, traces: list[dict[str, Any]]) -> tuple[list[bool], list[bool]]:
+    """Juzga cada traza (fundamentación + relevancia). Devuelve (grounded[], relevant[])."""
+    from agent.llm import complete_staged
+    from evaluation.quality import QUALITY_JUDGE_PROMPT, judge_verdict
+
+    grounded: list[bool] = []
+    relevant: list[bool] = []
+    for t in traces:
+        try:
+            raw = complete_staged(
+                llm,
+                QUALITY_JUDGE_PROMPT.format(
+                    prompt=t.get("prompt_text", ""), response=t.get("response_text", "")
+                ),
+                "judge",
+            )
+            v = judge_verdict(raw)
+        except Exception:  # noqa: BLE001 — un fallo del juez cuenta conservador (no fundamentado)
+            logger.exception("Juez de calidad falló en una traza")
+            v = {"grounded": False, "answer_relevant": False}
+        grounded.append(v["grounded"])
+        relevant.append(v["answer_relevant"])
+    return grounded, relevant
+
+
+def _quality_sweep(settings: Settings) -> dict[str, int]:
+    """Medición continua de calidad (paso 4): 1×/día por tenant con `quality_alerts` activo,
+    muestrea sus trazas `answer` de las últimas 24 h, las juzga (fundamentación + relevancia),
+    PERSISTE ambas tasas en `quality_metrics` (signo vital del dashboard) y alerta UNA vez por
+    día si la fundamentación cae bajo `min_rate`. Corre a lo sumo cada 60 min; el trabajo real
+    (que gasta LLM) ocurre una vez por día gracias al dedupe `quality_swept`."""
+    import time
+    from datetime import datetime, timezone
+
+    from evaluation.quality import METRIC_ANSWER_RELEVANCE, METRIC_GROUNDED, rate
+
+    last = _state.get("quality_sweep_last")  # None (no 0.0): ver _checkpoint_purge_sweep
+    now_mono = time.monotonic()
+    if last is not None and now_mono - last < _QUALITY_SWEEP_INTERVAL_SECONDS:
+        return {"tenants": 0, "alerted": 0}
+    _state["quality_sweep_last"] = now_mono
+
+    # ¿Algún tenant con calidad activa? Si no, ni construimos el LLM ni tocamos trazas.
+    enabled: dict[str, dict[str, Any]] = {}
+    for tenant in repo.list_tenants():
+        tid = tenant["id"]
+        cfg = repo.get_app_setting("quality_alerts", _DEFAULT_QUALITY_ALERTS, tid) or {}
+        if cfg.get("enabled"):
+            enabled[tid] = cfg
+    if not enabled:
+        return {"tenants": 0, "alerted": 0}
+
+    report = {"tenants": 0, "alerted": 0}
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    swept: set[str] = _state.setdefault("quality_swept", set())
+    swept -= {k for k in swept if k.split("|")[0] != today}  # purga días previos
+
+    since = _day_ago_iso()
+    max_sample = max(int(c.get("sample", 20) or 20) for c in enabled.values())
+    traces = repo.list_llm_traces_by_stage_since("answer", since, limit=max(1, max_sample) * 8)
+    by_tenant = _traces_by_tenant(traces, _vacancy_tenant_map())
+
+    for tid, cfg in enabled.items():
+        if f"{today}|{tid}" in swept:
+            continue
+        sample = (by_tenant.get(tid) or [])[: int(cfg.get("sample", 20) or 20)]
+        if not sample:
+            continue  # sin trazas answer (¿LLM_TRACE_ENABLED off?): nada que medir hoy
+        swept.add(f"{today}|{tid}")
+        report["tenants"] += 1
+        min_rate = float(cfg.get("min_rate", 0.9) or 0.9)
+        grounded, relevant = _judge_traces(_quality_judge_llm(), sample)
+        g_rate, r_rate = rate(grounded), rate(relevant)
+        repo.save_quality_metric(tid, METRIC_GROUNDED, today, g_rate, len(sample), min_rate)
+        repo.save_quality_metric(tid, METRIC_ANSWER_RELEVANCE, today, r_rate, len(sample), min_rate)
+        logger.info(
+            "Calidad (tenant %s): fundamentación %.0f%% · relevancia %.0f%% (n=%d)",
+            tid, g_rate * 100, r_rate * 100, len(sample),
+        )
+        if g_rate < min_rate:
+            report["alerted"] += 1
+            detail = (
+                f"Calidad de respuestas: fundamentación {g_rate:.0%} en {len(sample)} muestra(s) "
+                f"de las últimas 24 h, bajo el mínimo de {min_rate:.0%}. Relevancia {r_rate:.0%}. "
+                f"Revisar company_info/prompt (o correr scripts/groundedness_judge.py)."
+            )
+            logger.warning("Calidad (tenant %s): %s", tid, detail)
+            email = _alert_recipient(cfg, settings)
+            if email:
+                outbox.deliver(
+                    settings,
+                    "ops_email",
+                    {
+                        "recipients": [email],
+                        "subject": f"⚠ Calidad LLM: fundamentación bajo el umbral ({today})",
+                        "text": detail,
+                        "html": f"<p>{detail}</p>",
+                    },
+                    tenant_id=tid,
+                )
+    return report
+
+
 # ── Snapshot de métricas HTTP a DB (O-6) ──────────────────────────────────────────
 
 def _http_snapshot_sweep(settings: Settings) -> dict[str, int]:
@@ -943,6 +1074,10 @@ async def _scheduler_loop() -> None:
             sla = await asyncio.to_thread(_sla_sweep, settings)
             if sla.get("alerted"):
                 logger.info("SLA → %s", sla)
+            # Calidad continua (paso 4): juzga trazas answer 1×/día por tenant → quality_metrics.
+            quality = await asyncio.to_thread(_quality_sweep, settings)
+            if quality.get("tenants"):
+                logger.info("Calidad → %s", quality)
             # Snapshot de métricas HTTP a DB (O-6): historial que sobrevive redeploys.
             snap = await asyncio.to_thread(_http_snapshot_sweep, settings)
             if snap.get("saved"):

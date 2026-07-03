@@ -940,9 +940,59 @@ def list_llm_traces_by_stage(stage: str, limit: int = 50) -> list[dict[str, Any]
     )
 
 
+def list_llm_traces_by_stage_since(stage: str, since_iso: str, limit: int = 500) -> list[dict[str, Any]]:
+    """Trazas de una etapa con respuesta desde `since_iso`, con `vacancy_id` para mapear al
+    tenant (barrido de calidad — paso 4). De la más reciente a la más antigua."""
+    return (
+        get_supabase().table("llm_traces")
+        .select("id,vacancy_id,candidate_id,stage,model,prompt_text,response_text,created_at")
+        .eq("stage", stage)
+        .not_.is_("response_text", "null")
+        .gte("created_at", since_iso)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+        .data
+        or []
+    )
+
+
 def delete_llm_traces_by_candidate(candidate_id: str) -> None:
     """Purga las trazas de un candidato (retención/erasure: los prompts llevan PII)."""
     get_supabase().table("llm_traces").delete().eq("candidate_id", candidate_id).execute()
+
+
+# ── Métricas de calidad (signo vital — paso 4) ────────────────────────────────
+
+def save_quality_metric(
+    tenant_id: str, metric: str, day: str, rate: float, sample_size: int, threshold: float
+) -> None:
+    """Upsert idempotente de la métrica de calidad del día (tenant, metric, day)."""
+    get_supabase().table("quality_metrics").upsert(
+        {
+            "tenant_id": tenant_id,
+            "metric": metric,
+            "day": day,
+            "rate": rate,
+            "sample_size": sample_size,
+            "threshold": threshold,
+        },
+        on_conflict="tenant_id,metric,day",
+    ).execute()
+
+
+def list_quality_metrics(tenant_id: str, limit: int = 60) -> list[dict[str, Any]]:
+    """Métricas de calidad recientes de un tenant (todas las métricas), del día más reciente
+    al más antiguo — para la tendencia del dashboard."""
+    return (
+        get_supabase().table("quality_metrics").select("*")
+        .eq("tenant_id", tenant_id)
+        .order("day", desc=True)
+        .limit(limit)
+        .execute()
+        .data
+        or []
+    )
 
 
 def _usage_rows(vacancy_id: Optional[str] = None) -> list[dict[str, Any]]:

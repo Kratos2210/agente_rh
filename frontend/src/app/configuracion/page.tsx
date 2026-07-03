@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Shell, Card, BackLink } from "@/components/Shell";
-import { api, errorMessage, AutoContactConfig, InactivityConfig, LlmBudgetConfig, LlmPricingConfig, SchedulingConfig, SlaAlertsConfig } from "@/lib/api";
+import { api, errorMessage, AutoContactConfig, InactivityConfig, LlmBudgetConfig, LlmPricingConfig, QualityAlertsConfig, SchedulingConfig, SlaAlertsConfig } from "@/lib/api";
 
 // Fila editable del precio de un modelo (los montos se editan como texto y se parsean al guardar).
 type PriceRow = { model: string; input: string; output: string };
@@ -31,6 +31,9 @@ export default function ConfiguracionPage() {
   const [sla, setSla] = useState<SlaAlertsConfig | null>(null);
   const [savingSla, setSavingSla] = useState(false);
   const [msgSla, setMsgSla] = useState("");
+  const [quality, setQuality] = useState<QualityAlertsConfig | null>(null);
+  const [savingQuality, setSavingQuality] = useState(false);
+  const [msgQuality, setMsgQuality] = useState("");
 
   useEffect(() => {
     api
@@ -55,6 +58,7 @@ export default function ConfiguracionPage() {
       .catch((e) => setError(errorMessage(e)));
     api.getLlmBudget().then(setBudget).catch((e) => setError(errorMessage(e)));
     api.getSlaAlerts().then(setSla).catch((e) => setError(errorMessage(e)));
+    api.getQualityAlerts().then(setQuality).catch((e) => setError(errorMessage(e)));
   }, []);
 
   const saveSla = async () => {
@@ -72,6 +76,25 @@ export default function ConfiguracionPage() {
       setMsgSla("Error: " + errorMessage(e));
     } finally {
       setSavingSla(false);
+    }
+  };
+
+  const saveQuality = async () => {
+    if (!quality) return;
+    setSavingQuality(true);
+    setMsgQuality("");
+    try {
+      const saved = await api.setQualityAlerts({
+        ...quality,
+        sample: Math.min(200, Math.max(1, Number(quality.sample) || 20)),
+        min_rate: Math.min(1, Math.max(0, Number(quality.min_rate) || 0.9)),
+      });
+      setQuality(saved);
+      setMsgQuality("Configuración guardada ✅");
+    } catch (e) {
+      setMsgQuality("Error: " + errorMessage(e));
+    } finally {
+      setSavingQuality(false);
     }
   };
 
@@ -525,6 +548,51 @@ export default function ConfiguracionPage() {
               {savingSla ? "Guardando…" : "Guardar"}
             </button>
             {msgSla && <span className="text-sm" style={{ color: "var(--accent)" }}>{msgSla}</span>}
+          </div>
+        </Card>
+      )}
+
+      {quality && (
+        <Card style={{ marginTop: 16 }}>
+          <h2 className="font-semibold mb-1">Calidad de las respuestas (IA)</h2>
+          <p className="text-sm mb-4" style={{ color: "var(--muted)" }}>
+            Un juez LLM revisa a diario una muestra de las respuestas reales del bot y mide su
+            <strong> fundamentación</strong> (¿se apoya solo en la info de la vacante?) y
+            <strong> relevancia</strong>. Persiste la tendencia en Observabilidad y envía un correo
+            si la fundamentación cae bajo el mínimo. Requiere trazas activas (LLM_TRACE_ENABLED).
+          </p>
+          <label className="flex items-center gap-3 mb-3 cursor-pointer">
+            <input type="checkbox" checked={quality.enabled}
+              onChange={(e) => setQuality({ ...quality, enabled: e.target.checked })}
+              style={{ width: 18, height: 18, accentColor: "var(--accent)" }} />
+            <span className="text-sm font-medium">Activar medición continua de calidad</span>
+          </label>
+          <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr 2fr", maxWidth: 640 }}>
+            <div>
+              <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>Muestra por día</label>
+              <input type="number" min={1} max={200} value={quality.sample}
+                onChange={(e) => setQuality({ ...quality, sample: Number(e.target.value) })}
+                className="px-3 py-2 rounded-lg w-full" style={inputStyle} />
+            </div>
+            <div>
+              <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>Mínimo fundamentación (%)</label>
+              <input type="number" min={0} max={100} value={Math.round(quality.min_rate * 100)}
+                onChange={(e) => setQuality({ ...quality, min_rate: Number(e.target.value) / 100 })}
+                className="px-3 py-2 rounded-lg w-full" style={inputStyle} />
+            </div>
+            <div>
+              <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>Correo de aviso</label>
+              <input value={quality.notify_email} placeholder="ops@empresa.com"
+                onChange={(e) => setQuality({ ...quality, notify_email: e.target.value })}
+                className="px-3 py-2 rounded-lg w-full" style={inputStyle} />
+            </div>
+          </div>
+          <div className="mt-4 flex items-center gap-3">
+            <button onClick={saveQuality} disabled={savingQuality} className="px-4 py-2 rounded-lg font-medium"
+              style={{ background: "var(--accent)", color: "var(--accent-ink)", opacity: savingQuality ? 0.6 : 1 }}>
+              {savingQuality ? "Guardando…" : "Guardar"}
+            </button>
+            {msgQuality && <span className="text-sm" style={{ color: "var(--accent)" }}>{msgQuality}</span>}
           </div>
         </Card>
       )}
