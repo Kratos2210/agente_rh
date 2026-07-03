@@ -46,7 +46,7 @@ const GUIA_HTML = `
   <a href="#sourcing">7 · Sourcing &amp; pre-filtro</a>
   <a href="#agendamiento">8 · Agendamiento &amp; multi-etapa</a>
   <a href="#seguridad">9 · Seguridad &amp; multi-empresa</a>
-  <a href="#confiabilidad">10 · Confiabilidad</a>
+  <a href="#confiabilidad">10 · Confiabilidad &amp; observabilidad</a>
   <a href="#llm">11 · IA &amp; prompts</a>
   <a href="#apis">12 · APIs</a>
   <a href="#datos">13 · Datos</a>
@@ -393,10 +393,11 @@ const GUIA_HTML = `
 
 <!-- 10 -->
 <section id="confiabilidad">
-  <h2><span class="num">10</span>Confiabilidad &amp; operación</h2>
+  <h2><span class="num">10</span>Confiabilidad &amp; observabilidad</h2>
   <div class="simple">🟢 <b>En simple:</b> las cosas fallan (se cae el correo, un candidato no responde,
-  Google no contesta). El sistema está pensado para <b>no perder información</b> y para <b>avisar</b> en
-  vez de romperse en silencio.</div>
+  Google no contesta). El sistema está pensado para <b>no perder información</b>, para <b>avisar</b> en
+  vez de romperse en silencio, y para que se pueda <b>ver</b> qué hace la IA, cuánto cuesta y qué tan
+  rápido responde.</div>
   <div class="grid g2">
     <div class="card"><h4>📤 Cola de envíos (outbox)</h4>
       <p>Correos y avisos de Telegram pasan por una cola durable. Si fallan, se reintentan con esperas
