@@ -85,8 +85,8 @@ const GUIA_HTML = `
   <h2><span class="num">1</span>Qué hace (visión funcional)</h2>
   <div class="simple">🟢 <b>En simple:</b> una empresa publica una vacante; el agente busca postulantes,
   descarta a los que no cumplen el perfil, entrevista por chat a los aptos, los califica y le pasa a
-  RR.HH. una lista priorizada con un botón para "continuar" o "descartar". Si continúa, agenda una
-  reunión por videollamada con ambos.</div>
+  RR.HH. una lista priorizada con un botón para "continuar" o "descartar". Si continúa, coordina las
+  entrevistas de todo el proceso (RR.HH., líder del proyecto y gerencia) hasta la contratación.</div>
 
   <h3>El recorrido, de principio a fin</h3>
   <div class="flow">
@@ -108,11 +108,13 @@ const GUIA_HTML = `
     <div class="step"><b>8 · Decisión</b>RR.HH. aprueba o descarta desde el dashboard.</div>
   </div>
   <div class="flow">
-    <div class="step"><b>9 · Agendamiento</b>Se proponen 2-3 horarios libres del reclutador.</div>
+    <div class="step"><b>9 · Agendamiento</b>Se proponen 2-3 horarios libres del entrevistador; el candidato elige y se crea el evento (Meet si es virtual) + correo a ambos + registro en Sheets.</div>
     <div class="arr">→</div>
-    <div class="step"><b>10 · Reunión</b>El candidato elige; se crea el evento con enlace de Google Meet.</div>
+    <div class="step"><b>10 · Entrevista RR.HH.</b>Virtual. Al terminar, RR.HH. registra asistencia y feedback.</div>
     <div class="arr">→</div>
-    <div class="step"><b>11 · Aviso</b>Correo a ambos + registro en Google Sheets.</div>
+    <div class="step"><b>11 · Líder y gerencia</b>Dos etapas más (presencial o Meet), cada una con su feedback y decisión.</div>
+    <div class="arr">→</div>
+    <div class="step"><b>12 · Contratado 🎉</b>Aprobada la etapa final, el candidato recibe el aviso de contratación.</div>
   </div>
 
   <div class="grid g2">
@@ -172,11 +174,11 @@ const GUIA_HTML = `
       <tr><td class="file">integrations/</td><td>Sourcing (portales de empleo) y agendamiento (Google Calendar/Meet/Sheets).</td></tr>
       <tr><td class="file">notifications/</td><td>Correo al reclutador, aviso al candidato y la cola durable de envíos (outbox).</td></tr>
       <tr><td class="file">db/</td><td>Cliente de Supabase y funciones de lectura/escritura (repositorios).</td></tr>
-      <tr><td class="file">supabase/migrations/</td><td>Los 18 cambios de esquema de la base de datos, versionados.</td></tr>
+      <tr><td class="file">supabase/migrations/</td><td>Los 25 cambios de esquema de la base de datos, versionados.</td></tr>
       <tr><td class="file">src/</td><td>Reutilizado: configuración, motor RAG, logging, observabilidad.</td></tr>
       <tr><td class="file">frontend/</td><td>Dashboard web (esta guía vive en <span class="file">frontend/src/app/guia</span>).</td></tr>
-      <tr><td class="file">tests/</td><td>23 archivos de pruebas automáticas (137 casos).</td></tr>
-      <tr><td class="file">docs/</td><td>Auditoría de seguridad y runbook de gestión de secretos.</td></tr>
+      <tr><td class="file">tests/</td><td>37 archivos de pruebas automáticas (283 casos).</td></tr>
+      <tr><td class="file">docs/</td><td>Auditorías (seguridad, e2e) y runbook de gestión de secretos.</td></tr>
     </tbody>
   </table>
 </section>
@@ -367,7 +369,8 @@ const GUIA_HTML = `
       <b>prueba automática</b> (<code>test_tenant_guards.py</code>) recorre todas las rutas y <b>falla si
       alguien agrega un endpoint sin ese candado</b>. Es la defensa principal, garantizada en cada cambio.</p></div>
     <div class="card"><h4>Base de datos (RLS latente)</h4>
-      <p>Las 16 tablas tienen "Row Level Security" con políticas por empresa (migración 0018). Hoy queda
+      <p>Las 20 tablas tienen "Row Level Security" activada, 19 con política por empresa (desde la
+      migración 0018; la de métricas HTTP no guarda datos de candidatos y solo la ve el backend). Hoy queda
       <b>de reserva</b> (el backend usa una llave privilegiada que la omite), pero protege si se filtrara
       una llave pública o se conectara un cliente directo. Activarla sobre el backend queda para cuando
       la app madure.</p></div>
@@ -644,13 +647,18 @@ uv run python scripts/demo.py --alberto</pre>
     <dt>Idempotente</dt><dd>Repetir la acción no cambia el resultado (no duplica ni retrocede).</dd>
     <dt>Freebusy / Meet</dt><dd>La disponibilidad del calendario / el enlace de videollamada de Google.</dd>
     <dt>Adaptador</dt><dd>Pieza intercambiable que conecta con un servicio externo (Telegram, Google, portal de empleo).</dd>
+    <dt>Etapa (stage)</dt><dd>Cada entrevista del proceso: RR.HH. (hr), líder del proyecto (lead) y gerencia (manager).</dd>
+    <dt>No show</dt><dd>El candidato no se presentó a la entrevista agendada; se puede reagendar o cerrar.</dd>
+    <dt>MCP</dt><dd>Protocolo estándar para que otros asistentes de IA consulten el sistema (aquí, en modo solo lectura).</dd>
+    <dt>p95 / p99</dt><dd>Percentiles de latencia: "el 95% (o 99%) de los casos tardó menos que este valor".</dd>
+    <dt>Traza</dt><dd>El registro del prompt y la respuesta exactos de una llamada a la IA, para depurar evaluaciones.</dd>
   </dl>
 </section>
 
 </main>
 
 <footer>
-  Agente de Selección de Talento · Datawith.AI · Guía v3 (2026-07-01) · documento de solo lectura.
+  Agente de Selección de Talento · Datawith.AI · Guía v4 (2026-07-02) · documento de solo lectura.
 </footer>
 `;
 
