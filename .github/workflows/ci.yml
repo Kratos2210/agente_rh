@@ -38,12 +38,15 @@ jobs:
         run: npx tsc --noEmit
 
   docker:
-    # Valida que la imagen del backend construya (sin publicarla).
+    # Valida que las imágenes construyan (sin publicarlas). La publicación a GHCR
+    # ocurre en `publish-image`, solo en merge a main.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Build imagen backend
         run: docker build -f Dockerfile.backend -t agente-rh-backend:ci .
+      - name: Build imagen frontend
+        run: docker build -f frontend/Dockerfile -t agente-rh-frontend:ci .
 
   k8s-manifests:
     runs-on: ubuntu-latest
@@ -86,3 +89,54 @@ jobs:
             exit 1
           fi
           echo "PROMPT_VERSION actualizado: ${OLD:-<nuevo>} -> $NEW"
+
+  publish-image:
+    # Entrega Continua (CD): publica las imágenes a GHCR SOLO en merge a main,
+    # tras pasar el resto del CI. Cada merge deja un artefacto desplegable, versionado
+    # e inmutable (tag sha-<commit>) + `latest`. Desplegar sigue siendo manual y humano
+    # (deploy.sh) — esto es Entrega Continua, no Despliegue Continuo. Usa GITHUB_TOKEN
+    # (sin secretos extra).
+    needs: [backend, frontend, docker, k8s-manifests, prompt-version-gate]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preparar nombres (owner en minúsculas, requerido por GHCR) y tag
+        id: meta
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "backend=ghcr.io/$OWNER/agente-rh-backend" >> "$GITHUB_OUTPUT"
+          echo "frontend=ghcr.io/$OWNER/agente-rh-frontend" >> "$GITHUB_OUTPUT"
+          echo "tag=sha-$(echo "${{ github.sha }}" | cut -c1-12)" >> "$GITHUB_OUTPUT"
+      - name: Login en GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Build y push backend (sha + latest)
+        run: |
+          IMG="${{ steps.meta.outputs.backend }}"; TAG="${{ steps.meta.outputs.tag }}"
+          docker build -f Dockerfile.backend -t "$IMG:$TAG" -t "$IMG:latest" .
+          docker push "$IMG:$TAG"
+          docker push "$IMG:latest"
+      - name: Build y push frontend (sha + latest)
+        run: |
+          IMG="${{ steps.meta.outputs.frontend }}"; TAG="${{ steps.meta.outputs.tag }}"
+          docker build -f frontend/Dockerfile -t "$IMG:$TAG" -t "$IMG:latest" .
+          docker push "$IMG:$TAG"
+          docker push "$IMG:latest"
+      - name: Resumen del artefacto publicado
+        run: |
+          {
+            echo "### 🐳 Imágenes publicadas (Entrega Continua)"
+            echo "- \`${{ steps.meta.outputs.backend }}:${{ steps.meta.outputs.tag }}\` (+ \`:latest\`)"
+            echo "- \`${{ steps.meta.outputs.frontend }}:${{ steps.meta.outputs.tag }}\` (+ \`:latest\`)"
+            echo ""
+            echo "El overlay \`prod\` ya apunta a estas imágenes. Para fijar este build inmutable antes de desplegar:"
+            echo '```'
+            echo "cd deploy/k8s/overlays/prod && kustomize edit set image \\"
+            echo "  agente-rh-backend=${{ steps.meta.outputs.backend }}:${{ steps.meta.outputs.tag }} \\"
+            echo "  agente-rh-frontend=${{ steps.meta.outputs.frontend }}:${{ steps.meta.outputs.tag }}"
+            echo "deploy/deploy.sh k8s-apply prod   # requiere un cluster real"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1011,6 +1011,22 @@ embeddings) para responder dudas del candidato sobre el puesto.
   criterio RAGAS) → operación a prueba de ausencias (secret manager + 2.º operador) → few-shot + red
   teaming. Entregado por el flujo nuevo: rama `docs/auditoria-v2` + PR con CI.
 
+- **2026-07-03 — Entrega Continua (CD, etapa 1): publicación de imágenes a GHCR**: cierra la brecha
+  detectada al preguntar el usuario "¿no tenemos CD?" — teníamos CI pero el job docker construía la
+  imagen "sin publicarla". Ahora `ci.yml`: (1) el job `docker` valida el build de **ambas** imágenes
+  (backend + frontend) en cada push/PR (antes solo backend — así el PR valida lo que el CD publicará,
+  ya que el job de publicación es solo-main y no corre en PRs); (2) nuevo job `publish-image`
+  (`if: push && ref==main`, `needs` todos los jobs, `permissions: packages:write`) publica a
+  **GHCR** (`ghcr.io/kratos2210/agente-rh-{backend,frontend}`) con tags `sha-<commit12>` (inmutable) +
+  `latest`, login con `GITHUB_TOKEN` (sin secretos extra), y escribe un `$GITHUB_STEP_SUMMARY` con el
+  comando de `kustomize edit set image` para fijar el sha. Overlay prod: `newName` pasó del placeholder
+  `REEMPLAZAR-registry/...` al GHCR real (verificado: `kubectl kustomize` renderiza
+  `ghcr.io/kratos2210/agente-rh-*`). Doc: sección "CI/CD — dónde estamos" en `docs/despliegue.md`
+  (CI ✅ / Entrega Continua ✅ / Despliegue Continuo ❌ deliberado: apply manual porque hay entrevistas
+  en curso y no hay cluster productivo aún; siguiente salto = GitHub Environments o ArgoCD). **Es
+  Entrega Continua, no Despliegue Continuo**: cada merge deja artefacto desplegable+versionado; el
+  deploy sigue siendo decisión humana. YAML validado; sin cambios de runtime. Entregado por rama+PR.
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.
