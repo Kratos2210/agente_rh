@@ -741,6 +741,19 @@ embeddings) para responder dudas del candidato sobre el puesto.
   generado y propagado por el backend real; round-trip snapshot→DB→prune OK; `LOG_JSON=true`
   emite JSON con request_id. Sentry queda validado por tests (activarlo en prod = solo setear DSN).
 
+- **2026-07-02 — Costo visible por defecto + guía al día (multi-etapa + observabilidad)**: (1) FIX
+  visibilidad del costo: `_DEFAULT_LLM_PRICING` (runtime) ahora se siembra con el modelo demo
+  (`qwen/qwen3-32b`: $0.29/$0.59 por 1M, precios Groq) y se actualizó la fila `llm_pricing` del tenant
+  default en DB (quedó en ceros tras el smoke de O-2, ocultando el costo en el dashboard) →
+  `/api/metrics` devuelve `est_cost` sin configuración manual (verificado en vivo: 0.0097 USD);
+  `test_costs.py` ajustado al default sembrado (sigue probando aislamiento entre tenants). (2) **Guía
+  `/guia` actualizada** (pendiente desde el multi-etapa): sección 8 reescrita a "Agendamiento y proceso
+  multi-etapa" (3 fases + asistencia + stage_feedback + exámenes psicológicos + roster), sección 10 con
+  el plan O-1..O-6 completo (6 tarjetas), sección 11 con etapa `slot` + anti-inyección + PROMPT_VERSION,
+  sección 12 → 45 endpoints + tarjeta del servidor MCP, sección 13 → 20 tablas/25 migraciones, sección
+  14 → 82 parámetros + grupo observabilidad, sección 17 al día; KPIs del hero/resumen (283 tests).
+  **283/283 tests; tsc OK; /guia 200 con el contenido nuevo servido.**
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.
