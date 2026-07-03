@@ -125,6 +125,28 @@ def test_sla_sweep_disabled_tenant_is_silent(monkeypatch):
     _reset_sweep_state()
 
 
+def test_sla_sweep_falls_back_to_global_ops_email(monkeypatch):
+    """Paso 3: sin notify_email por tenant, la alerta va al ops_alert_email de equipo."""
+    cfgs = {"t1": {"enabled": True, "notify_email": "", "ops_alerts": True, "turn_p95_ms": 0}}
+    ops = {"t1": [{"type": "dead_letter", "detail": "1 envío en dead-letter."}]}
+    sent = _patch_sla_env(monkeypatch, cfgs=cfgs, ops_by_tenant=ops)
+    _reset_sweep_state()
+    s = get_settings().model_copy(update={"ops_alert_email": "equipo@x.com"})
+
+    assert scheduler._sla_sweep(s)["alerted"] == 1
+    kind, payload, _ = sent[0]
+    assert kind == "ops_email" and payload["recipients"] == ["equipo@x.com"]
+    _reset_sweep_state()
+
+
+def test_alert_recipient_prefers_tenant_over_global():
+    s = get_settings().model_copy(update={"ops_alert_email": "equipo@x.com"})
+    assert scheduler._alert_recipient({"notify_email": "t@x.com"}, s) == "t@x.com"
+    assert scheduler._alert_recipient({"notify_email": ""}, s) == "equipo@x.com"
+    s2 = get_settings().model_copy(update={"ops_alert_email": ""})
+    assert scheduler._alert_recipient({"notify_email": ""}, s2) == ""
+
+
 def test_sla_sweep_respects_interval(monkeypatch):
     cfgs = {"t1": {"enabled": True, "notify_email": "", "ops_alerts": True, "turn_p95_ms": 0}}
     ops = {"t1": [{"type": "dead_letter", "detail": "x"}]}

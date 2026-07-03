@@ -886,6 +886,36 @@ embeddings) para responder dudas del candidato sobre el puesto.
   plano a un secret manager (External Secrets/Vault/Doppler) — el runbook `docs/gestion_secretos.md`
   ya documenta el camino.**
 
+- **2026-07-03 — Roadmap paso 3 (WEBHOOK de Telegram + alertas a destino de equipo)**: ataca el
+  Riesgo 2 (punto único operativo) desbloqueando `replicas>1`. El bot pasa a **dual-mode config-gated**:
+  sin `TELEGRAM_WEBHOOK_URL` sigue en **polling** (dev local, cero infra, un consumidor por token);
+  con la URL pública corre en **webhook**. (1) Config: `telegram_webhook_url`/`telegram_webhook_secret`
+  (`src/config.py` + `.env.example`); si el secret se deja vacío en modo webhook se **deriva** del token
+  (`resolve_webhook_secret`, sha256) para que el endpoint nunca quede sin validar. (2) `api/telegram_bot.py`:
+  helpers puros `webhook_enabled/webhook_url/resolve_webhook_secret/secret_matches` (compara en tiempo
+  constante, `hmac.compare_digest`) + `process_webhook_update(app, data)` (deserializa `Update.de_json` y
+  lo **encola** en `app.update_queue` — el Application ya consume la cola tras `start()`, sin updater).
+  (3) `api/main.py` lifespan **ramifica**: en webhook hace `initialize()+start()` SIN updater y
+  `bot.set_webhook(url, secret_token=, allowed_updates=ALL)`; en polling igual que antes. Shutdown:
+  `delete_webhook()` en modo webhook, `updater.stop()` solo si corría. Nueva ruta **`POST /telegram/webhook`**
+  (fuera de `/api/*` → no exige JWT; valida el header `X-Telegram-Bot-Api-Secret-Token`; 404 fuera de modo
+  webhook, 403 secret inválido, 400 payload malformado). `GET /api/health` expone `telegram_mode`
+  (off/polling/webhook). (4) **Alertas a destino de equipo** (paso 3): config `ops_alert_email` (fallback
+  global) + helper `_alert_recipient(cfg, settings)` en `_budget_sweep`/`_sla_sweep` → sin `notify_email`
+  por tenant, la alerta va al correo de equipo (no a un buzón personal en multi-réplica). (5) **K8s**:
+  ingress base+prod con ruta `/telegram/webhook`→backend; overlay **prod** activa webhook
+  (`TELEGRAM_WEBHOOK_URL`) y escala con `backend-scale-patch.yaml` (**replicas:2 + RollingUpdate**, seguro
+  porque sin polling no se pelea el token); **dev sigue polling** (replicas:1 + Recreate). `secret.example.yaml`
+  con `TELEGRAM_WEBHOOK_SECRET`/`OPS_ALERT_EMAIL`. README de k8s + `docs/despliegue.md` al día (dos modos,
+  cómo activar webhook, serverless matizado). **308/308 tests verde (+11: `test_webhook.py` 9 —helpers puros,
+  feed del update, ruta 404/403/200 con router real; `test_sla.py` +2 fallback de correo). kubeconform strict
+  7/7 en ambos overlays; render prod correcto (replicas:2/RollingUpdate/TELEGRAM_WEBHOOK_URL/ruta ingress),
+  dev intacto (replicas:1/Recreate/sin webhook).** **Smoke en vivo** (uvicorn real sin token): health con
+  `telegram_mode:"off"`, `/telegram/webhook`→404 fuera de modo webhook. **Pendiente**: e2e Telegram→pod real
+  (requiere ingress HTTPS público que Telegram alcance; NO correrlo contra el bot demo compartido desde
+  localhost — `setWebhook` reemplazaría su registro de polling). Siguiente del roadmap: paso 4 (medición
+  continua de calidad) — **preguntar antes de arrancar**.
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.

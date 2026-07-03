@@ -128,6 +128,16 @@ class Settings(BaseSettings):
     telegram_bot_username: str = ""
     # chat_id que recibe notificaciones cuando termina la indexación de un documento.
     telegram_notify_chat_id: str = ""
+    # Modo webhook (roadmap paso 3). Si telegram_webhook_url está VACÍO el bot corre en
+    # POLLING (default; dev local sin infra, un solo consumidor por token). Con la URL
+    # pública base del backend (p.ej. https://api.tuempresa.com) el bot registra un webhook
+    # y recibe los updates en POST {url}/telegram/webhook — esto desbloquea replicas>1
+    # (cada réplica procesa cualquier update) y el rolling/canary del ingress.
+    telegram_webhook_url: str = ""
+    # Secreto que valida que el POST viene de Telegram (header X-Telegram-Bot-Api-Secret-Token).
+    # Si se deja vacío en modo webhook, se deriva determinísticamente del token del bot para
+    # que nunca quede sin protección. Telegram exige [A-Za-z0-9_-], 1–256 chars.
+    telegram_webhook_secret: str = ""
 
     # --- Agente de Selección de Talento (agente_rh) ---
     # Supabase: persistencia de negocio (vacantes, candidatos, scorecards).
@@ -176,6 +186,11 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from: str = ""
     recruiter_email: str = ""
+    # Destino de equipo para alertas operativas/SLA/presupuesto (paso 3). Fallback usado por
+    # los barridos (_budget_sweep/_sla_sweep) cuando el tenant no define su propio
+    # `notify_email` — así, en producción multi-réplica, las alertas nunca caen en un buzón
+    # personal por olvidar configurarlas por tenant. Vacío = sin fallback (solo per-tenant).
+    ops_alert_email: str = ""
 
     # Pre-filtro de postulantes (sourcing + CV gate).
     # Conector de sourcing: "simulated" (fixture) o, a futuro, "bumeran"/"linkedin".

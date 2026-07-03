@@ -26,9 +26,14 @@ deploy/k8s/
 | Recursos backend | reducidos (250m / 1Gi) | plenos (500m / 1.5Gi) |
 | Dominio / CORS | `dev.…` | `app.…` |
 | Trazas LLM | ON (datos de prueba) | OFF (PII real, Ley 29733) |
+| Bot Telegram | **polling** (`replicas: 1` + `Recreate`) | **webhook** (`replicas: 2` + `RollingUpdate`) |
 
-El **backend queda en `replicas: 1` en ambos** (el bot de Telegram en polling admite un
-solo `getUpdates` por token; el scheduler sí tolera N réplicas por el advisory lock).
+- **Dev = polling**: el backend queda en `replicas: 1` + `Recreate` (el bot en polling admite
+  un solo `getUpdates` por token; cero infra de webhook para el ciclo de desarrollo).
+- **Prod = webhook (paso 3)**: `overlays/prod` fija `TELEGRAM_WEBHOOK_URL` (mismo host del
+  Ingress) → el bot recibe los updates en `POST /telegram/webhook` en vez de polear, lo que
+  hace **seguro** correr `replicas: 2` + `RollingUpdate` (`backend-scale-patch.yaml`). El
+  scheduler interno ya tolera N réplicas por el advisory lock de Postgres.
 
 ## Aplicar
 
@@ -63,7 +68,7 @@ O, equivalente y más corto: `deploy/deploy.sh k8s-apply prod`.
 | Namespace declarado en cada overlay | El transformer `namespace:` reubica los recursos pero NO renombra un objeto `Namespace`; por eso cada overlay trae el suyo (`agente-rh-dev`/`-prod`). |
 | `ENVIRONMENT=production` en el overlay prod | Activa `api.auth.assert_secure_config`: el backend se NIEGA a arrancar con `JWT_SECRET`/`ADMIN_PASSWORD` débiles o default. |
 | Env vars por nombre EXACTO de campo | pydantic ignora nombres que no matchean (`OPENAI_BASE_URL`/`APP_ENV` eran ignorados → LLM en localhost y gate inactivo). Los correctos son `OPENAI_API_BASE`/`ENVIRONMENT`. |
-| `backend: replicas: 1` + `Recreate` | Polling de Telegram (un consumidor por token). Escalar el backend ⇒ migrar a **webhook** (`docs/despliegue.md`). |
+| Base `replicas: 1` + `Recreate`; prod `replicas: 2` + `RollingUpdate` | El base es polling (un consumidor por token). Prod corre **webhook** (`TELEGRAM_WEBHOOK_URL`), así que escala sin pelear el token (`backend-scale-patch.yaml`, `docs/despliegue.md`). |
 | Volúmenes `emptyDir` | Los datos durables viven en Postgres. Lo efímero es re-generable: modelos HF y el índice RAG (`scripts/seed_company_kb.py`). Para evitar re-descargas, `hf-cache` → PVC. |
 | Secret fuera del kustomization y sin namespace fijo | Se aplica por entorno con `-n`; el real lo inyecta un secret manager (External Secrets/Vault/Doppler — `docs/gestion_secretos.md`). |
 

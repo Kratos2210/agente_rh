@@ -649,6 +649,12 @@ def _budget_alert_detail(spend: float, monthly: float, pct: int) -> str:
     )
 
 
+def _alert_recipient(cfg: dict[str, Any], settings: Settings) -> str:
+    """Correo destino de una alerta: el `notify_email` del tenant o, si está vacío, el
+    fallback global de equipo `ops_alert_email` (paso 3). Vacío = no se envía correo."""
+    return (str(cfg.get("notify_email") or "").strip() or (settings.ops_alert_email or "").strip())
+
+
 def _budget_sweep(settings: Settings) -> dict[str, int]:
     """Alerta de presupuesto LLM (O-2): compara el gasto del mes de cada tenant contra su
     `llm_budget` y avisa UNA vez por tenant/mes/umbral (log + correo vía outbox si hay
@@ -686,7 +692,7 @@ def _budget_sweep(settings: Settings) -> dict[str, int]:
         report["alerted"] += 1
         detail = _budget_alert_detail(spend, monthly, pct)
         logger.warning("Presupuesto (tenant %s): %s", tid, detail)
-        email = str(cfg.get("notify_email") or "").strip()
+        email = _alert_recipient(cfg, settings)
         if email:
             outbox.deliver(
                 settings,
@@ -809,7 +815,7 @@ def _sla_sweep(settings: Settings) -> dict[str, int]:
         if not fresh:
             continue
         report["alerted"] += len(fresh)
-        email = str(cfg.get("notify_email") or "").strip()
+        email = _alert_recipient(cfg, settings)
         if email:
             lines = "\n".join(f"• [{cond}] {detail}" for cond, detail in fresh)
             items = "".join(f"<li><b>{cond}</b>: {detail}</li>" for cond, detail in fresh)

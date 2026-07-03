@@ -1,0 +1,19 @@
+# Escalado horizontal del backend en PRODUCCIÓN (paso 3). Solo es seguro porque prod corre
+# el bot en modo WEBHOOK (ver configmap-patch: TELEGRAM_WEBHOOK_URL): con webhook, Telegram
+# hace POST a cada réplica indistintamente (no hay getUpdates exclusivo del polling), y el
+# scheduler interno ya tolera N réplicas por el advisory lock de Postgres. Con webhook activo
+# se puede además hacer RollingUpdate (dos pods conviven durante el swap sin pelear el token).
+#
+# ⚠️ Este patch SUPONE webhook. Si en prod se volviera a polling (TELEGRAM_WEBHOOK_URL vacío),
+# hay que quitar este patch y volver a replicas:1 + Recreate del base.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0

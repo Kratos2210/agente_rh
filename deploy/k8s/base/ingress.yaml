@@ -27,6 +27,15 @@ spec:
                 name: backend
                 port:
                   number: 8000
+          # Webhook de Telegram (paso 3): Telegram hace POST aquí cuando el bot corre en
+          # modo webhook (TELEGRAM_WEBHOOK_URL configurado). En polling esta ruta es 404.
+          - path: /telegram/webhook
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
           - path: /
             pathType: Prefix
             backend:
