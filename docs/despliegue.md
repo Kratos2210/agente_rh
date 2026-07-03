@@ -98,6 +98,28 @@ definidas como adaptadores/protocolos. Microservicios reales o serverless sería
 prematuros para el volumen actual (entrevistas conversacionales: decenas/día, no
 miles/s); el diseño deja el camino pavimentado en vez de pagar hoy la complejidad.
 
+## CI/CD — dónde estamos
+
+- **CI (Integración Continua)** — `.github/workflows/ci.yml`, en cada push/PR: tests del
+  backend (pytest), lint+tsc del frontend, **build de ambas imágenes** (backend + frontend,
+  validación sin publicar), kubeconform de los overlays dev+prod, y el gate de `PROMPT_VERSION`.
+- **Entrega Continua (Continuous *Delivery*)** — job `publish-image`, **solo en merge a `main`**:
+  publica ambas imágenes a **GHCR** (`ghcr.io/kratos2210/agente-rh-{backend,frontend}`) con dos
+  tags: `sha-<commit>` (inmutable, versionado) y `latest`. Usa `GITHUB_TOKEN` (sin secretos
+  extra). Cada merge deja un artefacto desplegable y trazable; el overlay `prod` ya apunta a esas
+  imágenes. Para fijar un build inmutable antes de aplicar:
+  ```bash
+  cd deploy/k8s/overlays/prod && kustomize edit set image \
+    agente-rh-backend=ghcr.io/kratos2210/agente-rh-backend:sha-<commit> \
+    agente-rh-frontend=ghcr.io/kratos2210/agente-rh-frontend:sha-<commit>
+  deploy/deploy.sh k8s-apply prod        # requiere un cluster real
+  ```
+- **Despliegue Continuo (Continuous *Deployment*)** — **NO** (deliberado). El `apply` es manual:
+  hay entrevistas en curso (estado durable por conversación) y no hay aún un cluster/host
+  productivo de destino. El siguiente paso natural, cuando exista infraestructura: un job de deploy
+  con GitHub Environments (dev automático al merge; prod con aprobación de un click) o GitOps
+  (ArgoCD observando el overlay). El pipeline ya deja el artefacto listo para ese salto.
+
 ## Requisitos transversales (cualquier camino)
 
 - **Migraciones**: `supabase/migrations/0001..0026` aplicadas ANTES del primer arranque

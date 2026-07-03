@@ -8,14 +8,15 @@ resources:
   - namespace.yaml
   - ../../base
 images:
-  # En prod se despliega un tag INMUTABLE y versionado (no `latest`): reemplazar por el
-  # registry/tag reales al publicar (o `kustomize edit set image` desde CI/deploy.sh).
+  # En prod se despliega un tag INMUTABLE y versionado (no `latest`): el CD publica
+  # `ghcr.io/<owner>/agente-rh-*:sha-<commit>`. El `newTag` de abajo es un placeholder;
+  # deploy.sh lo sobreescribe con el sha real (`kustomize edit set image ...:<tag>`).
   - name: agente-rh-backend
-    newName: REEMPLAZAR-registry/agente-rh-backend
-    newTag: v1
+    newName: ghcr.io/kratos2210/agente-rh-backend
+    newTag: latest
   - name: agente-rh-frontend
-    newName: REEMPLAZAR-registry/agente-rh-frontend
-    newTag: v1
+    newName: ghcr.io/kratos2210/agente-rh-frontend
+    newTag: latest
 patches:
   - path: configmap-patch.yaml
   - path: ingress-host-patch.yaml
