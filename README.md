@@ -18,7 +18,7 @@ auditoría y observabilidad completas.
    Dashboard ───────▶│  · API REST 45 endpoints (JWT + RBAC/tenant) │       Supabase / PostgreSQL
    Next.js 16        │  · Bot Telegram (polling, lifespan)          │◀──▶   · negocio: 20 tablas, RLS
    (frontend/)       │  · Scheduler 30 s (advisory lock)            │       · checkpoints LangGraph
-                     │  · MCP server /mcp (read-only, opcional)     │       · outbox durable
+                     │  · MCP server /mcp (7 tools, opcional)       │       · outbox durable
    Asistentes IA ───▶│                                              │
    (MCP)             │  agent/ (LangGraph) · evaluation/ (scoring)  │
                      │  integrations/ (sourcing, Google Calendar)   │
@@ -37,7 +37,7 @@ en Postgres → el contenedor es reemplazable sin perder conversaciones.
 | **RAG** (hybrid retrieval + re-ranker + generación) | `src/vectorstore.py` (Chroma + BM25 + vectorial), `src/reranker.py` (cross-encoder), `src/qa_chain.py`, `agent/rag.py` | Responde dudas del candidato sobre el puesto fundamentándose en la base de conocimiento de la empresa. Embeddings `multilingual-e5` + semantic cache. |
 | **Orquestación LangChain** | `src/qa_chain.py`, `agent/llm.py` (`LangChainLLM`), `src/embeddings.py`, `src/classifier.py` | Cadenas de prompts, LLM intercambiable (Groq/Qwen3 u otro compatible-OpenAI), metadata propagada a trazas. |
 | **Flujos cíclicos LangGraph** | `agent/graph.py`, `agent/nodes.py`, `agent/state.py` | Máquina de estados durable (checkpointer Postgres, hilo `canal:chat`): follow-ups por respuesta vaga, dudas con tope, reintentos de horario con escalamiento, timeouts, agendamiento ×3 etapas. |
-| **MCP seguro** | `api/mcp.py` | 5 tools read-only bajo el mismo JWT del dashboard: tenancy, RBAC, revocación y auditoría heredados; capability ≠ autoridad (v1 sin mutaciones). `MCP_ENABLED` off por defecto. |
+| **MCP seguro** | `api/mcp.py` | 7 tools bajo el mismo JWT del dashboard (tenancy, RBAC, revocación y auditoría heredados): 5 de lectura + 2 mutaciones (contactar/decidir) con **confirmación en dos pasos** — preview sin efectos + `confirm_token` HMAC de 120 s ligado a la invocación. `MCP_ENABLED` off por defecto. |
 | **Observabilidad** | `src/observability.py`, `agent/llm.py` (`MeteredLLM`), `api/httpmetrics.py`, `scripts/golden_eval.py`, `scripts/groundedness_judge.py` | Trazas LLM con contenido, costos por modelo/empresa + presupuesto, p50/p95/p99 por etapa y ruta, latencia end-to-end del turno, SLAs push, suite golden (28 casos) + juez de alucinaciones, logs JSON + request-id, Sentry. Gancho LangSmith opcional. |
 
 ## Requisitos
