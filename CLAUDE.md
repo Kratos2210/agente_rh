@@ -805,6 +805,50 @@ embeddings) para responder dudas del candidato sobre el puesto.
   + Tabla "Métricas clave y umbrales" en README (7 métricas con dónde se miden y sus alertas).
   **287/287 tests (+4: hybrid+rerank con fakes, gating/best-effort de Phoenix ×3).**
 
+- **2026-07-02 — Guía `/guia` v5 (revisión exhaustiva + puesta al día)**: auditoría de la guía v4
+  sección por sección contra el código (verificados correctos: 45 endpoints, 20 tablas/25 migraciones,
+  7 fases/7 etapas IA/3 roles, 37 archivos de test, RLS 19/20 con política, health `simulated-fallback`,
+  golden 28, MCP 5 tools). Se actualizó lo posterior a v4: KPIs 283→287 tests y 82→86 parámetros;
+  sección 16 → "Cómo levantarlo y desplegarlo" (Docker Compose vía `deploy.sh compose-up`, K8s con
+  kubeconform, decisión serverless, CI de GitHub Actions, warn de replicas:1 por el bot en polling);
+  RAG documentado como híbrido BM25+vectorial+re-ranker ON por defecto (colección `company_kb` + seed);
+  tarjeta Arize Phoenix en observabilidad; mapa del código con filas `deploy/` y `scripts/` y `docs/`
+  ampliado (arquitectura.md/despliegue.md); librerías +mcp/sentry-sdk/phoenix; sección 17 con el
+  entregable de despliegue; pill "Docker + Kubernetes". **tsc OK; /guia → 200 con el contenido v5.**
+
+- **2026-07-02 — MCP: mutaciones (contactar/decidir) con confirmación en dos pasos**: cierra el
+  pendiente del servidor MCP (capability ≠ autoridad). `api/mcp.py`: tools **`contact_candidate`** y
+  **`decide_candidate`** (rol `recruiter`), patrón dos fases porque el server es stateless — la
+  llamada SIN `confirm_token` NO muta: valida guards (tenant vía `_require_candidate_in_tenant`,
+  estado `prescreen_passed` para contacto, `decision` advance|reject) y devuelve preview
+  `{requires_confirmation, action, candidate, effects, confirm_token, expires_in_seconds:120}`; la
+  repetición CON el token ejecuta llamando al MISMO endpoint del dashboard
+  (`api/routes/candidates.py::contact_candidate/decide_candidate` + `DecisionIn`). Token =
+  HMAC-SHA256 con clave **derivada** de `jwt_secret` (sufijo `|mcp-confirm`: un JWT de acceso jamás
+  valida como confirm y viceversa), payload firmado `tool|cid|decision|user|tenant|exp`, helpers
+  puros `_issue/_verify_confirm_token(now=)` testeables; TTL `CONFIRM_TTL_SECONDS=120`. Auditoría:
+  `mcp.<tool>.preview` + `mcp.<tool>` (entity_type=candidate → cubierto por el scrub S4).
+  Instructions del FastMCP explican el flujo al cliente LLM. Docs: guía (tarjeta MCP 7 tools +
+  pendiente→hecho + glosario + KPIs 297) y README actualizados. **Tests: test_mcp.py 9→19 (+10:
+  roundtrip/expiración/cross-acción-candidato-usuario-tenant/adulterado, JWT≠confirm, preview no
+  muta, confirm ejecuta el impl, RBAC viewer, cross-tenant, decision inválida, auditoría de ambas
+  fases) → 297/297 verde; tsc OK.** **Verificado en vivo** (instancia efímera :8010 MCP_ENABLED=true
+  SIN token Telegram para no pelear el polling): tools/list→7; preview reject sobre candidata real →
+  preview+token sin cambiar estado; token basura → error; `mcp.decide_candidate.preview` en
+  `/api/audit`. La ejecución confirmada quedó cubierta por tests (no se mutó el dato demo).
+
+- **2026-07-02 — Guía: diagrama de arquitectura + racional del MCP opcional**: sección 2 de `/guia`
+  gana un **diagrama SVG inline** de la arquitectura end-to-end (sin librerías, paleta del doc:
+  actores a la izquierda [candidato/Telegram, RR.HH./dashboard, asistente MCP, portales] → backend
+  FastAPI al centro [bot, API 45 endpoints, MCP 7 tools, scheduler, cerebro LangGraph+evaluation,
+  integraciones/notificaciones] → servicios a la derecha [Supabase, Groq, Chroma RAG, Google, SMTP])
+  con numeración 1–7 mapeada a la tarjeta "Cómo leer el diagrama". Sección 12: warn "¿Por qué el
+  servidor MCP viene apagado por defecto?" (superficie mínima/PII, ahora muta, anti DNS-rebinding
+  del SDK desactivado mitigado por JWT, convención config-gated; cómo activarlo). Sección 14: note
+  de la convención "apagado por defecto". **tsc OK; /guia 200 (contenido en payload client-side por
+  el guard de sesión del Shell — chequear por payload, no por HTML SSR); SVG verificado visualmente
+  con screenshot Playwright (extraído standalone, sin login).**
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.
