@@ -83,7 +83,9 @@ export default function ObservabilidadPage() {
     api.getOpsAlerts().then((r) => setAlerts(r.alerts)).catch((e) => setError(errorMessage(e)));
     api.getAudit().then(setAudit).catch((e) => setError(errorMessage(e)));
     api.getHttpMetrics().then((r) => setHttp(r.routes)).catch((e) => setError(errorMessage(e)));
-    api.getQuality().then((r) => setQuality(r.metrics)).catch((e) => setError(errorMessage(e)));
+    // Panel opcional (paso 4): si el backend aún no expone el endpoint (skew de versión
+    // durante un deploy), degradá a "sin datos" en vez de disparar el banner global.
+    api.getQuality().then((r) => setQuality(r.metrics)).catch(() => setQuality([]));
   };
 
   useEffect(() => {

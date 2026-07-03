@@ -7,7 +7,7 @@
 // (Docker/K8s/deploy.sh/CI), RAG híbrido+re-ranker ON por defecto, Arize Phoenix opcional.
 // v6 (2026-07-03): edición de ESTUDIO — deep-dives con código real (grafo LangGraph y un
 // turno, fórmula del scorecard, los 7 prompts, pipeline RAG), referencia completa de los
-// 45 endpoints, esquema tabla-por-tabla + diagrama ER, tabla de configuración y sección
+// 48 endpoints, esquema tabla-por-tabla + diagrama ER, tabla de configuración y sección
 // nueva de troubleshooting/gotchas (17.5). Los snippets citan archivo:función reales.
 import { Shell } from "@/components/Shell";
 
@@ -35,8 +35,8 @@ const GUIA_HTML = `
       <span class="pill">Supabase / PostgreSQL</span><span class="pill">Bot de Telegram</span>
       <span class="pill">IA: Groq · Qwen3-32B</span><span class="pill">Google Calendar + Meet</span>
       <span class="pill">Multi-empresa + Login por roles</span><span class="pill">Proceso multi-etapa</span>
-      <span class="pill">Observabilidad (trazas · costos · SLAs)</span><span class="pill">Docker + Kubernetes</span>
-      <span class="pill">297 pruebas automáticas</span>
+      <span class="pill">Observabilidad (trazas · costos · SLAs · calidad continua)</span><span class="pill">Docker + Kubernetes (webhook)</span>
+      <span class="pill">330 pruebas automáticas</span>
     </div>
   </div>
 </header>
@@ -72,14 +72,14 @@ const GUIA_HTML = `
   <p class="lead">En una frase: <b>un reclutador virtual que habla con los candidatos, los puntúa con
   criterios objetivos y le ahorra a RR.HH. las primeras horas de filtrado y coordinación.</b></p>
   <div class="grid g4">
-    <div class="card"><div class="kpi">297</div><div class="kpi-lbl">pruebas automáticas (en verde)</div></div>
-    <div class="card"><div class="kpi">45</div><div class="kpi-lbl">endpoints de la API</div></div>
-    <div class="card"><div class="kpi">20</div><div class="kpi-lbl">tablas en la base de datos</div></div>
-    <div class="card"><div class="kpi">25</div><div class="kpi-lbl">migraciones (cambios de esquema)</div></div>
+    <div class="card"><div class="kpi">330</div><div class="kpi-lbl">pruebas automáticas (en verde)</div></div>
+    <div class="card"><div class="kpi">48</div><div class="kpi-lbl">endpoints de la API</div></div>
+    <div class="card"><div class="kpi">21</div><div class="kpi-lbl">tablas en la base de datos</div></div>
+    <div class="card"><div class="kpi">26</div><div class="kpi-lbl">migraciones (cambios de esquema)</div></div>
     <div class="card"><div class="kpi">7</div><div class="kpi-lbl">fases de la conversación</div></div>
     <div class="card"><div class="kpi">7</div><div class="kpi-lbl">etapas de IA (con conteo de tokens)</div></div>
     <div class="card"><div class="kpi">3</div><div class="kpi-lbl">roles de usuario (admin/reclutador/lector)</div></div>
-    <div class="card"><div class="kpi">86</div><div class="kpi-lbl">parámetros de configuración</div></div>
+    <div class="card"><div class="kpi">93</div><div class="kpi-lbl">parámetros de configuración</div></div>
   </div>
   <div class="note">🧭 <b>Idea rectora:</b> el <b>cerebro</b> (qué decir y cómo puntuar) es lógica
   <b>pura y comprobable</b>, separada de las <b>conexiones externas</b> (Telegram, base de datos, IA,
@@ -185,7 +185,7 @@ const GUIA_HTML = `
         <text x="500" y="88" text-anchor="middle" fill="#7e8aa0" font-size="10.5">botones · documentos · gobierno de turnos</text>
 
         <rect x="300" y="112" width="400" height="46" rx="9" fill="#141b2d" stroke="#313b54"/>
-        <text x="500" y="131" text-anchor="middle" fill="#e8edf6" font-size="12" font-weight="700">API REST · 45 endpoints</text>
+        <text x="500" y="131" text-anchor="middle" fill="#e8edf6" font-size="12" font-weight="700">API REST · 48 endpoints</text>
         <text x="500" y="148" text-anchor="middle" fill="#7e8aa0" font-size="10.5">JWT · roles · aislamiento por empresa</text>
 
         <rect x="300" y="172" width="400" height="46" rx="9" fill="#141b2d" stroke="#313b54"/>
@@ -301,7 +301,7 @@ const GUIA_HTML = `
       <tr><td class="file">supabase/migrations/</td><td>Los 25 cambios de esquema de la base de datos, versionados.</td></tr>
       <tr><td class="file">src/</td><td>Reutilizado: configuración, motor RAG, logging, observabilidad.</td></tr>
       <tr><td class="file">frontend/</td><td>Dashboard web (esta guía vive en <span class="file">frontend/src/app/guia</span>).</td></tr>
-      <tr><td class="file">tests/</td><td>37 archivos de pruebas automáticas (297 casos).</td></tr>
+      <tr><td class="file">tests/</td><td>40 archivos de pruebas automáticas (330 casos).</td></tr>
       <tr><td class="file">scripts/</td><td>Herramientas de línea de comandos: demo sin infra, verificación end-to-end multi-etapa, suite golden, juez de fundamentación, siembra de la base de conocimiento (RAG) y cliente MCP de ejemplo.</td></tr>
       <tr><td class="file">deploy/</td><td>Despliegue: manifiestos de Kubernetes (<span class="file">deploy/k8s/</span>) y el script <span class="file">deploy.sh</span> (build/push/compose/k8s). El <span class="file">Dockerfile.backend</span> y <span class="file">docker-compose.yml</span> viven en la raíz.</td></tr>
       <tr><td class="file">docs/</td><td>Auditorías (seguridad, e2e), runbook de secretos, decisiones de arquitectura (<span class="file">arquitectura.md</span>) y guía de despliegue (<span class="file">despliegue.md</span>).</td></tr>
@@ -325,7 +325,7 @@ const GUIA_HTML = `
         sesión en localStorage, guard de sesión, nav con entradas condicionadas por rol
         (Observabilidad solo admin) y logout.</li>
       </ul></div>
-    <div class="card"><h4>La estrategia de tests (297 casos, 37 archivos)</h4>
+    <div class="card"><h4>La estrategia de tests (330 casos, 40 archivos)</h4>
       <ul class="tight">
         <li><b>IA falsa inyectada:</b> el motor recibe un <code>FakeLLM</code> determinista — la
         entrevista completa se prueba en milisegundos, sin red ni credenciales.</li>
@@ -893,8 +893,8 @@ def compute_semaphore(total, *, green_min, yellow_min):
       quién, qué y cuándo.</p></div>
     <div class="card"><h4>📊 Panel de observabilidad</h4>
       <p>Página <span class="file">/observabilidad</span> (solo admin): alertas operativas, salud de la
-      cola de envíos con botón de reintento, rendimiento HTTP por ruta (con p95/p99) y la bitácora de
-      auditoría.</p></div>
+      cola de envíos con botón de reintento, rendimiento HTTP por ruta (con p95/p99), el
+      <b>signo vital de calidad</b> de la IA y la bitácora de auditoría.</p></div>
   </div>
   <div class="note">⚙️ Todo esto lo coordina un <b>scheduler</b> interno que corre cada 30 s. Con varias
   réplicas del servidor, un <b>candado en la base de datos</b> asegura que solo una haga el trabajo.</div>
@@ -919,7 +919,8 @@ def compute_semaphore(total, *, green_min, yellow_min):
     <div class="card"><h4>🧪 Suite golden + juez (O-5)</h4>
       <p>28 casos con respuestas reales validan que la IA puntúe, clasifique e interprete horarios
       dentro de rango; un <b>LLM juez</b> revisa que las respuestas a dudas se fundamenten solo en la
-      información de la empresa (caza alucinaciones).</p></div>
+      información de la empresa (caza alucinaciones). Se suma un <b>golden de recuperación</b>
+      (¿el buscador trae el fragmento correcto?), medible sin gastar IA.</p></div>
     <div class="card"><h4>🧾 Logs JSON + Sentry (O-6)</h4>
       <p>Logs estructurados con <code>request-id</code> propagado (<code>X-Request-ID</code>), Sentry
       opcional para errores (sin datos personales) y snapshots periódicos de métricas HTTP a la DB.</p></div>
@@ -928,6 +929,13 @@ def compute_semaphore(total, *, green_min, yellow_min):
       Phoenix <b>self-hosted</b> (los datos personales no salen de infraestructura propia). Apagado por
       defecto (<code>PHOENIX_ENABLED</code>); al activarlo, cada llamada LangChain aparece como span con
       modelo y tokens.</p></div>
+    <div class="card"><h4>💚 Calidad continua · signo vital</h4>
+      <p>El juez de calidad dejó de ser una "foto" manual: un <b>barrido diario</b> muestrea las
+      respuestas reales del bot por empresa, mide su <b>fundamentación</b> y <b>relevancia</b>, guarda la
+      tendencia (tabla <code>quality_metrics</code>, visible en <span class="file">/observabilidad</span>)
+      y <b>avisa por correo</b> si la fundamentación cae bajo el umbral. Se activa en Configuración →
+      Calidad (requiere trazas). Convierte la evaluación en un <b>signo vital</b>, no una revisión que
+      hay que acordarse de correr.</p></div>
   </div>
 </section>
 
@@ -970,6 +978,12 @@ def compute_semaphore(total, *, green_min, yellow_min):
     búsqueda <b>híbrida</b> (palabras clave BM25 + vectorial) → <b>re-ranker</b> cross-encoder → mejores
     fragmentos al prompt. Si falta alguna pieza, <b>degrada en capas</b> (solo vectorial → solo la
     descripción de la vacante) sin caerse.</li>
+    <li><b>Ahorro por etapa (opcional):</b> las etapas simples y frecuentes (<code>classify</code>,
+    <code>schedule</code>) pueden ir a un <b>modelo más barato</b> del mismo proveedor
+    (<code>LLM_CHEAP_MODEL</code>) sin tocar el motor; el costo real por modelo queda medido por etapa.</li>
+    <li><b>Caché de dudas (opcional):</b> si un candidato pregunta algo que ya se respondió para la
+    misma vacante (pregunta muy parecida), se devuelve la respuesta cacheada <b>sin gastar IA</b>
+    (<code>INTERVIEW_ANSWER_CACHE_ENABLED</code>) — las dudas de candidatos son repetitivas por naturaleza.</li>
   </ul>
 
   <h3>Los prompts, tal cual (deep-dive)</h3>
@@ -1146,7 +1160,7 @@ return "\\n\\n".join(d.page_content for d in docs[:final_k])</pre>
 
 <!-- 12 -->
 <section id="apis">
-  <h2><span class="num">12</span>APIs (45 endpoints + servidor MCP)</h2>
+  <h2><span class="num">12</span>APIs (48 endpoints + servidor MCP)</h2>
   <div class="simple">🟢 <b>En simple:</b> el dashboard se comunica con el backend por una API REST.
   Todos los endpoints (menos health y login) exigen token y se aíslan por empresa. Además hay un
   <b>servidor MCP</b> para que otros asistentes de IA consulten los datos con los mismos permisos.</div>
@@ -1163,7 +1177,7 @@ return "\\n\\n".join(d.page_content for d in docs[:final_k])</pre>
     </tbody>
   </table>
 
-  <details class="deep"><summary>Referencia completa: los 45 endpoints, uno por uno (método · ruta · rol mínimo · qué hace)</summary><div class="body">
+  <details class="deep"><summary>Referencia completa: los 48 endpoints, uno por uno (método · ruta · rol mínimo · qué hace)</summary><div class="body">
     <p>Rol mínimo: <span class="badge b-blue">lector</span> ve, <span class="badge b-violet">reclutador</span>
     opera, <span class="badge b-green">admin</span> configura/borra (jerárquicos: admin puede todo).
     Salvo los dos públicos, TODOS exigen <code>Authorization: Bearer &lt;JWT&gt;</code> y aíslan por
@@ -1216,12 +1230,14 @@ return "\\n\\n".join(d.page_content for d in docs[:final_k])</pre>
       <tr><td class="mono">GET|PUT /api/settings/llm-pricing</td><td>lector | admin</td><td>Precio por millón de tokens por modelo (para el costo estimado).</td></tr>
       <tr><td class="mono">GET|PUT /api/settings/llm-budget</td><td>lector | admin</td><td>Presupuesto mensual de IA con umbral de alerta y correo.</td></tr>
       <tr><td class="mono">GET|PUT /api/settings/sla-alerts</td><td>lector | admin</td><td>Alertas push por correo: ops alerts y umbral p95 del turno.</td></tr>
+      <tr><td class="mono">GET|PUT /api/settings/quality-alerts</td><td>lector | admin</td><td>Medición continua de calidad: muestra diaria, umbral de fundamentación y correo.</td></tr>
     </tbody></table>
     <h4>Observabilidad (api/routes/observability.py) — todo admin</h4>
     <table><tbody>
       <tr><td class="mono">GET /api/audit</td><td>admin</td><td>Bitácora: quién hizo qué y cuándo (últimas 100).</td></tr>
       <tr><td class="mono">GET /api/ops/alerts</td><td>admin</td><td>Alertas operativas: dead-letters, reuniones sin Meet, coordinaciones estancadas, divergencia motor↔negocio, entregas fallidas, presupuesto.</td></tr>
       <tr><td class="mono">GET /api/ops/http-metrics</td><td>admin</td><td>Rendimiento por ruta: conteos, errores, promedio, p95/p99.</td></tr>
+      <tr><td class="mono">GET /api/ops/quality</td><td>admin</td><td>Signo vital de calidad: tendencia diaria de fundamentación y relevancia de la IA.</td></tr>
       <tr><td class="mono">GET /api/outbox</td><td>admin</td><td>Salud de la cola de envíos: contadores + detenidos con su motivo.</td></tr>
       <tr><td class="mono">POST /api/outbox/{id}/retry</td><td>admin</td><td>Reencola un envío muerto (409 si ya se envió).</td></tr>
     </tbody></table>
@@ -1289,7 +1305,7 @@ return "\\n\\n".join(d.page_content for d in docs[:final_k])</pre>
       <p>Lo maneja el <b>checkpointer</b> de LangGraph por conexión directa a Postgres, identificado por
       el hilo <code>canal:chat</code>. Sobrevive a reinicios.</p></div>
   </div>
-  <h3>Las 20 tablas de negocio</h3>
+  <h3>Las 21 tablas de negocio</h3>
   <div class="chip-row">
     <span class="badge b-blue">tenants</span><span class="badge b-blue">users</span>
     <span class="badge b-violet">vacancies</span><span class="badge b-violet">vacancy_questions</span>
@@ -1300,15 +1316,16 @@ return "\\n\\n".join(d.page_content for d in docs[:final_k])</pre>
     <span class="badge b-amber">candidate_documents</span><span class="badge b-green">state_transitions</span>
     <span class="badge b-blue">app_settings</span><span class="badge b-red">outbox</span>
     <span class="badge b-red">audit_log</span><span class="badge b-blue">llm_usage</span>
-    <span class="badge b-blue">llm_traces</span><span class="badge b-blue">http_metrics_snapshots</span>
+    <span class="badge b-blue">llm_traces</span><span class="badge b-blue">quality_metrics</span>
+    <span class="badge b-blue">http_metrics_snapshots</span>
   </div>
-  <div class="note">El esquema se construye por <b>25 migraciones</b> versionadas en
-  <span class="file">supabase/migrations/</span>. Las 20 tablas tienen RLS activada; 19 con política
+  <div class="note">El esquema se construye por <b>26 migraciones</b> versionadas en
+  <span class="file">supabase/migrations/</span>. Las 21 tablas tienen RLS activada; 20 con política
   por empresa y <code>http_metrics_snapshots</code> solo para el backend (sección 9).</div>
 
   <h3>Cómo se relacionan (mini-ER)</h3>
   <figure class="fig">
-    <svg viewBox="0 0 1060 440" width="1060" role="img" aria-label="Diagrama entidad-relación simplificado de las 20 tablas">
+    <svg viewBox="0 0 1060 440" width="1060" role="img" aria-label="Diagrama entidad-relación simplificado de las 21 tablas">
       <defs>
         <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0,0 L10,5 L0,10 z" fill="#8b8cfa"/>
@@ -1451,7 +1468,7 @@ return "\\n\\n".join(d.page_content for d in docs[:final_k])</pre>
 <section id="config">
   <h2><span class="num">14</span>Configuración</h2>
   <div class="simple">🟢 <b>En simple:</b> el comportamiento se ajusta con variables en un archivo
-  <code>.env</code> (86 parámetros). No hay que tocar código para cambiar de proveedor de IA, activar
+  <code>.env</code> (93 parámetros). No hay que tocar código para cambiar de proveedor de IA, activar
   Google real o ajustar el horario de contacto.</div>
   <div class="note">🔐 <b>Convención — apagado por defecto:</b> toda capacidad no esencial viene
   desactivada de fábrica (servidor MCP, trazas de IA, Sentry, Phoenix, logs JSON, retención…) y se
@@ -1460,21 +1477,21 @@ return "\\n\\n".join(d.page_content for d in docs[:final_k])</pre>
   <table>
     <thead><tr><th>Grupo</th><th>Qué controla</th></tr></thead>
     <tbody>
-      <tr><td><b>IA / LLM</b></td><td>Proveedor, modelo, tiempos de espera, reintentos, precio por token.</td></tr>
+      <tr><td><b>IA / LLM</b></td><td>Proveedor, modelo, tiempos de espera, reintentos, precio por token, y el <b>modelo barato por etapa</b> (routing de costos).</td></tr>
       <tr><td><b>Base de datos</b></td><td>URL y llaves de Supabase; cadena de conexión de Postgres.</td></tr>
       <tr><td><b>Seguridad</b></td><td>Secreto JWT (+ respaldo de rotación), expiración, admin inicial, entorno.</td></tr>
-      <tr><td><b>Telegram</b></td><td>Token del bot, usuarios permitidos, chat de demo.</td></tr>
-      <tr><td><b>Correo (SMTP)</b></td><td>Servidor, credenciales, remitente, correo del reclutador.</td></tr>
+      <tr><td><b>Telegram</b></td><td>Token del bot, usuarios permitidos, chat de demo, y el <b>modo webhook</b> (URL + secreto) para producción.</td></tr>
+      <tr><td><b>Correo (SMTP)</b></td><td>Servidor, credenciales, remitente, correo del reclutador y el <b>correo de equipo</b> para alertas.</td></tr>
       <tr><td><b>Sourcing</b></td><td>Conector, nota mínima de pre-filtro, auto-contacto al aprobar.</td></tr>
       <tr><td><b>Agendamiento</b></td><td>Proveedor (simulado/google), credenciales de Google, hoja de registro.</td></tr>
-      <tr><td><b>Entrevista</b></td><td>Máximo de repreguntas, umbrales del semáforo (verde/amarillo), RAG para dudas (activado por defecto) y su colección <code>COMPANY_KB_COLLECTION</code>.</td></tr>
-      <tr><td><b>Observabilidad</b></td><td>Trazas de IA, logs JSON, Sentry, Arize Phoenix, snapshots HTTP, servidor MCP, gobierno de turnos del bot.</td></tr>
+      <tr><td><b>Entrevista</b></td><td>Máximo de repreguntas, umbrales del semáforo (verde/amarillo), RAG para dudas (activado por defecto) y su colección <code>COMPANY_KB_COLLECTION</code>, y la <b>caché de dudas</b>.</td></tr>
+      <tr><td><b>Observabilidad</b></td><td>Trazas de IA, logs JSON, Sentry, Arize Phoenix, snapshots HTTP, servidor MCP, gobierno de turnos del bot y la <b>medición continua de calidad</b>.</td></tr>
     </tbody>
   </table>
 
   <details class="deep"><summary>Referencia: las variables del .env con sus valores por defecto</summary><div class="body">
     <p>Es el contenido comentado de <span class="file">.env.example</span> (la fuente de verdad para
-    operar); los ~86 campos de <code>Settings</code> (<span class="file">src/config.py</span>) incluyen
+    operar); los ~93 campos de <code>Settings</code> (<span class="file">src/config.py</span>) incluyen
     además defaults internos heredados (caché semántica, chunking del RAG clásico, <code>LOG_LEVEL</code>…)
     que rara vez se tocan.</p>
     <h4>IA / LLM</h4>
@@ -1482,6 +1499,8 @@ return "\\n\\n".join(d.page_content for d in docs[:final_k])</pre>
       <tr><td class="mono">OPENAI_API_BASE</td><td class="mono">https://api.groq.com/openai/v1</td><td>Cualquier API compatible con OpenAI (Groq, AI Gateway, OpenAI).</td></tr>
       <tr><td class="mono">OPENAI_API_KEY / OPENAI_MODEL</td><td class="mono">— / qwen/qwen3-32b</td><td>Credencial y modelo.</td></tr>
       <tr><td class="mono">LLM_TIMEOUT_SECONDS / LLM_MAX_RETRIES</td><td class="mono">60 / 2</td><td>Espera y reintentos por llamada.</td></tr>
+      <tr><td class="mono">LLM_CHEAP_MODEL / LLM_CHEAP_STAGES</td><td class="mono">— / classify,schedule</td><td>Modelo barato para etapas simples (vacío = todo con el principal).</td></tr>
+      <tr><td class="mono">INTERVIEW_ANSWER_CACHE_ENABLED</td><td class="mono">false</td><td>Caché semántica de dudas por vacante (0 tokens en repetidas).</td></tr>
     </tbody></table>
     <h4>Base de datos (Supabase / Postgres)</h4>
     <table><tbody>
@@ -1590,26 +1609,29 @@ uv run python scripts/demo.py --alberto</pre>
       torch solo-CPU, con healthcheck) y <span class="file">docker-compose.yml</span> levanta backend +
       dashboard contra el Supabase del host. Todo con un comando:
       <code>deploy/deploy.sh compose-up</code> (construye, arranca y espera el health).</p></div>
-    <div class="card"><h4>☸️ Kubernetes</h4>
-      <p><span class="file">deploy/k8s/</span> trae los manifiestos completos (namespace, configmap,
-      secret de ejemplo, deployments con probes, services, ingress, kustomization), validados con
-      kubeconform. Se aplica con <code>deploy/deploy.sh k8s-apply</code> (exige crear el secret real
-      antes).</p></div>
+    <div class="card"><h4>☸️ Kubernetes (dev/prod)</h4>
+      <p><span class="file">deploy/k8s/</span> usa <b>base + overlays kustomize</b>: cada entorno
+      (<code>dev</code>/<code>prod</code>) en su namespace con su dominio, imagen y config, validados con
+      kubeconform. Se aplica con <code>deploy/deploy.sh k8s-apply prod</code> (exige el secret real).</p></div>
+    <div class="card"><h4>📡 Telegram: polling o webhook</h4>
+      <p>Dos modos por configuración: <b>polling</b> (dev, cero infra) o <b>webhook</b> (prod). Con
+      <code>TELEGRAM_WEBHOOK_URL</code> el bot recibe los mensajes en <code>POST /telegram/webhook</code>
+      (validado con un secreto), lo que <b>desbloquea varias réplicas</b> y despliegues sin corte
+      (rolling). El overlay <code>prod</code> ya viene en webhook.</p></div>
     <div class="card"><h4>⚡ ¿Serverless?</h4>
-      <p>Decisión argumentada en <span class="file">docs/despliegue.md</span>: <b>no</b> para el bot
-      (polling = proceso siempre vivo), el scheduler ni el RAG (modelos en memoria); <b>sí</b> sería
-      viable la API y las notificaciones si el bot migra a webhook. Por eso hoy se despliega como
-      servicios contenedores.</p></div>
+      <p>Decisión argumentada en <span class="file">docs/despliegue.md</span>: <b>no</b> para el
+      scheduler ni el RAG (modelos en memoria); en <b>webhook</b>, la API y el endpoint del bot SÍ son
+      invocables como funciones. Hoy se despliega como servicios contenedores.</p></div>
     <div class="card"><h4>🔁 CI (GitHub Actions)</h4>
       <p><span class="file">.github/workflows/ci.yml</span> corre en cada cambio: pruebas de backend
-      (uv + pytest), lint + typecheck del frontend, build de la imagen Docker y validación de los
-      manifiestos de K8s.</p></div>
+      (uv + pytest), lint + typecheck del frontend, build Docker, validación de K8s (dev+prod) y un
+      <b>gate de <code>PROMPT_VERSION</code></b> (cambiar un prompt sin subir la versión rompe el build).
+      Un workflow <b>nightly</b> corre la suite golden contra la IA real.</p></div>
   </div>
-  <div class="warn">⚠️ <b>Regla de escala:</b> el backend corre con <b>una sola réplica</b>
-  (estrategia <i>Recreate</i>): el bot de Telegram usa <i>polling</i> y ese modo solo admite un lector
-  por token — dos réplicas se pelearían los mensajes. El scheduler sí tolera réplicas (candado en la
-  base de datos), y el dashboard escala libre. <code>deploy/deploy.sh scale</code> lo recuerda y exige
-  <code>--force</code> para el backend. Para escalar en serio: migrar el bot a webhook.</div>
+  <div class="warn">⚠️ <b>Regla de escala:</b> en <b>polling</b> (dev) el backend corre con <b>una sola
+  réplica</b> (estrategia <i>Recreate</i>): ese modo solo admite un lector por token. En <b>webhook</b>
+  (prod) el backend escala a varias réplicas con <i>RollingUpdate</i> — Telegram reparte los mensajes y
+  el scheduler ya tolera réplicas (candado en la base de datos). El dashboard escala libre siempre.</div>
 </section>
 
 <!-- 17 -->
@@ -1620,6 +1642,7 @@ uv run python scripts/demo.py --alberto</pre>
   <ul class="tight">
     <li><span class="badge b-green">✓</span> <b>Proceso multi-etapa completo</b>: RR.HH. → líder del proyecto → gerencia → contratado, con asistencia, feedback por etapa y exámenes psicológicos (verificado end-to-end con IA real).</li>
     <li><span class="badge b-green">✓</span> <b>Observabilidad O-1…O-6</b>: trazas de IA, costos y presupuesto por empresa, percentiles de latencia, alertas SLA por correo, suite golden (28 casos) + juez de fundamentación, logs JSON + Sentry.</li>
+    <li><span class="badge b-green">✓</span> <b>Roadmap LLMOps completo (5/5)</b>: CI vivo (remote + gate de prompts + nightly), entornos separados dev/prod, <b>webhook de Telegram</b> (habilita varias réplicas + rolling), <b>calidad continua</b> (juez como barrido diario + signo vital en el dashboard + golden de recuperación) y <b>optimización de costos</b> (modelo barato por etapa + caché de dudas + ADR de selección de modelo).</li>
     <li><span class="badge b-green">✓</span> Auditoría e2e de 10 dimensiones con <b>backlog cerrado al 100%</b>: anti-inyección en todos los prompts, límites de tasa (login, sync, turnos del bot), deep-links de Telegram por vacante (multi-empresa), listados sin N+1 con búsqueda y paginación.</li>
     <li><span class="badge b-green">✓</span> Servidor <b>MCP</b> para asistentes de IA externos (mismo token, misma tenancy, auditado), con cliente de ejemplo (<span class="file">scripts/mcp_client_demo.py</span>) y <b>mutaciones (contactar/decidir) con confirmación en dos pasos</b> (preview + token firmado de 120 s, rol reclutador).</li>
     <li><span class="badge b-green">✓</span> <b>Entregable de despliegue</b>: imagen Docker, Docker Compose, manifiestos de Kubernetes validados, <span class="file">deploy/deploy.sh</span>, CI en GitHub Actions, README con arquitectura y decisiones documentadas (<span class="file">docs/arquitectura.md</span>).</li>
@@ -1634,6 +1657,7 @@ uv run python scripts/demo.py --alberto</pre>
     <li><span class="badge b-amber">◻</span> Adaptador de WhatsApp Cloud API (hoy Telegram).</li>
     <li><span class="badge b-amber">◻</span> Conectores reales de sourcing (Bumeran/LinkedIn) en vez del simulado.</li>
     <li><span class="badge b-amber">◻</span> Almacenamiento de CVs en object store (hoy contenido en Postgres).</li>
+    <li><span class="badge b-amber">◻</span> Elegir y medir un <b>modelo barato concreto</b> del proveedor para las etapas simples y correr el golden contra él (el mecanismo de routing ya está listo).</li>
   </ul>
 </section>
 
