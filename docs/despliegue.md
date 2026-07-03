@@ -120,6 +120,30 @@ miles/s); el diseño deja el camino pavimentado en vez de pagar hoy la complejid
   con GitHub Environments (dev automático al merge; prod con aprobación de un click) o GitOps
   (ArgoCD observando el overlay). El pipeline ya deja el artefacto listo para ese salto.
 
+### Estado actual y decisión pendiente (2026-07-03)
+
+El pipeline **termina en GitHub/GHCR**: cada merge a `main` deja imágenes versionadas
+publicadas, pero **no existe todavía un destino de producción** (todo corre local: Supabase en
+Docker + `uvicorn` + `npm run dev`). El Despliegue Continuo está **bloqueado por infraestructura,
+no por código** — falta decidir *dónde vive producción*, no falta implementar el deploy.
+
+Opciones para cuando se decida salir en vivo (el backend **no** es serverless: bot en polling,
+scheduler con advisory lock, torch ~90 s de import — ver la sección de serverless arriba):
+
+| Camino | Costo/mes aprox | Esfuerzo | Cuándo |
+|---|---|---|---|
+| **VPS único** + `docker-compose` | ~5–12 USD | Bajo (ya hay `deploy.sh compose-up`) | MVP en vivo, tráfico modesto |
+| **GKE/EKS** + overlays kustomize | ~70+ USD | Medio-alto | Multi-tenant con volumen real |
+| **Híbrido**: frontend a Vercel + backend en VPS | ~5 USD + free | Bajo | Separar dashboard del bot |
+
+**Recomendación**: empezar por un **VPS con `docker-compose`** — es el salto más pequeño desde el
+estado actual (ya existen `Dockerfile.backend`, `docker-compose.yml`, `deploy/deploy.sh` y las
+imágenes en GHCR): `git pull` + `deploy.sh compose-up` en el host y queda vivo. GKE/EKS + ArgoCD
+son prematuros hasta que haya varias empresas con volumen. Antes de exponer al mundo, independiente
+del destino, resolver: (1) **secretos reales** (`docs/gestion_secretos.md`), (2) **webhook de
+Telegram** en vez de polling (ya codeado y config-gated; necesita HTTPS público), (3) **Supabase
+cloud** en vez del Docker local.
+
 ## Requisitos transversales (cualquier camino)
 
 - **Migraciones**: `supabase/migrations/0001..0026` aplicadas ANTES del primer arranque
