@@ -531,9 +531,12 @@ class InterviewService:
         drain = getattr(self.runner.llm, "drain", None)
         if not callable(drain):
             return
+        # Routing de costos (paso 5): el modelo puede diferir por etapa; se registra el real.
+        drain_models = getattr(self.runner.llm, "drain_models", None)
+        models = drain_models() if callable(drain_models) else {}
         for stage, tokens in (drain() or {}).items():
             repositories.record_usage(
-                stage, model, tokens,
+                stage, models.get(stage, model), tokens,
                 vacancy_id=vacancy.get("id"),
                 candidate_id=candidate.get("id"),
                 conversation_id=conv.get("id"),

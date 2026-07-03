@@ -144,5 +144,10 @@ _DEFAULT_LLM_BUDGET = {"enabled": False, "monthly_usd": 0.0, "alert_pct": 80, "n
 # `ops_alerts` empuja las alertas operativas (dead-letter, reuniones sin link, etc.);
 # `turn_p95_ms` es el umbral de latencia p95 del turno del candidato (últimas 24 h, 0 = off).
 _DEFAULT_SLA_ALERTS = {"enabled": False, "notify_email": "", "ops_alerts": True, "turn_p95_ms": 0}
+
+# Medición continua de calidad (paso 4): el barrido diario muestrea `sample` trazas answer
+# del tenant, las juzga (fundamentación + relevancia) y alerta si la tasa de fundamentadas
+# cae bajo `min_rate`. Default OFF: consume LLM y necesita LLM_TRACE_ENABLED para tener trazas.
+_DEFAULT_QUALITY_ALERTS = {"enabled": False, "sample": 20, "min_rate": 0.9, "notify_email": ""}
 # Estados terminales-descartados cuya PII se anonimiza tras el período de retención.
 _RETENTION_STATUSES = ["rejected", "declined", "no_response", "prescreen_rejected", "no_show"]

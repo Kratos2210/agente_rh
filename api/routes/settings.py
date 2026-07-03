@@ -16,6 +16,7 @@ from api.runtime import (
     _DEFAULT_INACTIVITY,
     _DEFAULT_LLM_BUDGET,
     _DEFAULT_LLM_PRICING,
+    _DEFAULT_QUALITY_ALERTS,
     _DEFAULT_RETENTION,
     _DEFAULT_SCHEDULING,
     _DEFAULT_SLA_ALERTS,
@@ -126,6 +127,14 @@ class SlaAlertsIn(BaseModel):
     turn_p95_ms: int = Field(default=0, ge=0)     # umbral p95 del turno (últimas 24 h; 0 = off)
 
 
+class QualityAlertsIn(BaseModel):
+    """Medición continua de calidad del tenant (paso 4): juzga trazas answer 1×/día."""
+    enabled: bool = False
+    sample: int = Field(default=20, ge=1, le=200)         # trazas a muestrear por día
+    min_rate: float = Field(default=0.9, ge=0.0, le=1.0)  # umbral de fundamentación
+    notify_email: str = ""
+
+
 @router.get("/api/settings/scheduling")
 def get_scheduling(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     return repo.get_app_setting("scheduling", _DEFAULT_SCHEDULING, user["tenant_id"])
@@ -222,3 +231,17 @@ def put_sla_alerts(
     repo.set_app_setting("sla_alerts", payload.model_dump(), user["tenant_id"])
     _audit(user, "settings.update", entity_type="settings", entity_id="sla_alerts")
     return repo.get_app_setting("sla_alerts", _DEFAULT_SLA_ALERTS, user["tenant_id"])
+
+
+@router.get("/api/settings/quality-alerts")
+def get_quality_alerts(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    return repo.get_app_setting("quality_alerts", _DEFAULT_QUALITY_ALERTS, user["tenant_id"])
+
+
+@router.put("/api/settings/quality-alerts")
+def put_quality_alerts(
+    payload: QualityAlertsIn, user: dict[str, Any] = Depends(require_role("admin"))
+) -> dict[str, Any]:
+    repo.set_app_setting("quality_alerts", payload.model_dump(), user["tenant_id"])
+    _audit(user, "settings.update", entity_type="settings", entity_id="quality_alerts")
+    return repo.get_app_setting("quality_alerts", _DEFAULT_QUALITY_ALERTS, user["tenant_id"])

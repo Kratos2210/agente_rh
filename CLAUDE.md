@@ -886,6 +886,116 @@ embeddings) para responder dudas del candidato sobre el puesto.
   plano a un secret manager (External Secrets/Vault/Doppler) — el runbook `docs/gestion_secretos.md`
   ya documenta el camino.**
 
+- **2026-07-03 — Roadmap paso 3 (WEBHOOK de Telegram + alertas a destino de equipo)**: ataca el
+  Riesgo 2 (punto único operativo) desbloqueando `replicas>1`. El bot pasa a **dual-mode config-gated**:
+  sin `TELEGRAM_WEBHOOK_URL` sigue en **polling** (dev local, cero infra, un consumidor por token);
+  con la URL pública corre en **webhook**. (1) Config: `telegram_webhook_url`/`telegram_webhook_secret`
+  (`src/config.py` + `.env.example`); si el secret se deja vacío en modo webhook se **deriva** del token
+  (`resolve_webhook_secret`, sha256) para que el endpoint nunca quede sin validar. (2) `api/telegram_bot.py`:
+  helpers puros `webhook_enabled/webhook_url/resolve_webhook_secret/secret_matches` (compara en tiempo
+  constante, `hmac.compare_digest`) + `process_webhook_update(app, data)` (deserializa `Update.de_json` y
+  lo **encola** en `app.update_queue` — el Application ya consume la cola tras `start()`, sin updater).
+  (3) `api/main.py` lifespan **ramifica**: en webhook hace `initialize()+start()` SIN updater y
+  `bot.set_webhook(url, secret_token=, allowed_updates=ALL)`; en polling igual que antes. Shutdown:
+  `delete_webhook()` en modo webhook, `updater.stop()` solo si corría. Nueva ruta **`POST /telegram/webhook`**
+  (fuera de `/api/*` → no exige JWT; valida el header `X-Telegram-Bot-Api-Secret-Token`; 404 fuera de modo
+  webhook, 403 secret inválido, 400 payload malformado). `GET /api/health` expone `telegram_mode`
+  (off/polling/webhook). (4) **Alertas a destino de equipo** (paso 3): config `ops_alert_email` (fallback
+  global) + helper `_alert_recipient(cfg, settings)` en `_budget_sweep`/`_sla_sweep` → sin `notify_email`
+  por tenant, la alerta va al correo de equipo (no a un buzón personal en multi-réplica). (5) **K8s**:
+  ingress base+prod con ruta `/telegram/webhook`→backend; overlay **prod** activa webhook
+  (`TELEGRAM_WEBHOOK_URL`) y escala con `backend-scale-patch.yaml` (**replicas:2 + RollingUpdate**, seguro
+  porque sin polling no se pelea el token); **dev sigue polling** (replicas:1 + Recreate). `secret.example.yaml`
+  con `TELEGRAM_WEBHOOK_SECRET`/`OPS_ALERT_EMAIL`. README de k8s + `docs/despliegue.md` al día (dos modos,
+  cómo activar webhook, serverless matizado). **308/308 tests verde (+11: `test_webhook.py` 9 —helpers puros,
+  feed del update, ruta 404/403/200 con router real; `test_sla.py` +2 fallback de correo). kubeconform strict
+  7/7 en ambos overlays; render prod correcto (replicas:2/RollingUpdate/TELEGRAM_WEBHOOK_URL/ruta ingress),
+  dev intacto (replicas:1/Recreate/sin webhook).** **Smoke en vivo** (uvicorn real sin token): health con
+  `telegram_mode:"off"`, `/telegram/webhook`→404 fuera de modo webhook. **Pendiente**: e2e Telegram→pod real
+  (requiere ingress HTTPS público que Telegram alcance; NO correrlo contra el bot demo compartido desde
+  localhost — `setWebhook` reemplazaría su registro de polling). Siguiente del roadmap: paso 4 (medición
+  continua de calidad) — **preguntar antes de arrancar**.
+
+- **2026-07-03 — Roadmap paso 4 (MEDICIÓN CONTINUA DE CALIDAD · signo vital)**: ataca el Riesgo 3
+  (calidad LLM sin medición continua); convierte la evaluación de "foto offline" en "signo vital".
+  (1) **Juez compartido** `evaluation/quality.py`: prompt extendido que evalúa en UNA llamada
+  **fundamentación** (¿la respuesta se apoya solo en la info de la vacante?) + **relevancia de
+  respuesta** (¿atiende la pregunta?); helpers puros `judge_verdict` (dict, conservador: ilegible =
+  no fundamentado/no relevante) + `rate`. `scripts/groundedness_judge.py` refactorizado para reusarlo
+  (ahora reporta ambas dimensiones). (2) **Migración `0026_quality_metrics.sql`** (aplicada en vivo por
+  `docker exec -i psql` + `NOTIFY pgrst`, patrón conocido): tabla `quality_metrics`
+  (tenant_id/metric/day/rate/sample_size/threshold, unique(tenant,metric,day), RLS por tenant patrón
+  0018) + seed `app_settings.quality_alerts` {enabled:false, sample:20, min_rate:0.9, notify_email}.
+  Repos: `list_llm_traces_by_stage_since` (con vacancy_id→tenant), `save_quality_metric` (upsert
+  idempotente), `list_quality_metrics`. (3) **`_quality_sweep`** en el scheduler (patrón budget/SLA,
+  a lo sumo cada 60 min; trabajo real 1×/día por dedupe `quality_swept`): por cada tenant con
+  quality_alerts activo, muestrea sus trazas `answer` de 24 h, las juzga (LLM lazy cacheado en `_state`,
+  gated), **persiste** ambas tasas en `quality_metrics` y **alerta** 1×/día (correo `ops_email` vía
+  outbox, reusa `_alert_recipient` del paso 3) si la fundamentación cae bajo `min_rate`. Default OFF
+  (consume LLM + requiere `LLM_TRACE_ENABLED` para tener trazas). Helpers puros `_traces_by_tenant`.
+  Cableado en `_scheduler_loop`. (4) **Endpoints**: `GET/PUT /api/settings/quality-alerts` (PUT admin,
+  auditado, `QualityAlertsIn` valida sample 1–200 / min_rate 0–1) + `GET /api/ops/quality` (admin,
+  por tenant). (5) **Signo vital en el dashboard**: tarjeta "Calidad de las respuestas (IA)" en
+  `/observabilidad` (tasas del día con color semáforo vs umbral) + tarjeta de config en
+  `/configuracion` (toggle + muestra + mínimo + correo). (6) **Golden de RECUPERACIÓN** (cierra la
+  brecha 2.2.3 "sin métricas de retrieval", offline SIN LLM): `tests/golden/retrieval_set.json` (6
+  dudas de la vacante demo → substring esperado) + `scripts/retrieval_eval.py` (corre el retriever real
+  de `agent/rag.py` sobre `company_kb`, mide **hit@k**, exit 1 bajo `min_hit_rate`; helpers puros
+  `hit`/`evaluate_retrieval`/`hit_rate`). **320/320 tests (+12 `test_quality.py`: juez, sweep con fakes
+  —persiste 2 métricas, alerta bajo umbral, dedupe, no-op sin tenants, skip sin trazas—, endpoints
+  RBAC/tenant, ops/quality, golden de retrieval con retriever fake; `test_golden_harness` migrado al
+  módulo nuevo); tsc + build OK.** **Verificado en vivo** (Supabase local): `0026` aplicada (tabla+RLS+
+  seed); round-trip real de `save/list_quality_metric` (upsert idempotente, no duplica); endpoints
+  contra backend real → GET default off, PUT persiste, ops/quality vacío, 401 sin token. **Pendiente
+  (menor)**: relevancia de CONTEXTO/retrieval con juez (RAGAS-like) sobre las trazas —el golden de
+  retrieval ya cubre hit@k offline; actualizar `/guia` con el paso 4. Siguiente del roadmap: paso 5
+  (optimización de costos, oportunista según volumen) — **preguntar antes de arrancar**.
+
+- **2026-07-03 — Roadmap paso 5 (OPTIMIZACIÓN DE COSTOS · ROADMAP LLMOps COMPLETO 1–5)**: cierra el
+  último paso (recomendaciones 2.1.2 y 2.3.3 de `audit/auditoria_final.md`). Tres palancas, sin
+  migraciones (todo config-gated, comportamiento por defecto sin cambios). (1) **Routing de modelo por
+  etapa**: `MeteredLLM` ahora es **multi-modelo** — recibe `overrides={etapa: LLM}` y despacha cada
+  etapa a su LLM (el barato o el principal), con **atribución de modelo POR ETAPA** (nuevo `_models` +
+  `drain_models()`; cada traza lleva su `model`). `build_default_llm(model=)` construye un LLM con otro
+  modelo del MISMO proveedor; `build_stage_overrides(settings)` mapea `llm_cheap_stages`
+  (default `classify,schedule` — las simples y frecuentes) → un LLM `llm_cheap_model` (vacío = sin
+  routing). `service._record_usage` registra el modelo real por etapa (`drain_models`); `record_traces`
+  prefiere el `model` de cada traza. Cableado en `telegram_bot`/`routes/vacancies`. `set_context` hace
+  fan-out a inner+overrides (metadata LangSmith llega a cualquier modelo). (2) **Caché semántica de
+  dudas** (cierra la "caché muerta" 2.3.1): `agent/answer_cache.py` (`AnswerCache`, inyectada en el
+  runner como el retriever; carga LAZY de embeddings, fail-open) cachea por `vacancy_id` la respuesta a
+  dudas del candidato — un hit (coseno ≥ `semantic_cache_threshold`) devuelve la respuesta **sin RAG ni
+  LLM (0 tokens)**; seguro entre candidatos (mismo company_info por vacante). Almacén SQLite propio
+  (sin la FK a `documents` del registry de agente_pro). Se **reactivó `src/semantic_cache`** extrayendo
+  el matching a un helper puro `best_match` (reusado por RAG y por la caché de dudas). Cableada por
+  `nodes.handle_turn`→`graph`→runner (config `interview_answer_cache_enabled`, default off). El nodo de
+  entrevista hace lookup ANTES de RAG/LLM y store después. (3) **ADR** `docs/adr-seleccion-modelo.md`
+  (matriz latencia/costo/calidad/privacidad de Qwen3-32B@Groq + **residencia de datos PII/Ley 29733
+  como pendiente de prod real** + procedimiento de cambio de modelo + tabla de palancas activas).
+  `.env.example` con el bloque paso 5. **330/330 tests (+10 `test_cost_routing.py`: multi-modelo con
+  atribución por etapa, overrides, `best_match` puro, `AnswerCache` round-trip con embeddings fake +
+  aislamiento por vacante, corto-circuito del nodo —hit sin LLM/miss genera+store—); sin cambios de
+  frontend.** **Smoke con objetos reales**: `build_stage_overrides` arma ChatOpenAI reales con el modelo
+  barato (instancia compartida entre etapas), no-op sin cheap; principal = modelo del `.env`. **Roadmap
+  de la auditoría LLMOps: 5/5 pasos cerrados** (CI vivo → entornos → webhook → calidad continua → costos).
+  **Pendiente (menor)**: elegir/medir un modelo barato concreto del proveedor y correr el golden contra
+  él (banco de aceptación, 2.1.2); actualizar `/guia` con pasos 4–5.
+
+- **2026-07-03 — Cierre del pendiente del paso 5: modelo barato elegido y validado (banco de
+  aceptación, 2.1.2)**: `scripts/golden_eval.py` gana el flag **`--model`** (benchmarkea un candidato
+  SIN tocar `.env`, vía `build_default_llm(model=)` que ya existía) → banco de aceptación reproducible.
+  Se midieron 2 candidatos baratos de Groq contra las suites de las etapas ruteadas
+  (`classify`→suite classify, `schedule`→suite slot): **`llama-3.1-8b-instant` classify 7/7 + slot 6/6**
+  (✅ elegido, el más barato ~$0.05/$0.08 por 1M) y `openai/gpt-oss-20b` 7/7 + 6/6 (apto, alternativa).
+  Activado en `.env` local (`LLM_CHEAP_MODEL=llama-3.1-8b-instant`, `LLM_CHEAP_STAGES=classify,schedule`)
+  y documentado en `.env.example` con el comando de validación. `docs/adr-seleccion-modelo.md` actualizado
+  (decisión punto 3 + sección "Cómo elegir un modelo barato" con la tabla de candidatos medidos + fila de
+  la palanca). `/guia` sección 17 marca el pendiente como ✓. **Verificado en vivo con Groq real**: golden
+  13/13 en las dos etapas; `build_stage_overrides` rutea classify+schedule→`llama-3.1-8b-instant`,
+  evaluate/prescreen/answer siguen en qwen3-32b. **test_cost_routing + test_golden_harness 17/17 verde;
+  tsc OK.** Con esto **el roadmap LLMOps queda 5/5 sin pendientes sustantivos** (solo quedan "futuro":
+  WhatsApp, object store para CVs, secret manager externo, conectores reales de sourcing, RLS efectivo).
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.

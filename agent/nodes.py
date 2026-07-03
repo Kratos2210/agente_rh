@@ -78,11 +78,12 @@ def start(state: InterviewState) -> InterviewState:
     return state
 
 
-def handle_turn(state: InterviewState, llm: LLM, retriever=None) -> InterviewState:
+def handle_turn(state: InterviewState, llm: LLM, retriever=None, answer_cache=None) -> InterviewState:
     """Procesa el mensaje entrante (`pending_input` / `pending_button`) y avanza.
 
     `retriever` (opcional, inyectado por el runner) recupera contexto de la base de
-    conocimiento RAG para las dudas del candidato; None = solo company_info."""
+    conocimiento RAG para las dudas del candidato; None = solo company_info.
+    `answer_cache` (opcional) devuelve una respuesta cacheada a dudas repetidas (0 tokens)."""
     state = dict(state)
     state["outbound"] = []
     state["show_consent_buttons"] = False
@@ -123,7 +124,7 @@ def handle_turn(state: InterviewState, llm: LLM, retriever=None) -> InterviewSta
             state["closed_reason"] = "declined"
             state["outbound"].append(CLOSING_DECLINED)
         else:
-            _handle_interview(state, llm, text=text, retriever=retriever)
+            _handle_interview(state, llm, text=text, retriever=retriever, answer_cache=answer_cache)
     elif phase == PHASE_SCHEDULING:
         if _is_decline(text, button):
             state["phase"] = PHASE_CLOSED
@@ -325,7 +326,7 @@ def _emit_question(state: InterviewState, *, ack: str = "") -> None:
     state["current_answer_parts"] = []
 
 
-def _handle_interview(state: InterviewState, llm: LLM, *, text: str, retriever=None) -> None:
+def _handle_interview(state: InterviewState, llm: LLM, *, text: str, retriever=None, answer_cache=None) -> None:
     q = current_question(state)
     if q is None:
         _finalize(state, llm)
@@ -346,21 +347,29 @@ def _handle_interview(state: InterviewState, llm: LLM, *, text: str, retriever=N
             state["outbound"].append(QUESTIONS_EXHAUSTED.format(question=q["text"]))
             return
         state["questions_asked"] = state.get("questions_asked", 0) + 1
-        company_info = (state.get("vacancy") or {}).get("company_info", "")
-        # RAG (config-gated, inyectado): fragmentos de la base de conocimiento relevantes
-        # a la duda; se suman al company_info de la vacante. Sin retriever o sin match,
-        # el comportamiento es el previo (solo company_info).
-        if retriever is not None:
-            try:
-                extra = retriever(text) or ""
-            except Exception:  # noqa: BLE001 — el RAG nunca debe tumbar el turno
-                extra = ""
-            if extra:
-                company_info = (
-                    f"{company_info}\n\n[Base de conocimiento de la empresa]\n{extra}"
-                    if company_info else extra
-                )
-        reply = answer_candidate_question(llm, company_info=company_info, question=text)
+        vac_id = (state.get("vacancy") or {}).get("id")
+
+        # Caché semántica (paso 5, config-gated): si una duda MUY parecida ya se respondió
+        # para esta vacante, devolvemos lo cacheado SIN RAG ni LLM (0 tokens). Miss = None.
+        reply = answer_cache.lookup(vac_id, text) if answer_cache is not None else None
+        if reply is None:
+            company_info = (state.get("vacancy") or {}).get("company_info", "")
+            # RAG (config-gated, inyectado): fragmentos de la base de conocimiento relevantes
+            # a la duda; se suman al company_info de la vacante. Sin retriever o sin match,
+            # el comportamiento es el previo (solo company_info).
+            if retriever is not None:
+                try:
+                    extra = retriever(text) or ""
+                except Exception:  # noqa: BLE001 — el RAG nunca debe tumbar el turno
+                    extra = ""
+                if extra:
+                    company_info = (
+                        f"{company_info}\n\n[Base de conocimiento de la empresa]\n{extra}"
+                        if company_info else extra
+                    )
+            reply = answer_candidate_question(llm, company_info=company_info, question=text)
+            if answer_cache is not None:
+                answer_cache.store(vac_id, text, reply)
         state["outbound"].append(reply)
         state["outbound"].append(f"Volviendo a lo nuestro:\n\n{q['text']}")
         return

@@ -28,6 +28,15 @@ def list_ops_alerts(user: dict[str, Any] = Depends(require_role("admin"))) -> di
     return {"alerts": _collect_ops_alerts(user["tenant_id"])}
 
 
+@router.get("/api/ops/quality")
+def get_quality_metrics(user: dict[str, Any] = Depends(require_role("admin"))) -> dict[str, Any]:
+    """Signo vital de calidad del tenant (paso 4): tendencia diaria de fundamentación y
+    relevancia de las respuestas del bot, producida por el barrido continuo `_quality_sweep`
+    (juez LLM sobre trazas answer). Vacío hasta que se active `quality_alerts` + tracing."""
+    rows = repo.list_quality_metrics(user["tenant_id"])
+    return {"metrics": rows}
+
+
 @router.get("/api/ops/http-metrics")
 def get_http_metrics(user: dict[str, Any] = Depends(require_role("admin"))) -> dict[str, Any]:
     """Métricas HTTP del proceso (O3): conteo, errores y latencia por ruta.

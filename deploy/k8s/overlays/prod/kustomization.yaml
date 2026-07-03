@@ -19,3 +19,5 @@ images:
 patches:
   - path: configmap-patch.yaml
   - path: ingress-host-patch.yaml
+  # Webhook (paso 3) ⇒ backend escala a replicas>1 + RollingUpdate (seguro sin polling).
+  - path: backend-scale-patch.yaml

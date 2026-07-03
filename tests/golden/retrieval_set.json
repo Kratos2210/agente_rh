@@ -1,0 +1,42 @@
+{
+  "_comment": "Golden de RECUPERACIÓN (paso 4): mide hit@k del retriever de company_kb SIN LLM. Cada caso: una duda típica del candidato → un substring que DEBE aparecer en el contexto recuperado. Requiere la colección sembrada (scripts/seed_company_kb.py) con la vacante demo 'Analista de Automatizaciones e IA'. Correr: uv run python scripts/retrieval_eval.py",
+  "min_hit_rate": 0.8,
+  "cases": [
+    {
+      "id": "beneficios-eps",
+      "question": "¿Qué beneficios ofrece el puesto?",
+      "expect": "EPS al 50",
+      "note": "Sección Beneficios del detalle del puesto."
+    },
+    {
+      "id": "modalidad-ubicacion",
+      "question": "¿El trabajo es remoto o presencial? ¿Dónde queda la oficina?",
+      "expect": "Santiago de Surco",
+      "note": "Modalidad presencial + ubicación."
+    },
+    {
+      "id": "experiencia-anios",
+      "question": "¿Cuántos años de experiencia se necesitan?",
+      "expect": "2 años",
+      "note": "Requisito de experiencia mínima."
+    },
+    {
+      "id": "herramientas-rpa",
+      "question": "¿Qué herramientas de automatización se usan en el rol?",
+      "expect": "UiPath",
+      "note": "Funciones: RPA (UiPath, Power Automate, Blue Prism)."
+    },
+    {
+      "id": "carrera-requisito",
+      "question": "¿Qué carrera piden para postular?",
+      "expect": "Ingeniería de Sistemas",
+      "note": "Requisito de formación."
+    },
+    {
+      "id": "descuento-marca",
+      "question": "¿Dan descuento en los productos de la marca?",
+      "expect": "Descuentos en la marca",
+      "note": "Beneficio de descuento."
+    }
+  ]
+}

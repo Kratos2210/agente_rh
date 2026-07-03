@@ -9,6 +9,11 @@ data:
   # Proyecto Supabase de producción (la service key va en el Secret del namespace).
   SUPABASE_URL: "https://REEMPLAZAR-prod.supabase.co"
   CORS_ORIGINS: "https://app.REEMPLAZAR.midominio.com"
+  # Modo WEBHOOK (paso 3): con esta URL base el bot deja el polling y recibe los updates
+  # en {URL}/telegram/webhook — lo que hace SEGURO correr replicas>1 (backend-scale-patch).
+  # Debe apuntar al MISMO host público del Ingress. El secret va en el Secret del namespace
+  # (TELEGRAM_WEBHOOK_SECRET); si se omite, se deriva del token del bot.
+  TELEGRAM_WEBHOOK_URL: "https://app.REEMPLAZAR.midominio.com"
   # PII real: trazas de IA OFF por defecto (activarlas solo con retención acorde,
   # Ley 29733). MCP OFF salvo que se use un cliente LLM externo autenticado.
   LLM_TRACE_ENABLED: "false"

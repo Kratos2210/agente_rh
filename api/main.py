@@ -30,6 +30,7 @@ from api.ratelimit import SlidingWindowLimiter
 from api.runtime import (  # noqa: F401 — re-export (compat tests/consumidores)
     _DEFAULT_AUTO_CONTACT,
     _DEFAULT_INACTIVITY,
+    _DEFAULT_QUALITY_ALERTS,
     _DEFAULT_RETENTION,
     _DEFAULT_SCHEDULING,
     _RETENTION_STATUSES,
@@ -54,6 +55,7 @@ from api.scheduler import (  # noqa: F401 — re-export (compat tests/consumidor
     _inactivity_sweep,
     _is_working_now,
     _prune_fired_slots,
+    _quality_sweep,
     _reconcile_scheduling_stuck,
     _reconciliation_sweep,
     _reminder_messages,
@@ -119,16 +121,35 @@ async def lifespan(app: FastAPI):
         logger.exception("No se pudo asegurar el admin inicial (¿DB no disponible?)")
 
     # Bot de Telegram (opcional). Solo arranca si hay token configurado.
+    # Dos modos (roadmap paso 3): POLLING (default, dev local) o WEBHOOK (prod detrás del
+    # ingress). En webhook el Application se inicia SIN updater y los updates llegan por la
+    # ruta POST /telegram/webhook, lo que permite replicas>1 y rolling/canary.
     _tg_app = None
+    _state["telegram_mode"] = "off"
     if settings.telegram_bot_token:
-        from api.telegram_bot import build_bot_app
+        from telegram import Update
+
+        from api.telegram_bot import build_bot_app, webhook_enabled, webhook_url
 
         _tg_app = build_bot_app(settings, _state)
         await _tg_app.initialize()
         await _tg_app.start()
-        await _tg_app.updater.start_polling(drop_pending_updates=True)
         _state["tg_app"] = _tg_app
-        logger.info("Bot de Telegram arrancado en modo polling")
+        if webhook_enabled(settings):
+            from api.telegram_bot import resolve_webhook_secret
+
+            await _tg_app.bot.set_webhook(
+                url=webhook_url(settings),
+                secret_token=resolve_webhook_secret(settings),
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=True,
+            )
+            _state["telegram_mode"] = "webhook"
+            logger.info("Bot de Telegram arrancado en modo webhook (%s)", webhook_url(settings))
+        else:
+            await _tg_app.updater.start_polling(drop_pending_updates=True)
+            _state["telegram_mode"] = "polling"
+            logger.info("Bot de Telegram arrancado en modo polling")
     else:
         logger.info("TELEGRAM_BOT_TOKEN vacío: el bot no arranca (solo API)")
 
@@ -155,7 +176,13 @@ async def lifespan(app: FastAPI):
         except Exception:  # noqa: BLE001
             pass
     if _tg_app is not None:
-        await _tg_app.updater.stop()
+        if _state.get("telegram_mode") == "webhook":
+            try:  # dejar de recibir updates en esta réplica antes de bajar
+                await _tg_app.bot.delete_webhook()
+            except Exception:  # noqa: BLE001
+                logger.exception("No se pudo borrar el webhook de Telegram")
+        elif _tg_app.updater is not None and _tg_app.updater.running:
+            await _tg_app.updater.stop()
         await _tg_app.stop()
         await _tg_app.shutdown()
         logger.info("Bot de Telegram detenido")
@@ -216,6 +243,30 @@ async def _request_id_middleware(request: Request, call_next):
         set_request_id("-")
 
 
+@app.post("/telegram/webhook")
+async def telegram_webhook(request: Request) -> dict[str, str]:
+    """Recibe los updates de Telegram en modo webhook (roadmap paso 3).
+
+    Telegram firma cada POST con el header X-Telegram-Bot-Api-Secret-Token; lo validamos
+    contra el secreto configurado/derivado antes de tocar el payload. El update se encola en
+    el Application ya arrancado (mismo camino que el polling: mismos handlers)."""
+    from api.telegram_bot import process_webhook_update, secret_matches
+
+    settings: Settings | None = _state.get("settings")
+    tg_app = _state.get("tg_app")
+    if settings is None or tg_app is None or _state.get("telegram_mode") != "webhook":
+        raise HTTPException(404, "Webhook no activo")
+    header = request.headers.get("x-telegram-bot-api-secret-token")
+    if not secret_matches(settings, header):
+        raise HTTPException(403, "Secret token inválido")
+    try:
+        data = await request.json()
+    except Exception:  # noqa: BLE001 — payload malformado: 400, no 500
+        raise HTTPException(400, "Payload inválido")
+    await process_webhook_update(tg_app, data)
+    return {"status": "ok"}
+
+
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     settings: Settings | None = _state.get("settings")
@@ -228,6 +279,7 @@ def health() -> dict[str, Any]:
     return {
         "status": "ok",
         "telegram": bool(settings and settings.telegram_bot_token),
+        "telegram_mode": _state.get("telegram_mode", "off"),
         "supabase": bool(settings and settings.supabase_url),
         "scheduler": mode,
         "scheduler_degraded": mode == "simulated-fallback",

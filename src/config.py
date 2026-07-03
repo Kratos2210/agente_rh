@@ -37,6 +37,24 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = 60
     llm_max_retries: int = 2
 
+    # Optimización de costos (paso 5): rutear las etapas SIMPLES a un modelo más barato.
+    # `classify` (binario respuesta/duda) y `schedule` (elegir un número de opción) no
+    # necesitan el modelo grande. Vacío = todo con `openai_model` (comportamiento actual).
+    # El modelo barato usa la MISMA base_url/api_key (mismo proveedor compatible-OpenAI).
+    llm_cheap_model: str = ""
+    # Etapas ruteadas al modelo barato (CSV). Por defecto las dos más simples y frecuentes.
+    llm_cheap_stages: str = "classify,schedule"
+
+    # Caché semántica de las dudas del candidato (paso 5): si una pregunta MUY parecida ya
+    # fue respondida para la MISMA vacante (coseno >= semantic_cache_threshold), se devuelve
+    # la respuesta cacheada sin llamar al LLM (0 tokens). Las respuestas por vacante son
+    # estables (mismo company_info), así que el hit entre candidatos es seguro. Requiere
+    # embeddings (como el RAG). Default OFF (convención config-gated).
+    interview_answer_cache_enabled: bool = False
+    # Almacén SQLite de la caché de dudas (por vacante). Ligero, sin relación con el
+    # registry de agente_pro; se crea al primer uso si la caché está activa.
+    interview_answer_cache_db: str = "./answer_cache.db"
+
     # Robustez de la cola de indexación (1 worker):
     #   - index_max_retries: reintentos ante un fallo transitorio antes de marcar error.
     #   - index_timeout_seconds: corte duro de una indexación colgada (PDF gigante/corrupto).
@@ -128,6 +146,16 @@ class Settings(BaseSettings):
     telegram_bot_username: str = ""
     # chat_id que recibe notificaciones cuando termina la indexación de un documento.
     telegram_notify_chat_id: str = ""
+    # Modo webhook (roadmap paso 3). Si telegram_webhook_url está VACÍO el bot corre en
+    # POLLING (default; dev local sin infra, un solo consumidor por token). Con la URL
+    # pública base del backend (p.ej. https://api.tuempresa.com) el bot registra un webhook
+    # y recibe los updates en POST {url}/telegram/webhook — esto desbloquea replicas>1
+    # (cada réplica procesa cualquier update) y el rolling/canary del ingress.
+    telegram_webhook_url: str = ""
+    # Secreto que valida que el POST viene de Telegram (header X-Telegram-Bot-Api-Secret-Token).
+    # Si se deja vacío en modo webhook, se deriva determinísticamente del token del bot para
+    # que nunca quede sin protección. Telegram exige [A-Za-z0-9_-], 1–256 chars.
+    telegram_webhook_secret: str = ""
 
     # --- Agente de Selección de Talento (agente_rh) ---
     # Supabase: persistencia de negocio (vacantes, candidatos, scorecards).
@@ -176,6 +204,11 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from: str = ""
     recruiter_email: str = ""
+    # Destino de equipo para alertas operativas/SLA/presupuesto (paso 3). Fallback usado por
+    # los barridos (_budget_sweep/_sla_sweep) cuando el tenant no define su propio
+    # `notify_email` — así, en producción multi-réplica, las alertas nunca caen en un buzón
+    # personal por olvidar configurarlas por tenant. Vacío = sin fallback (solo per-tenant).
+    ops_alert_email: str = ""
 
     # Pre-filtro de postulantes (sourcing + CV gate).
     # Conector de sourcing: "simulated" (fixture) o, a futuro, "bumeran"/"linkedin".

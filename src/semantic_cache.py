@@ -32,6 +32,24 @@ def embed_question(embeddings, question: str) -> np.ndarray:
     return vec
 
 
+def best_match(query: np.ndarray, rows: list[dict[str, Any]], threshold: float) -> Optional[dict[str, Any]]:
+    """Fila con mayor coseno (dot, vectores ya L2-normalizados) por encima del umbral, o
+    None. Puro (sin DB): lo reusan el caché de RAG y el de dudas de la entrevista (paso 5)."""
+    best: Optional[dict[str, Any]] = None
+    best_score = -1.0
+    for row in rows:
+        cached = np.frombuffer(row["embedding"], dtype=_DTYPE)
+        if cached.shape != query.shape:
+            continue
+        score = float(np.dot(query, cached))
+        if score > best_score:
+            best_score = score
+            best = row
+    if best is None or best_score < threshold:
+        return None
+    return {**best, "score": best_score}
+
+
 def lookup(
     document_id: str,
     question: str,
@@ -45,26 +63,17 @@ def lookup(
         if not rows:
             return None
         query = embed_question(embeddings, question)
-        best: Optional[dict[str, Any]] = None
-        best_score = -1.0
-        for row in rows:
-            cached = np.frombuffer(row["embedding"], dtype=_DTYPE)
-            if cached.shape != query.shape:
-                continue
-            score = float(np.dot(query, cached))
-            if score > best_score:
-                best_score = score
-                best = row
-        if best is None or best_score < threshold:
+        best = best_match(query, rows, threshold)
+        if best is None:
             return None
         logger.info(
-            "Caché semántico HIT (doc=%s, score=%.4f) — 0 tokens", document_id, best_score
+            "Caché semántico HIT (doc=%s, score=%.4f) — 0 tokens", document_id, best["score"]
         )
         return {
             "answer": best["answer"],
             "sources": json.loads(best["sources"]) if best.get("sources") else [],
             "question": best["question"],
-            "score": best_score,
+            "score": best["score"],
         }
     except Exception:
         logger.warning("Caché semántico lookup falló; sigo con el flujo normal", exc_info=True)

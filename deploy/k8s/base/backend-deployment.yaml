@@ -6,14 +6,16 @@ metadata:
     app.kubernetes.io/name: agente-rh
     app.kubernetes.io/component: backend
 spec:
-  # ⚠️ replicas: 1 A PROPÓSITO. El bot de Telegram corre en modo POLLING y Telegram
-  # solo admite un consumidor de getUpdates por token: una 2ª réplica recibiría 409
-  # Conflict. El scheduler interno SÍ tolera N réplicas (advisory lock de Postgres,
-  # con takeover si el activo muere), así que el único bloqueante para escalar
-  # horizontalmente es migrar el bot a webhook — ver docs/despliegue.md.
+  # ⚠️ replicas: 1 A PROPÓSITO en el BASE (default = POLLING). En polling Telegram solo
+  # admite un consumidor de getUpdates por token: una 2ª réplica recibiría 409 Conflict.
+  # El scheduler interno SÍ tolera N réplicas (advisory lock de Postgres, con takeover si
+  # el activo muere). Para escalar (replicas>1 + RollingUpdate) se corre el bot en modo
+  # WEBHOOK — el overlay prod lo activa (TELEGRAM_WEBHOOK_URL + backend-scale-patch.yaml).
+  # Ver docs/despliegue.md.
   replicas: 1
   strategy:
-    # Recreate (no rolling): evita dos pods poleando Telegram durante el swap.
+    # Recreate (no rolling): evita dos pods poleando Telegram durante el swap. El overlay
+    # prod lo cambia a RollingUpdate porque ahí el bot va por webhook (no pelea el token).
     type: Recreate
   selector:
     matchLabels:

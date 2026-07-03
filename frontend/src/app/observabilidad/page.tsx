@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Shell, Card, BackLink } from "@/components/Shell";
-import { api, errorMessage, AuditEntry, HttpRouteMetric, OpsAlert, OutboxHealth, OutboxItem } from "@/lib/api";
+import { api, errorMessage, AuditEntry, HttpRouteMetric, OpsAlert, OutboxHealth, OutboxItem, QualityMetric } from "@/lib/api";
 import { isAdmin } from "@/lib/auth";
 
 // Etiquetas legibles para los tipos de alerta operativa (reconciliación).
@@ -51,6 +51,13 @@ function when(iso: string): string {
   }
 }
 
+// Rango 0..1 → color semáforo según el umbral (bajo el umbral = rojo).
+function rateColor(rate: number, threshold: number): string {
+  if (rate < threshold) return "#f87171";
+  if (rate < threshold + 0.05) return "#d97706";
+  return "#34d399";
+}
+
 function CountChip({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div style={{ padding: "12px 18px", borderRadius: 13, background: "rgba(255,255,255,.03)", border: "1px solid var(--edge)", minWidth: 120 }}>
@@ -65,6 +72,7 @@ export default function ObservabilidadPage() {
   const [alerts, setAlerts] = useState<OpsAlert[] | null>(null);
   const [audit, setAudit] = useState<AuditEntry[] | null>(null);
   const [http, setHttp] = useState<HttpRouteMetric[] | null>(null);
+  const [quality, setQuality] = useState<QualityMetric[] | null>(null);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [retrying, setRetrying] = useState<string | null>(null);
@@ -75,6 +83,9 @@ export default function ObservabilidadPage() {
     api.getOpsAlerts().then((r) => setAlerts(r.alerts)).catch((e) => setError(errorMessage(e)));
     api.getAudit().then(setAudit).catch((e) => setError(errorMessage(e)));
     api.getHttpMetrics().then((r) => setHttp(r.routes)).catch((e) => setError(errorMessage(e)));
+    // Panel opcional (paso 4): si el backend aún no expone el endpoint (skew de versión
+    // durante un deploy), degradá a "sin datos" en vez de disparar el banner global.
+    api.getQuality().then((r) => setQuality(r.metrics)).catch(() => setQuality([]));
   };
 
   useEffect(() => {
@@ -143,6 +154,52 @@ export default function ObservabilidadPage() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+      </Card>
+
+      {/* ── Calidad de las respuestas (signo vital · paso 4) ─────────── */}
+      <Card style={{ marginBottom: 18 }}>
+        <h2 className="font-semibold mb-1">Calidad de las respuestas (IA)</h2>
+        <p className="text-sm mb-4" style={{ color: "var(--muted)" }}>
+          Tendencia diaria de <strong>fundamentación</strong> (¿la respuesta se apoya solo en la
+          info de la vacante?) y <strong>relevancia</strong> (¿atiende la pregunta?), medida por un
+          juez LLM sobre las trazas reales. Se activa en Configuración → Calidad (requiere trazas).
+        </p>
+        {!quality ? (
+          <p className="text-sm" style={{ color: "var(--muted)" }}>Cargando…</p>
+        ) : quality.length === 0 ? (
+          <p className="text-sm" style={{ color: "var(--muted)" }}>
+            Sin mediciones aún. Activá <em>Alertas de calidad</em> y el <em>tracing</em> del bot para
+            empezar a registrar el signo vital.
+          </p>
+        ) : (
+          <div style={{ display: "grid", gap: 10 }}>
+            {(() => {
+              const latest = quality[0]?.day;
+              return quality
+                .filter((m) => m.day === latest)
+                .map((m) => (
+                  <div key={m.metric} style={{ padding: "13px 16px", borderRadius: 12, background: "rgba(255,255,255,.02)", border: "1px solid var(--edge)", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 22, fontWeight: 800, color: rateColor(m.rate, m.threshold), lineHeight: 1, minWidth: 62 }}>
+                      {Math.round(m.rate * 100)}%
+                    </span>
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 600, color: "#dbe2ee" }}>
+                        {m.metric === "grounded" ? "Fundamentación" : m.metric === "answer_relevance" ? "Relevancia" : m.metric}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 3 }}>
+                        {when(m.day)} · n={m.sample_size} · umbral {Math.round(m.threshold * 100)}%
+                      </div>
+                    </div>
+                    {m.rate < m.threshold && (
+                      <span style={{ padding: "3px 10px", borderRadius: 999, background: "rgba(248,113,113,.12)", color: "#f87171", fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap" }}>
+                        Bajo umbral
+                      </span>
+                    )}
+                  </div>
+                ));
+            })()}
           </div>
         )}
       </Card>

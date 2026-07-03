@@ -10,6 +10,8 @@ Conecta los updates de Telegram con el InterviewService (agnóstico al canal):
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +77,50 @@ def _mark_delivery_result(chat_id: int, ok: bool) -> None:
         logger.exception("No se pudo registrar el resultado de entrega (chat %s)", chat_id)
 
 
+# ── Webhook (roadmap paso 3) ─────────────────────────────────────────────────
+# Ruta relativa donde el backend recibe los updates de Telegram (montada en api/main.py).
+WEBHOOK_PATH = "/telegram/webhook"
+
+
+def resolve_webhook_secret(settings: Settings) -> str:
+    """Secreto para el header X-Telegram-Bot-Api-Secret-Token.
+
+    Si el operador no fija TELEGRAM_WEBHOOK_SECRET, se deriva del token del bot para que el
+    endpoint NUNCA quede sin validar en modo webhook. Determinístico y estable entre réplicas.
+    Telegram acepta [A-Za-z0-9_-] 1–256 chars; el hex del sha256 cumple."""
+    explicit = (settings.telegram_webhook_secret or "").strip()
+    if explicit:
+        return explicit
+    token = (settings.telegram_bot_token or "").encode()
+    return hashlib.sha256(b"agente_rh-webhook:" + token).hexdigest()
+
+
+def webhook_enabled(settings: Settings) -> bool:
+    """El bot corre en modo webhook si hay token Y una URL pública configurada."""
+    return bool((settings.telegram_bot_token or "").strip() and (settings.telegram_webhook_url or "").strip())
+
+
+def webhook_url(settings: Settings) -> str:
+    """URL completa del webhook: {telegram_webhook_url}/telegram/webhook (sin doble slash)."""
+    base = (settings.telegram_webhook_url or "").strip().rstrip("/")
+    return f"{base}{WEBHOOK_PATH}"
+
+
+def secret_matches(settings: Settings, header_value: str | None) -> bool:
+    """Compara en tiempo constante el secreto recibido con el esperado (anti timing)."""
+    expected = resolve_webhook_secret(settings)
+    return bool(header_value) and hmac.compare_digest(str(header_value), expected)
+
+
+async def process_webhook_update(app: Application, data: dict[str, Any]) -> None:
+    """Deserializa el update crudo de Telegram y lo encola en el Application ya arrancado.
+
+    En modo webhook no corre el updater (que hace polling); el Application igualmente consume
+    su update_queue tras app.start(), así que basta con encolar el update deserializado."""
+    update = Update.de_json(data, app.bot)
+    await app.update_queue.put(update)
+
+
 def _init_allowed_users(settings: Settings) -> None:
     global _allowed_users
     raw = (settings.telegram_allowed_users or "").strip()
@@ -88,7 +134,7 @@ def _is_allowed(chat_id: int) -> bool:
 def build_bot_app(settings: Settings, state: dict[str, Any]) -> Application:
     """Construye la Application de PTB con el servicio de entrevista inyectado."""
     from agent.graph import make_postgres_runner
-    from agent.llm import MeteredLLM, build_default_llm
+    from agent.llm import MeteredLLM, build_default_llm, build_stage_overrides
     from db.client import get_database_url
 
     _init_allowed_users(settings)
@@ -102,6 +148,7 @@ def build_bot_app(settings: Settings, state: dict[str, Any]) -> Application:
     )
 
     # RAG de dudas del candidato (config-gated, lazy): None si interview_rag_enabled=False.
+    from agent.answer_cache import build_answer_cache
     from agent.rag import build_company_retriever
 
     runner = make_postgres_runner(
@@ -109,9 +156,11 @@ def build_bot_app(settings: Settings, state: dict[str, Any]) -> Application:
             build_default_llm(),
             trace=settings.llm_trace_enabled,
             trace_max_chars=settings.llm_trace_max_chars,
+            overrides=build_stage_overrides(settings),  # routing de costos (paso 5)
         ),
         get_database_url(),
         retriever=build_company_retriever(settings),
+        answer_cache=build_answer_cache(settings),  # caché de dudas (paso 5)
     )
     notifier = _build_notifier(settings)
     service = InterviewService(
