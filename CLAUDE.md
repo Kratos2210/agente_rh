@@ -754,6 +754,35 @@ embeddings) para responder dudas del candidato sobre el puesto.
   14 → 82 parámetros + grupo observabilidad, sección 17 al día; KPIs del hero/resumen (283 tests).
   **283/283 tests; tsc OK; /guia 200 con el contenido nuevo servido.**
 
+- **2026-07-02 — Cierre del entregable "IA en producción" (despliegue + docs + RAG on)**: revisión
+  contra la rúbrica (RAG, LangChain, LangGraph, MCP, observabilidad, microservicios/serverless, repo
+  documentado) → 5/7 cubiertos; gaps = despliegue y documentación de cara al repo. **(A) Containerización
+  real**: `Dockerfile.backend` reescrito (uv + `pyproject.toml` con `uv pip install -r pyproject.toml`
+  — el proyecto no tiene build-system, solo deps; torch==2.2.2 del índice CPU ANTES del resto para no
+  arrastrar CUDA; sin OCR/Piper; HEALTHCHECK urllib) — imagen 2.33 GB build OK; `docker-compose.yml`
+  actualizado (Supabase del host vía `host.docker.internal` + `extra_hosts` para Linux; volúmenes
+  hf-cache/chroma/uploads; sin `app-data` SQLite de agente_pro); `.dockerignore` al layout actual.
+  **(B) Kubernetes + serverless**: `deploy/k8s/` (namespace, configmap, secret.example, deployments
+  con startup/readiness/liveness probes, services, ingress `/api`+`/mcp`→backend, kustomization,
+  README) — **validado con kubeconform strict: 8/8 recursos**; decisión honesta codificada: backend
+  `replicas:1` + strategy Recreate (el bot POLLING solo admite un getUpdates por token; el scheduler
+  sí es multi-réplica por el advisory lock); `docs/despliegue.md` con los 3 caminos y la **decisión
+  serverless argumentada** (no para bot/scheduler/RAG; sí API/notificaciones tras migrar a webhook).
+  **(C) Repo documentado**: `README.md` reescrito (arquitectura + tabla de patrones con punteros +
+  despliegue + mapa de docs); `docs/arquitectura.md` (ADR-lite: ~25 decisiones con alternativas y
+  porqués); `.github/workflows/ci.yml` arreglado (uv sync + pytest, npm lint+tsc, build Docker,
+  kubeconform; el viejo usaba requirements.txt y npm test inexistentes); regla eslint
+  `react-hooks/set-state-in-effect` off (5 falsos positivos del guard de sesión) → lint verde;
+  `docs/guia.html` huérfano eliminado. **(D) RAG demostrable**: `INTERVIEW_RAG_ENABLED=true` por
+  defecto + `COMPANY_KB_COLLECTION` (`company_kb`); `agent/rag.py` ahora abre la colección persistida
+  en **modo lectura** (antes usaba `build_vectorstore` que reindexa y EXIGE PDFs en data/ — habría
+  degradado siempre); embeddings primero, Chroma después (el fail-safe corta antes del import pesado);
+  **`scripts/seed_company_kb.py`**: compone un doc por vacante abierta (título/área/modalidad/
+  ubicación/descripción/company_info/details/requisitos/beneficios/rango salarial/temas) y lo indexa
+  vía `index_document` (idempotente por hash). **Verificado**: seed → 3 chunks de la vacante demo;
+  283/283 tests (test_pipeline_llm ajustado al retriever nuevo + default on). Matriz de cobertura
+  completa en el plan (`~/.claude/plans/quiero-que-revises-toda-wondrous-fox.md`).
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.

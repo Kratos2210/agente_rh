@@ -1,8 +1,5 @@
 name: CI
 
-# Requiere que ESTE proyecto sea su propio repo git con remoto en GitHub.
-# (Hoy los archivos viven sin trackear dentro del repo de HOME — ver CLAUDE.md.
-#  Para que el CI corra: `git init` en agente_pro/ + remoto propio.)
 on:
   push:
     branches: [main, master]
@@ -15,11 +12,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Instalar uv
         uses: astral-sh/setup-uv@v5
-      - name: Crear entorno e instalar dependencias
-        run: |
-          uv venv
-          uv pip install -r requirements.txt
-      - name: Tests del backend
+        with:
+          python-version: "3.12"
+      - name: Instalar dependencias (pyproject + extra dev)
+        run: uv sync --extra dev
+      - name: Tests del backend (suite completa)
         run: uv run pytest -q
 
   frontend:
@@ -39,5 +36,20 @@ jobs:
         run: npm run lint
       - name: Typecheck
         run: npx tsc --noEmit
-      - name: Tests
-        run: npm test
+
+  docker:
+    # Valida que la imagen del backend construya (sin publicarla).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build imagen backend
+        run: docker build -f Dockerfile.backend -t agente-rh-backend:ci .
+
+  k8s-manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar manifests (kubeconform)
+        run: |
+          kubectl kustomize deploy/k8s/ > /tmp/rendered.yaml
+          docker run --rm -i ghcr.io/yannh/kubeconform:latest -strict -summary - < /tmp/rendered.yaml
