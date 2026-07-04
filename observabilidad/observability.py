@@ -21,6 +21,11 @@ def setup_tracing(settings: Settings) -> bool:
         os.environ["LANGCHAIN_TRACING_V2"] = "true"  # compat con versiones previas
         os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key
         os.environ["LANGSMITH_PROJECT"] = settings.langsmith_project
+        # Privacidad (Ley 29733): oculta el texto de entrada/salida (PII del candidato) antes
+        # de que el SDK cree su Client. Solo viaja la estructura + latencia/tokens. El SDK lee
+        # estas vars vía get_env_var("HIDE_INPUTS") → prefijo LANGSMITH_.
+        os.environ["LANGSMITH_HIDE_INPUTS"] = "true" if settings.langsmith_hide_inputs else "false"
+        os.environ["LANGSMITH_HIDE_OUTPUTS"] = "true" if settings.langsmith_hide_outputs else "false"
         return True
 
     # Aseguramos que quede desactivado si no hay key.
