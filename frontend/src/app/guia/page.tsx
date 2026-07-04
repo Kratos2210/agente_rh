@@ -199,7 +199,7 @@ const GUIA_HTML = `
         <text x="500" y="268" text-anchor="middle" fill="#7e8aa0" font-size="10.5">auto-contacto · inactividad · outbox · retención · SLAs</text>
 
         <rect x="300" y="292" width="400" height="64" rx="9" fill="#141b2d" stroke="#34d399"/>
-        <text x="500" y="315" text-anchor="middle" fill="#e8edf6" font-size="12.5" font-weight="800">🧠 Cerebro · agent/ (LangGraph) + evaluation/</text>
+        <text x="500" y="315" text-anchor="middle" fill="#e8edf6" font-size="12.5" font-weight="800">🧠 Cerebro · agente/ (LangGraph) + evaluation/</text>
         <text x="500" y="333" text-anchor="middle" fill="#7e8aa0" font-size="10.5">máquina de estados de la entrevista · scoring · lógica pura</text>
         <text x="500" y="348" text-anchor="middle" fill="#7e8aa0" font-size="10.5">todos los canales terminan aquí</text>
 
@@ -272,13 +272,13 @@ const GUIA_HTML = `
     <tbody>
       <tr><td><b>Canales</b></td><td>Entrada/salida con el candidato</td><td class="file">channels/ · api/telegram_bot.py</td></tr>
       <tr><td><b>API (FastAPI)</b></td><td>Endpoints del dashboard + arranque del bot + tareas programadas</td><td class="file">api/main.py · api/auth.py</td></tr>
-      <tr><td><b>Cerebro</b></td><td>Máquina de estados de la entrevista (LangGraph)</td><td class="file">agent/ (state, graph, nodes, prompts)</td></tr>
+      <tr><td><b>Cerebro</b></td><td>Máquina de estados de la entrevista (LangGraph)</td><td class="file">agente/ (state, graph, nodes, prompts)</td></tr>
       <tr><td><b>Evaluación</b></td><td>Puntuar respuestas y armar el scorecard</td><td class="file">evaluation/ (scorer, scorecard, prescreen)</td></tr>
       <tr><td><b>Integraciones</b></td><td>Adaptadores a servicios externos</td><td class="file">integrations/ (sourcing, scheduling)</td></tr>
       <tr><td><b>Notificaciones</b></td><td>Correo, avisos, cola de envíos con reintentos</td><td class="file">notifications/ (email, candidate, outbox)</td></tr>
       <tr><td><b>Datos</b></td><td>Guardar y leer todo en PostgreSQL</td><td class="file">db/ (client, repositories) · supabase/migrations</td></tr>
       <tr><td><b>Frontend</b></td><td>Dashboard del reclutador</td><td class="file">frontend/ (Next.js 16 + React)</td></tr>
-      <tr><td><b>RAG</b></td><td>Base de conocimiento para responder dudas del puesto</td><td class="file">src/ (heredado: vectorstore, qa_chain)</td></tr>
+      <tr><td><b>RAG + LLM</b></td><td>Base de conocimiento para responder dudas + orquestación del modelo</td><td class="file">retrieval/ · ranking/ · orquestacion/</td></tr>
     </tbody>
   </table>
   <div class="note">🔌 <b>Patrón clave — adaptadores:</b> sourcing, agendamiento, canales e IA se
@@ -290,23 +290,35 @@ const GUIA_HTML = `
 <section id="modulos">
   <h2><span class="num">3</span>Mapa del código</h2>
   <div class="simple">🟢 <b>En simple:</b> dónde vive cada cosa. Útil si vas a tocar el proyecto.</div>
+  <div class="note">🎯 <b>Estructura alineada a la rúbrica</b> (<span class="file">audit/chekeo.md</span>): el
+  código de los <b>siete componentes</b> vive en carpetas con el nombre que pide la rúbrica
+  (<span class="file">retrieval/ ranking/ orquestacion/ agente/ adaptadores_mcp/ observabilidad/
+  despliegue/</span>). La reorg movió el código real (con historia preservada) desde el antiguo grab-bag
+  <span class="file">src/</span> y desde <span class="file">agent/</span>; la infra transversal quedó en
+  <span class="file">core/</span>. Capas sin ciclos: <b>agente → orquestacion → retrieval → ranking →
+  core</b>.</div>
   <table>
     <thead><tr><th>Carpeta</th><th>Para qué sirve</th></tr></thead>
     <tbody>
+      <tr><td class="file">retrieval/ 🎯</td><td><b>Rúbrica · Retrieval.</b> Base de conocimiento vectorial: Chroma + búsqueda híbrida (BM25 + vectorial), embeddings <span class="file">multilingual-e5</span>, caché semántica, y el pipeline vivo de RAG (<span class="file">rag.py</span>) + caché de dudas.</td></tr>
+      <tr><td class="file">ranking/ 🎯</td><td><b>Rúbrica · Ranking.</b> Re-ranker cross-encoder que reordena los pasajes recuperados antes de pasarlos al LLM.</td></tr>
+      <tr><td class="file">orquestacion/ 🎯</td><td><b>Rúbrica · Orquestación (LangChain).</b> Abstracción intercambiable del LLM (<span class="file">llm.py</span>: <code>LangChainLLM</code>, <code>MeteredLLM</code>, routing barato por etapa) + cadenas de prompts (<span class="file">qa_chain</span>, <span class="file">classifier</span>).</td></tr>
+      <tr><td class="file">agente/ 🎯</td><td><b>Rúbrica · Agente cíclico (LangGraph).</b> El cerebro: estados de la conversación, grafo, nodos, prompts, servicio y sourcing.</td></tr>
+      <tr><td class="file">adaptadores_mcp/ 🎯</td><td><b>Rúbrica · Adaptadores MCP.</b> Servidor MCP (SDK oficial <span class="file">mcp</span>) con 7 tools bajo el mismo JWT del dashboard.</td></tr>
+      <tr><td class="file">observabilidad/ 🎯</td><td><b>Rúbrica · Observabilidad.</b> Gancho de trazado (LangSmith/Phoenix) + histograma HTTP (p95/p99). Se complementa con <span class="file">orquestacion/llm.py</span> (metering) y <span class="file">api/routes/observability.py</span>.</td></tr>
+      <tr><td class="file">despliegue/ 🎯</td><td><b>Rúbrica · Despliegue.</b> Manifiestos K8s (<span class="file">despliegue/k8s/</span>, base + overlays dev/prod) y el script <span class="file">deploy.sh</span> (build/push/compose/validate/k8s). El <span class="file">Dockerfile.backend</span> y <span class="file">docker-compose.yml</span> viven en la raíz.</td></tr>
+      <tr><td class="file">core/</td><td>Infra transversal (fuera de la rúbrica, pero legítima): configuración, logging y registry. Es el nivel más bajo del layering; no importa a los demás paquetes.</td></tr>
       <tr><td class="file">api/</td><td>Servidor web (FastAPI), login/roles, bot de Telegram, tareas programadas.</td></tr>
-      <tr><td class="file">agent/</td><td>El cerebro: estados de la conversación, grafo, nodos, prompts, servicio.</td></tr>
       <tr><td class="file">evaluation/</td><td>Puntuación de respuestas, scorecard con semáforo y pre-filtro del CV.</td></tr>
       <tr><td class="file">channels/</td><td>Interfaz de canal (Telegram; WhatsApp como esqueleto) y validación de documentos.</td></tr>
       <tr><td class="file">integrations/</td><td>Sourcing (portales de empleo) y agendamiento (Google Calendar/Meet/Sheets).</td></tr>
       <tr><td class="file">notifications/</td><td>Correo al reclutador, aviso al candidato y la cola durable de envíos (outbox).</td></tr>
       <tr><td class="file">db/</td><td>Cliente de Supabase y funciones de lectura/escritura (repositorios).</td></tr>
-      <tr><td class="file">supabase/migrations/</td><td>Los 25 cambios de esquema de la base de datos, versionados.</td></tr>
-      <tr><td class="file">src/</td><td>Reutilizado: configuración, motor RAG, logging, observabilidad.</td></tr>
+      <tr><td class="file">supabase/migrations/</td><td>Los 26 cambios de esquema de la base de datos, versionados.</td></tr>
       <tr><td class="file">frontend/</td><td>Dashboard web (esta guía vive en <span class="file">frontend/src/app/guia</span>).</td></tr>
-      <tr><td class="file">tests/</td><td>44 archivos de pruebas automáticas (359 casos).</td></tr>
+      <tr><td class="file">tests/</td><td>Pruebas automáticas (359 casos).</td></tr>
       <tr><td class="file">scripts/</td><td>Herramientas de línea de comandos: demo sin infra, verificación end-to-end multi-etapa, suite golden, juez de fundamentación, siembra de la base de conocimiento (RAG) y cliente MCP de ejemplo.</td></tr>
-      <tr><td class="file">deploy/</td><td>Despliegue: manifiestos de Kubernetes (<span class="file">deploy/k8s/</span>) y el script <span class="file">deploy.sh</span> (build/push/compose/k8s). El <span class="file">Dockerfile.backend</span> y <span class="file">docker-compose.yml</span> viven en la raíz.</td></tr>
-      <tr><td class="file">docs/</td><td>Auditorías (seguridad, e2e), runbook de secretos, decisiones de arquitectura (<span class="file">arquitectura.md</span>) y guía de despliegue (<span class="file">despliegue.md</span>).</td></tr>
+      <tr><td class="file">docs/</td><td>Auditorías (seguridad, e2e), runbook de secretos, decisiones de arquitectura (<span class="file">arquitectura.md</span>), guía de despliegue (<span class="file">despliegue.md</span>) y el mapa de conformidad con la rúbrica (<span class="file">mapa_rubrica.md</span>).</td></tr>
     </tbody>
   </table>
 
@@ -403,7 +415,7 @@ const GUIA_HTML = `
 
       <!-- Nodo turn -->
       <rect x="290" y="16" width="430" height="150" rx="12" fill="#0f1524" stroke="#34d399"/>
-      <text x="505" y="40" text-anchor="middle" fill="#e8edf6" font-size="13" font-weight="800">Grafo LangGraph · un solo nodo: «turn» (agent/graph.py)</text>
+      <text x="505" y="40" text-anchor="middle" fill="#e8edf6" font-size="13" font-weight="800">Grafo LangGraph · un solo nodo: «turn» (agente/graph.py)</text>
       <g font-size="11">
         <rect x="308" y="52" width="394" height="30" rx="7" fill="#141b2d" stroke="#313b54"/>
         <text x="318" y="71" fill="#cfe0ff">mode = "start" → nodes.start · saludo + botones Acepto/No</text>
@@ -429,7 +441,7 @@ const GUIA_HTML = `
       </g>
 
       <!-- Despacho por fase -->
-      <text x="530" y="222" text-anchor="middle" fill="#e8edf6" font-size="12.5" font-weight="800">handle_turn: ¿en qué fase está la conversación? (agent/nodes.py)</text>
+      <text x="530" y="222" text-anchor="middle" fill="#e8edf6" font-size="12.5" font-weight="800">handle_turn: ¿en qué fase está la conversación? (agente/nodes.py)</text>
       <g font-size="10.5">
         <rect x="8" y="238" width="196" height="96" rx="10" fill="#141b2d" stroke="#4f8cff"/>
         <text x="106" y="258" text-anchor="middle" fill="#9dc0ff" font-weight="700">greeting</text>
@@ -514,7 +526,7 @@ const GUIA_HTML = `
 
   <div class="grid g2">
     <div class="card"><h4>El estado que viaja (recortado)</h4>
-      <div class="src">agent/state.py · InterviewState (TypedDict)</div>
+      <div class="src">agente/state.py · InterviewState (TypedDict)</div>
       <pre class="snippet">class InterviewState(TypedDict, total=False):
     vacancy: dict[str, Any]          # subset de la vacante
     questions: list[QuestionSpec]    # texto, criterio, peso, cv_field…
@@ -538,7 +550,7 @@ const GUIA_HTML = `
     pending_button: Optional[str]    # "accept" | "decline"
     pending_timeout: bool            # cierre por inactividad</pre></div>
     <div class="card"><h4>El nodo y el despachador (real, completo)</h4>
-      <div class="src">agent/graph.py · build_interview_graph</div>
+      <div class="src">agente/graph.py · build_interview_graph</div>
       <pre class="snippet">def _turn(state: InterviewState) -&gt; InterviewState:
     mode = state.get("mode")
     if mode == "start":
@@ -555,7 +567,7 @@ g.add_node("turn", _turn)
 g.set_entry_point("turn")
 g.add_edge("turn", END)
 return g.compile(checkpointer=checkpointer)</pre>
-      <div class="src">agent/nodes.py · handle_turn (el despacho por fase)</div>
+      <div class="src">agente/nodes.py · handle_turn (el despacho por fase)</div>
       <pre class="snippet">if phase == PHASE_GREETING:
     _handle_consent(state, text=text, button=button)
 elif phase == PHASE_AWAITING_DOCS:
@@ -574,7 +586,7 @@ elif phase == PHASE_SCHEDULING:
   <b>inyectan</b> al compilar el grafo (en tests, una IA falsa); el estado NO los contiene — solo
   datos serializables. Al llegar un mensaje, LangGraph carga el último checkpoint del
   <code>thread_id</code>, ejecuta el nodo y guarda el nuevo. <code>make_postgres_runner</code>
-  (<span class="file">agent/graph.py</span>) crea las tablas de checkpoints con
+  (<span class="file">agente/graph.py</span>) crea las tablas de checkpoints con
   <code>PostgresSaver.setup()</code> la primera vez — son tablas aparte de las 20 de negocio (§13).</div>
 </section>
 
@@ -617,7 +629,7 @@ await send_messages(context.bot, chat.id, result.messages,
                     show_consent_buttons=result.show_consent_buttons)</pre></div>
 
   <div class="card"><h4>② El servicio resuelve el contexto y toma el lock</h4>
-    <div class="src">agent/service.py · InterviewService.process / _resolve_context</div>
+    <div class="src">agente/service.py · InterviewService.process / _resolve_context</div>
     <pre class="snippet">def process(self, inbound: InboundMessage) -&gt; TurnResult:
     # t0 ANTES del lock: la espera por otro turno en curso también es
     # latencia que percibe el candidato (se registra como stage="turn").
@@ -631,7 +643,7 @@ await send_messages(context.bot, chat.id, result.messages,
     cruces entre empresas (multi-tenant, §9).</p></div>
 
   <div class="card"><h4>③ El cerebro procesa el turno (§4) y el servicio proyecta</h4>
-    <div class="src">agent/service.py · _process (recortado)</div>
+    <div class="src">agente/service.py · _process (recortado)</div>
     <pre class="snippet">new_state = self.runner.send(inbound.thread_id, text=inbound.text,
                              button=inbound.button, document=inbound.document)
 
@@ -701,7 +713,7 @@ repositories.update_conversation(conv["id"],             # reinicia el reloj de 
 
   <div class="grid g2">
     <div class="card"><h4>① La IA puntúa UNA respuesta (contrato JSON)</h4>
-      <div class="src">agent/prompts.py · EVALUATE_ANSWER_PROMPT → evaluation/scorer.py · evaluate_answer</div>
+      <div class="src">agente/prompts.py · EVALUATE_ANSWER_PROMPT → evaluation/scorer.py · evaluate_answer</div>
       <pre class="snippet">// Lo que se le exige devolver al LLM (y el código parsea por clave):
 {"score": &lt;entero 0-100&gt;,
  "justification": "&lt;1-2 frases para el reclutador&gt;",
@@ -931,11 +943,26 @@ def compute_semaphore(total, *, green_min, yellow_min):
     <div class="card"><h4>🧾 Logs JSON + Sentry (O-6)</h4>
       <p>Logs estructurados con <code>request-id</code> propagado (<code>X-Request-ID</code>), Sentry
       opcional para errores (sin datos personales) y snapshots periódicos de métricas HTTP a la DB.</p></div>
-    <div class="card"><h4>🔭 Arize Phoenix (opcional)</h4>
-      <p>Tracing de las llamadas a la IA con el estándar <b>OpenInference/OpenTelemetry</b> hacia un
-      Phoenix <b>self-hosted</b> (los datos personales no salen de infraestructura propia). Apagado por
-      defecto (<code>PHOENIX_ENABLED</code>); al activarlo, cada llamada LangChain aparece como span con
-      modelo y tokens.</p></div>
+    <div class="card"><h4>🔭 Arize (local = Phoenix)</h4>
+      <p><b>"Arize local" ya está integrado: es Phoenix</b>, el producto self-hosted/open-source de Arize
+      (mismo ecosistema <b>OpenInference/OpenTelemetry</b> que el SaaS <i>Arize AX</i>). No hay que
+      programar nada — solo encenderlo:</p>
+      <ol class="tight">
+        <li>Levantar el collector+UI: <code>docker run -d -p 6006:6006 arizephoenix/phoenix</code></li>
+        <li><code>PHOENIX_ENABLED=true</code> en el <span class="file">.env</span> (endpoint por defecto
+        <span class="file">http://localhost:6006/v1/traces</span>, proyecto <code>agente-rh</code>)</li>
+        <li>Reiniciar el backend → el lifespan instrumenta LangChain y cada llamada a la IA aparece como
+        span (<b>modelo, tokens, latencia, prompt/respuesta</b>) en <span class="file">localhost:6006</span></li>
+      </ol>
+      <p><b>Por qué local y no la nube:</b> los prompts llevan datos personales del candidato (nombre,
+      respuestas, CV). En <b>Phoenix self-hosted</b> esos datos <b>no salen de la máquina</b> → cumple la
+      <b>Ley 29733</b>. El <b>Arize AX cloud</b> (SaaS en EE.UU.) daría monitoreo de producción de largo
+      plazo, pero implicaría enviar esa PII fuera; si se quisiera, habría que agregarlo config-gated y en
+      modo <i>metadata-only</i> (<code>hide_inputs/hide_outputs</code>). Apagado por defecto por convención
+      de superficie mínima.</p>
+      <p>⚠️ <b>Gotcha:</b> la instrumentación es global al proceso del backend → solo las
+      llamadas LLM hechas <b>dentro del backend</b> (turno del bot, sync/pre-filtro) emiten spans; los
+      scripts sueltos (<span class="file">demo.py</span>, golden) corren en otro proceso y no aparecen.</p></div>
     <div class="card"><h4>💚 Calidad continua · signo vital</h4>
       <p>El juez de calidad dejó de ser una "foto" manual: un <b>barrido diario</b> muestrea las
       respuestas reales del bot por empresa, mide su <b>fundamentación</b> y <b>relevancia</b>, guarda la
@@ -966,7 +993,7 @@ def compute_semaphore(total, *, green_min, yellow_min):
   </table>
   <div class="note">📝 La <b>revalidación por CV</b> ("Según tu CV: «…». Para confirmarlo…") NO gasta
   IA: es una función determinista (<code>revalidation_question</code> en
-  <span class="file">agent/prompts.py</span>) que reformula la pregunta; el contraste real ocurre en
+  <span class="file">agente/prompts.py</span>) que reformula la pregunta; el contraste real ocurre en
   <b>evaluate</b>, que recibe el dato del CV como contexto. Toda etapa tiene un <b>plan B sin IA</b>
   (columna derecha): el sistema degrada, nunca se queda mudo.</div>
   <ul class="tight">
@@ -994,7 +1021,7 @@ def compute_semaphore(total, *, green_min, yellow_min):
   </ul>
 
   <h3>Los prompts, tal cual (deep-dive)</h3>
-  <p class="lead">Todos viven en <span class="file">agent/prompts.py</span> (versión sellada:
+  <p class="lead">Todos viven en <span class="file">agente/prompts.py</span> (versión sellada:
   <code>PROMPT_VERSION = "2026-07-03.1"</code>). Se muestran como los recibe el LLM;
   <code>{question}</code>, <code>{message}</code>, etc. son los huecos que llena el código (en el
   fuente, las llaves del JSON van dobladas <code>{{…}}</code> por el <code>.format</code> de Python).
@@ -1160,7 +1187,7 @@ JSON:</pre>
       <div class="arr">→</div>
       <div class="step"><b>3 · Prompt</b>Los fragmentos se anexan al <code>company_info</code> de la vacante dentro de ANSWER_CANDIDATE_PROMPT (arriba).</div>
     </div>
-    <div class="src">agent/rag.py · build_company_retriever → retrieve() (recortado)</div>
+    <div class="src">retrieval/rag.py · build_company_retriever → retrieve() (recortado)</div>
     <pre class="snippet">docs = store.similarity_search(question, k=retrieve_k)      # vectorial
 if bm25 is not None:                                        # + léxico (híbrido)
     seen = {d.page_content for d in docs}
@@ -1279,7 +1306,7 @@ return "\\n\\n".join(d.page_content for d in docs[:final_k])</pre>
     defecto (<code>MCP_ENABLED</code>); cliente de ejemplo en
     <span class="file">scripts/mcp_client_demo.py</span>.</p></div>
 
-  <details class="deep"><summary>El flujo de dos pasos, con el JSON real (api/mcp.py)</summary><div class="body">
+  <details class="deep"><summary>El flujo de dos pasos, con el JSON real (adaptadores_mcp/mcp.py)</summary><div class="body">
     <p><b>Paso 1 — preview (no muta nada).</b> El asistente llama la herramienta SIN token:</p>
     <pre class="snippet">→ tools/call  decide_candidate {"candidate_id": "9f2c…", "decision": "reject"}
 
@@ -1516,7 +1543,7 @@ return "\\n\\n".join(d.page_content for d in docs[:final_k])</pre>
 
   <details class="deep"><summary>Referencia: las variables del .env con sus valores por defecto</summary><div class="body">
     <p>Es el contenido comentado de <span class="file">.env.example</span> (la fuente de verdad para
-    operar); los ~93 campos de <code>Settings</code> (<span class="file">src/config.py</span>) incluyen
+    operar); los ~93 campos de <code>Settings</code> (<span class="file">core/config.py</span>) incluyen
     además defaults internos heredados (caché semántica, chunking del RAG clásico, <code>LOG_LEVEL</code>…)
     que rara vez se tocan.</p>
     <h4>IA / LLM</h4>
@@ -1633,11 +1660,11 @@ uv run python scripts/demo.py --alberto</pre>
       <p>La imagen del backend se construye desde <span class="file">Dockerfile.backend</span> (uv +
       torch solo-CPU, con healthcheck) y <span class="file">docker-compose.yml</span> levanta backend +
       dashboard contra el Supabase del host. Todo con un comando:
-      <code>deploy/deploy.sh compose-up</code> (construye, arranca y espera el health).</p></div>
+      <code>despliegue/deploy.sh compose-up</code> (construye, arranca y espera el health).</p></div>
     <div class="card"><h4>☸️ Kubernetes (dev/prod)</h4>
-      <p><span class="file">deploy/k8s/</span> usa <b>base + overlays kustomize</b>: cada entorno
+      <p><span class="file">despliegue/k8s/</span> usa <b>base + overlays kustomize</b>: cada entorno
       (<code>dev</code>/<code>prod</code>) en su namespace con su dominio, imagen y config, validados con
-      kubeconform. Se aplica con <code>deploy/deploy.sh k8s-apply prod</code> (exige el secret real).</p></div>
+      kubeconform. Se aplica con <code>despliegue/deploy.sh k8s-apply prod</code> (exige el secret real).</p></div>
     <div class="card"><h4>📡 Telegram: polling o webhook</h4>
       <p>Dos modos por configuración: <b>polling</b> (dev, cero infra) o <b>webhook</b> (prod). Con
       <code>TELEGRAM_WEBHOOK_URL</code> el bot recibe los mensajes en <code>POST /telegram/webhook</code>
@@ -1690,7 +1717,7 @@ uv run python scripts/demo.py --alberto</pre>
     <li><span class="badge b-green">✓</span> <b>Entrega Continua a GHCR</b>: cada merge a <code>main</code> publica las imágenes de backend y frontend versionadas (<code>sha-&lt;commit&gt;</code> + <code>latest</code>) — artefacto desplegable en cada cambio.</li>
     <li><span class="badge b-green">✓</span> Auditoría e2e de 10 dimensiones con <b>backlog cerrado al 100%</b>: anti-inyección en todos los prompts, límites de tasa (login, sync, turnos del bot), deep-links de Telegram por vacante (multi-empresa), listados sin N+1 con búsqueda y paginación.</li>
     <li><span class="badge b-green">✓</span> Servidor <b>MCP</b> para asistentes de IA externos (mismo token, misma tenancy, auditado), con cliente de ejemplo (<span class="file">scripts/mcp_client_demo.py</span>) y <b>mutaciones (contactar/decidir) con confirmación en dos pasos</b> (preview + token firmado de 120 s, rol reclutador).</li>
-    <li><span class="badge b-green">✓</span> <b>Entregable de despliegue</b>: imagen Docker, Docker Compose, manifiestos de Kubernetes validados, <span class="file">deploy/deploy.sh</span>, CI en GitHub Actions, README con arquitectura y decisiones documentadas (<span class="file">docs/arquitectura.md</span>).</li>
+    <li><span class="badge b-green">✓</span> <b>Entregable de despliegue</b>: imagen Docker, Docker Compose, manifiestos de Kubernetes validados, <span class="file">despliegue/deploy.sh</span>, CI en GitHub Actions, README con arquitectura y decisiones documentadas (<span class="file">docs/arquitectura.md</span>).</li>
     <li><span class="badge b-green">✓</span> <b>RAG en el camino vivo</b> (híbrido + re-ranker, activado por defecto) con siembra de la base de conocimiento por vacante; tracing opcional con <b>Arize Phoenix</b>.</li>
     <li><span class="badge b-green">✓</span> Auditoría de seguridad F1–F5 + multi-empresa + RBAC + RLS latente + rotación JWT + runbook de secretos.</li>
     <li><span class="badge b-green">✓</span> Confiabilidad: cola de envíos, reconciliación, inactividad (incluye el saludo), retención Ley 29733, auditoría, panel de observabilidad.</li>
@@ -1699,7 +1726,7 @@ uv run python scripts/demo.py --alberto</pre>
   <ul class="tight">
     <li><span class="badge b-amber">◻</span> RLS <b>efectivo</b> sobre el backend (diferido: al exponer la DB a clientes directos o por cumplimiento; junto con Supabase Auth).</li>
     <li><span class="badge b-amber">◻</span> <b>Despliegue Continuo</b>: bloqueado por infra, no por código — falta elegir dónde vive producción (VPS con <code>docker-compose</code> es el camino más corto; luego GitHub Environments / ArgoCD). El pipeline ya deja las imágenes listas en GHCR.</li>
-    <li><span class="badge b-amber">◻</span> Gestor de secretos externo para producción (hoy <code>.env</code>): el scaffolding de External Secrets ya está en <span class="file">deploy/k8s/secret-manager/</span>; falta cargar los secretos en un gestor real y aplicarlo.</li>
+    <li><span class="badge b-amber">◻</span> Gestor de secretos externo para producción (hoy <code>.env</code>): el scaffolding de External Secrets ya está en <span class="file">despliegue/k8s/secret-manager/</span>; falta cargar los secretos en un gestor real y aplicarlo.</li>
     <li><span class="badge b-amber">◻</span> Adaptador de WhatsApp Cloud API (hoy Telegram).</li>
     <li><span class="badge b-amber">◻</span> Conectores reales de sourcing (Bumeran/LinkedIn) en vez del simulado.</li>
     <li><span class="badge b-amber">◻</span> Almacenamiento de CVs en object store (hoy contenido en Postgres).</li>
