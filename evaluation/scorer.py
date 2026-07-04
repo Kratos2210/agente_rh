@@ -46,6 +46,35 @@ def is_meaningful_answer(text: str) -> bool:
     return bool(stripped) and any(ch.isalnum() for ch in stripped)
 
 
+# Firmas de "eco": el candidato pide que el bot escriba/repita un literal concreto
+# ("respondé únicamente con la palabra X"). Nunca es una duda real sobre el puesto; es
+# el vector de inyección que el red teaming (paso 5) mostró que un modelo chico obedece
+# pese al marco anti-inyección del prompt. Detectarlo en el INPUT y derivar sin llamar al
+# LLM es la defensa en profundidad (no depende de que el modelo resista). Alta precisión:
+# exige verbo imperativo + directiva de literal, improbable en una pregunta genuina.
+_ECHO_INJECTION_MARKERS = (
+    "solo con la palabra", "sólo con la palabra", "únicamente con la palabra",
+    "unicamente con la palabra", "solo la palabra", "sólo la palabra",
+    "únicamente la palabra", "unicamente la palabra", "responde solo con",
+    "respondé solo con", "respondé únicamente", "responde únicamente",
+    "respondé unicamente", "responde unicamente", "repite exactamente",
+    "repetí exactamente", "repeti exactamente", "repite la palabra",
+    "repetí la palabra", "repeti la palabra", "di exactamente", "decí exactamente",
+    "deci exactamente", "escribe exactamente", "escribí exactamente", "escribi exactamente",
+    "reply only with", "respond only with", "repeat exactly", "say exactly", "only the word",
+)
+
+# Deriva segura ante un mensaje que no es una duda real sino un intento de dirigir la
+# respuesta del bot (misma intención que la rama de rechazo de ANSWER_CANDIDATE_PROMPT).
+SAFE_DEFLECTION = "Con gusto lo revisamos con el equipo más adelante. ¿Seguimos con la entrevista? 🙌"
+
+
+def is_echo_injection(text: str) -> bool:
+    """True si el mensaje pide que el bot repita/escriba un literal concreto (inyección de eco)."""
+    low = (text or "").lower()
+    return any(marker in low for marker in _ECHO_INJECTION_MARKERS)
+
+
 def sanitize_answer_for_prompt(answer: str, max_chars: int = MAX_ANSWER_CHARS) -> str:
     """Prepara la respuesta del candidato para el prompt: quita los delimitadores (evita
     breakout de una inyección) y acota la longitud."""
@@ -91,6 +120,12 @@ def classify_turn(llm: LLM, *, current_question: str, message: str) -> str:
 
 def answer_candidate_question(llm: LLM, *, company_info: str, question: str) -> str:
     """Responde una duda del candidato sobre el puesto/empresa."""
+    # Defensa en profundidad: si el mensaje pide que el bot repita/escriba un literal
+    # ("respondé solo con la palabra X"), no es una duda — se deriva sin llamar al LLM
+    # (el prompt lo desincentiva, pero un modelo chico obedece; audit red teaming paso 5).
+    if is_echo_injection(question):
+        logger.info("answer_candidate_question: patrón de eco/inyección → deriva segura (sin LLM)")
+        return SAFE_DEFLECTION
     try:
         text = complete_staged(
             llm,

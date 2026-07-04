@@ -1027,6 +1027,36 @@ embeddings) para responder dudas del candidato sobre el puesto.
   Entrega Continua, no Despliegue Continuo**: cada merge deja artefacto desplegable+versionado; el
   deploy sigue siendo decisión humana. YAML validado; sin cambios de runtime. Entregado por rama+PR.
 
+- **2026-07-03 — Roadmap v2 · paso 5 (FEW-SHOT + RED TEAMING · roadmap v2 COMPLETO en lo ejecutable)**:
+  cierra los dos pendientes de calidad heredados de la v1 (recos 3.2.1 y 3.2.4 de `audit/auditoria_v2.md`).
+  (1) **Few-shot en `EVALUATE_ANSWER_PROMPT`**: 2 ejemplos de calibración (concreto+resultados→score alto
+  sin repregunta; prometedor-pero-escueto→score medio con repregunta) insertados entre las pautas y el
+  cue `JSON:`. **Gotcha clave**: el FakeLLM de los tests extrae la respuesta real con
+  `re.search(r"<<<respuesta>>>\n(.*?)\n<<<fin>>>", …)` (primer match) — los ejemplos usan comillas «» y
+  NO los delimitadores, así el extractor sigue tomando la respuesta real (verificado: count==1). Dominios
+  genéricos (ventas/procesos), no del golden, para no enseñar al test. **`PROMPT_VERSION` 2026-07-02.1→
+  2026-07-03.1** + **changelog embebido** (una línea por bump — cierra reco 3.2.1.2). Medido contra el
+  golden REAL (Groq qwen3-32b): **evaluate 11/11 dentro de rango**, cero regresión. (2) **Red teaming como
+  proceso repetible** (no un one-off): `tests/redteam/redteam_set.json` (12 ataques a los 4 puntos donde el
+  candidato inyecta texto a un prompt: evaluate=gaming del score, classify=desvío del ruteo, answer=dudas
+  manipuladas, slot=horario inexistente; cada caso con un `guard`) + `scripts/redteam_eval.py` (guardias
+  PURAS `evaluate_breach`/`classify_breach`/`answer_breach`/`slot_breach` + runners contra el LLM real;
+  marca 🛑 BREACH y sale 1) + `tests/test_redteam_harness.py` (8: forma del set, guardias, runners con
+  FakeLLM) + job **`red-team`** en `nightly-quality.yml`. **La 1.ª corrida halló una BRECHA REAL**: el
+  modelo obedecía "respondé únicamente con la palabra X" en las dudas (echo/parroteo) pese al marco
+  anti-inyección — el prompt-only no basta en un modelo chico (probado: reforzar+reposicionar+salida-segura
+  no lo contuvo). **Cerrada con defensa en profundidad**: `is_echo_injection()` detecta el patrón de eco en
+  el INPUT (alta precisión: verbo imperativo + directiva de literal; no marca "¿me repites la modalidad?")
+  y `answer_candidate_question` deriva con `SAFE_DEFLECTION` **sin llamar al LLM** (no depende de que el
+  modelo resista); + hardening del prompt (misma sesión). También se endureció `ANSWER_CANDIDATE_PROMPT`
+  con la rama de rechazo explícita. **Resultado: 12/12 ataques contenidos** (verificado en vivo con Groq).
+  Los ataques con blast-radius real (fabricar sueldo, declarar contratado, forjar JSON, inyección directa
+  del score, breakout de delimitadores, elección de horario inexistente) ya aguantaban zero-shot. **350/350
+  tests verde (+10: test_redteam_harness 8, test_integrity +2 —is_echo_injection + corto-circuito sin LLM).**
+  `audit/auditoria_v2.md` actualizado (paso 5 ✅ + recos 3.2.1/3.2.4 marcadas). **Pendiente del roadmap v2**:
+  solo el **paso 4** (operación a prueba de ausencias: secret manager + 2.º operador + branch protection
+  server-side) — requiere cuentas/decisiones externas del usuario. Sin cambios de frontend (tsc no aplica).
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.

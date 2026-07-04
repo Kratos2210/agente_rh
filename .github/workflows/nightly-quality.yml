@@ -1,10 +1,11 @@
-name: Nightly quality (golden + juez)
+name: Nightly quality (golden + red team + juez)
 
 # Evaluación NIGHTLY de la calidad del pipeline LLM contra el modelo REAL (roadmap
 # de audit/auditoria_final.md, paso 1). El CI normal valida la lógica con FakeLLM;
 # este job valida los PROMPTS: la suite golden (4 suites, 28+ casos con rangos
-# esperados) y, si hay base de datos accesible, el juez de fundamentación sobre
-# trazas reales. Presupuesto acotado: ~30 llamadas cortas al LLM por corrida.
+# esperados), el red teaming adversarial (12 ataques a los 4 puntos de inyección) y,
+# si hay base de datos accesible, el juez de fundamentación sobre trazas reales.
+# Presupuesto acotado: ~40 llamadas cortas al LLM por corrida.
 
 on:
   schedule:
@@ -34,6 +35,29 @@ jobs:
         run: uv sync --extra dev
       - name: Suite golden (evaluate + classify + slot + prescreen)
         run: uv run python scripts/golden_eval.py
+
+  red-team:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_API_BASE: ${{ vars.OPENAI_API_BASE || 'https://api.groq.com/openai/v1' }}
+      OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'qwen/qwen3-32b' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verificar secreto del LLM
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::Falta el secret OPENAI_API_KEY; configúralo con 'gh secret set OPENAI_API_KEY'."
+            exit 1
+          fi
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar dependencias
+        run: uv sync --extra dev
+      - name: Red teaming adversarial (evaluate + classify + answer + slot)
+        run: uv run python scripts/redteam_eval.py
 
   groundedness-judge:
     # Necesita la base de datos (llm_traces). Con Supabase local no hay acceso desde
