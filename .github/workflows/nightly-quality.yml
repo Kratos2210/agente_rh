@@ -12,6 +12,10 @@ on:
     - cron: "0 7 * * *" # 07:00 UTC = 02:00 America/Lima
   workflow_dispatch:
 
+# Los jobs que consumen el LLM se SERIALIZAN (needs + if: always()): comparten el
+# límite de tokens-por-minuto de la organización (Groq free-tier: 6000 TPM); correrlos
+# en paralelo saturaba la ventana y disparaba 429 → score neutro → falso desvío en golden.
+# `if: always()` mantiene la señal independiente (un fallo de golden no salta a red-team).
 jobs:
   golden:
     runs-on: ubuntu-latest
@@ -19,6 +23,10 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_API_BASE: ${{ vars.OPENAI_API_BASE || 'https://api.groq.com/openai/v1' }}
       OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'qwen/qwen3-32b' }}
+      # Pausa entre llamadas para no exceder el TPM (28 llamadas ≈ 28k tokens > 6000/min).
+      GOLDEN_THROTTLE_SECONDS: "12"
+      # Red de seguridad: más reintentos con el backoff (retry-after) del proveedor.
+      LLM_MAX_RETRIES: "6"
     steps:
       - uses: actions/checkout@v4
       - name: Verificar secreto del LLM
@@ -38,10 +46,13 @@ jobs:
 
   red-team:
     runs-on: ubuntu-latest
+    needs: golden
+    if: ${{ always() }} # corre tras golden aunque golden falle (serializa el TPM, no acopla la señal)
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_API_BASE: ${{ vars.OPENAI_API_BASE || 'https://api.groq.com/openai/v1' }}
       OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'qwen/qwen3-32b' }}
+      LLM_MAX_RETRIES: "6"
     steps:
       - uses: actions/checkout@v4
       - name: Verificar secreto del LLM
@@ -63,10 +74,13 @@ jobs:
     # Necesita la base de datos (llm_traces). Con Supabase local no hay acceso desde
     # Actions: el job se salta con aviso hasta que existan secrets de una DB accesible.
     runs-on: ubuntu-latest
+    needs: red-team
+    if: ${{ always() }} # último en la cadena para no competir por el TPM (muestrea 20 → 20 llamadas)
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_API_BASE: ${{ vars.OPENAI_API_BASE || 'https://api.groq.com/openai/v1' }}
       OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'qwen/qwen3-32b' }}
+      LLM_MAX_RETRIES: "6"
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
     steps:
