@@ -29,5 +29,16 @@ data:
   INTERVIEW_ANSWER_CACHE_ENABLED: "true"
   # MCP OFF salvo que se use un cliente LLM externo autenticado.
   MCP_ENABLED: "false"
+  # Observabilidad LLM in-cluster ON: los spans OpenInference/OTel de cada llamada
+  # LangChain van al Phoenix self-hosted (phoenix-deployment/service de este overlay).
+  # PII contenida en el cluster (Ley 29733). UI: kubectl port-forward svc/phoenix 6006.
+  PHOENIX_ENABLED: "true"
+  PHOENIX_ENDPOINT: "http://phoenix:6006/v1/traces"
+  PHOENIX_PROJECT: "agente-rh"
+  # LangSmith (SaaS externo) — listo para activar: poné LANGSMITH_TRACING=true aquí y
+  # el LANGSMITH_API_KEY en el Secret del namespace. Sin key queda inerte (no rompe);
+  # Phoenix ya cubre la inspección de spans sin ceder datos, así que esto es opcional.
+  LANGSMITH_TRACING: "false"
+  LANGSMITH_PROJECT: "agente-rh"
   # NOTA: los settings por-tenant de calidad (quality_alerts.enabled) viven en la DB, no
   # aquí: sembrarlos en la DB de prod con `scripts/seed_prod_settings.py` tras desplegar.

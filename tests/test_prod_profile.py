@@ -62,3 +62,39 @@ def test_prod_all_off_warns_thrice_and_does_not_raise():
     )
     warnings = warn_production_profile(s)  # no lanza
     assert len(warnings) == 3
+
+
+# --- Guard estructural del overlay prod (que un futuro edit no apague el perfil) ---
+
+import pathlib
+
+import yaml
+
+_PROD_CONFIGMAP = (
+    pathlib.Path(__file__).resolve().parent.parent
+    / "despliegue"
+    / "k8s"
+    / "overlays"
+    / "prod"
+    / "configmap-patch.yaml"
+)
+
+
+def _prod_overlay_data() -> dict:
+    return yaml.safe_load(_PROD_CONFIGMAP.read_text())["data"]
+
+
+def test_prod_overlay_keeps_the_all_on_profile():
+    """El overlay prod NO debe heredar los defaults apagados de dev (auditoria_v2 · Riesgo 1)."""
+    data = _prod_overlay_data()
+    assert data["ENVIRONMENT"] == "production"
+    assert data["LLM_TRACE_ENABLED"] == "true"
+    assert data["INTERVIEW_ANSWER_CACHE_ENABLED"] == "true"
+    assert data["LLM_CHEAP_MODEL"]  # no vacío
+
+
+def test_prod_overlay_enables_in_cluster_phoenix():
+    """Observabilidad LLM encendida en prod, apuntando al Phoenix in-cluster."""
+    data = _prod_overlay_data()
+    assert data["PHOENIX_ENABLED"] == "true"
+    assert data["PHOENIX_ENDPOINT"] == "http://phoenix:6006/v1/traces"

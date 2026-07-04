@@ -82,6 +82,27 @@ Particularidades honestas (no son plantilla genérica):
    Secret — es el fallback cuando un tenant no define su `notify_email`, para que en
    multi-réplica las alertas no caigan en un buzón personal.
 
+**Observabilidad LLM encendida en prod (perfil "todo encendido"):** el overlay `prod` no
+hereda los defaults conservadores de dev — enciende las señales que en dev nacen apagadas
+(auditoria_v2 · Riesgo 1). En concreto:
+
+- **Phoenix in-cluster**: el overlay prod despliega un `Deployment`+`Service` de
+  **Arize Phoenix self-hosted** (`overlays/prod/phoenix-{deployment,service}.yaml`) y fija
+  `PHOENIX_ENABLED=true` + `PHOENIX_ENDPOINT=http://phoenix:6006/v1/traces`. Cada llamada
+  LangChain emite un span (modelo, tokens, latencia, prompt/respuesta) — la **PII no sale
+  del cluster** (Ley 29733). La traza es efímera (in-memory); para retención durable se
+  configura `PHOENIX_SQL_DATABASE_URL` contra un Postgres. La UI no se expone al Ingress:
+  `kubectl port-forward svc/phoenix 6006:6006`.
+- **Trazas de calidad** (`LLM_TRACE_ENABLED=true`) + **modelo barato por etapa** +
+  **caché semántica de dudas**: ya venían encendidos en el ConfigMap del overlay. Un guard
+  estructural en CI (`tests/test_prod_profile.py`) falla si un futuro edit los apaga.
+- **LangSmith** (SaaS externo) queda **listo pero opcional**: `LANGSMITH_TRACING=false`
+  en el ConfigMap; para activarlo, poner `true` ahí y `LANGSMITH_API_KEY` en el Secret.
+  Como Phoenix ya cubre la inspección sin ceder datos a un tercero, es redundante salvo
+  que se quiera el ecosistema LangSmith.
+- **Settings por-tenant** (calidad/SLA viven en la DB, no en el ConfigMap): tras desplegar,
+  correr `scripts/seed_prod_settings.py` contra la DB de prod para encender `quality_alerts`.
+
 ### 3. Serverless — decisión: **NO para el núcleo, sí para partes**
 
 | Componente | ¿Serverless? | Motivo |

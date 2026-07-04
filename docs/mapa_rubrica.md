@@ -44,6 +44,10 @@ OpenInference/OTel) en lugar del SaaS Arize, por residencia de datos PII (Ley 29
 consciente y documentada en `docs/arquitectura.md`.
 
 ## Salvedad operativa (por diseño)
-Varias señales de observabilidad **nacen apagadas** (`LLM_TRACE_ENABLED`, `PHOENIX_ENABLED`,
-`LANGSMITH_TRACING`, `quality_alerts`): el mecanismo está instrumentado; para verlas en vivo hay que
-encenderlas por configuración. Es una decisión de superficie mínima / privacidad, no una ausencia.
+Varias señales de observabilidad **nacen apagadas en dev** (`LLM_TRACE_ENABLED`, `PHOENIX_ENABLED`,
+`LANGSMITH_TRACING`, `quality_alerts`): el mecanismo está instrumentado; en dev se encienden por
+configuración (decisión de superficie mínima / privacidad, no una ausencia). En **producción** el
+overlay `prod` las enciende por defecto: despliega **Phoenix in-cluster**
+(`despliegue/k8s/overlays/prod/phoenix-*.yaml`, `PHOENIX_ENABLED=true`) + trazas de calidad + modelo
+barato + caché, con un **guard estructural en CI** (`tests/test_prod_profile.py`) que impide apagarlas
+en un edit futuro. LangSmith queda listo-pero-opcional (Phoenix ya cubre la inspección sin ceder PII).
