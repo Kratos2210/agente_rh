@@ -1270,6 +1270,13 @@ def list_users(*, tenant_id: Optional[str] = None) -> list[dict[str, Any]]:
     return q.execute().data or []
 
 
+def update_user(user_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Actualiza campos permitidos de un usuario (rol/nombre/active/password_hash)."""
+    if "email" in fields:
+        fields = {**fields, "email": str(fields["email"]).strip().lower()}
+    return get_supabase().table("users").update(fields).eq("id", user_id).execute().data[0]
+
+
 # ── Auditoría de acciones del dashboard (quién/qué/cuándo) ───────────────────────
 
 def add_audit_log(row: dict[str, Any]) -> dict[str, Any]:

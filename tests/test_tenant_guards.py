@@ -29,7 +29,7 @@ _PUBLIC: set[tuple[str, str]] = {
 
 # Nombres de path-param que identifican un recurso de negocio cargado por id: cada
 # ruta que reciba uno DEBE aislarlo por tenant antes de exponerlo/mutarlo.
-_RESOURCE_PARAMS = {"vacancy_id", "candidate_id", "recruiter_id", "outbox_id"}
+_RESOURCE_PARAMS = {"vacancy_id", "candidate_id", "recruiter_id", "outbox_id", "user_id"}
 
 # Señales (en el código fuente del handler) de que la ruta aísla por tenant: o pasa
 # por un guard dedicado, o compara el `tenant_id` del recurso contra el del usuario.
