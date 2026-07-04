@@ -20,8 +20,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 
 from channels.base import CHANNEL_TELEGRAM
-from src.config import Settings
-from src.logging_config import get_logger
+from core.config import Settings
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

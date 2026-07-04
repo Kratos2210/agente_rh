@@ -26,13 +26,18 @@ RUN uv pip install --system -r pyproject.toml
 
 # Código del backend (el frontend tiene su propia imagen).
 COPY api/ ./api/
-COPY agent/ ./agent/
+COPY agente/ ./agente/
+COPY retrieval/ ./retrieval/
+COPY ranking/ ./ranking/
+COPY orquestacion/ ./orquestacion/
+COPY adaptadores_mcp/ ./adaptadores_mcp/
+COPY observabilidad/ ./observabilidad/
+COPY core/ ./core/
 COPY channels/ ./channels/
 COPY db/ ./db/
 COPY evaluation/ ./evaluation/
 COPY integrations/ ./integrations/
 COPY notifications/ ./notifications/
-COPY src/ ./src/
 COPY scripts/ ./scripts/
 
 # Datos en runtime: uploads/ (staging de documentos) y chroma_db/ (RAG) se montan

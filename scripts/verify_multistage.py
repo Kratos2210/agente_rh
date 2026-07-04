@@ -21,14 +21,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agent.graph import make_postgres_runner  # noqa: E402
-from agent.service import InterviewService  # noqa: E402
-from agent.state import PHASE_FINISHED  # noqa: E402
+from agente.graph import make_postgres_runner  # noqa: E402
+from agente.service import InterviewService  # noqa: E402
+from agente.state import PHASE_FINISHED  # noqa: E402
 from channels.base import CHANNEL_TELEGRAM, InboundMessage  # noqa: E402
 from db import repositories as repo  # noqa: E402
 from db.client import get_database_url, get_supabase  # noqa: E402
 from integrations.scheduling import SimulatedScheduler  # noqa: E402
-from src.config import get_settings  # noqa: E402
+from core.config import get_settings  # noqa: E402
 
 ANSWERS = [
     "Soy bachiller en Ingeniería de Sistemas.",
@@ -46,7 +46,7 @@ def _get_llm():
     # La key vive en el .env → la lee Settings (pydantic), no os.getenv.
     key = get_settings().openai_api_key
     if key and key not in ("tu_api_key_aqui", "lm-studio"):
-        from agent.llm import build_default_llm
+        from orquestacion.llm import build_default_llm
         print(f"· LLM real ({get_settings().openai_model} vía {get_settings().openai_api_base})\n")
         return build_default_llm()
     from tests.test_interview import FakeLLM

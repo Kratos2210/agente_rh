@@ -14,8 +14,8 @@ import httpx
 import pytest
 
 from notifications import candidate
-from src.config import Settings
-from src.logging_config import setup_logging
+from core.config import Settings
+from core.logging_config import setup_logging
 
 TOKEN = "8203186985:AAGGaFAKEsecretTOKENvalue_1234567890"
 S = Settings(telegram_bot_token=TOKEN)

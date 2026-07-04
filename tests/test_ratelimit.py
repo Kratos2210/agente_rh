@@ -22,7 +22,7 @@ from api.ratelimit import (
     SlidingWindowLimiter,
     TurnGovernor,
 )
-from src.config import get_settings
+from core.config import get_settings
 
 client = TestClient(main.app)
 
@@ -116,7 +116,7 @@ class _BoomLLM:
 
 
 def test_metered_llm_tracks_calls_and_duration():
-    from agent.llm import MeteredLLM
+    from orquestacion.llm import MeteredLLM
 
     llm = MeteredLLM(_OkLLM(), stage="evaluate")
     llm.complete("p1")
@@ -130,7 +130,7 @@ def test_metered_llm_tracks_calls_and_duration():
 def test_metered_llm_counts_errors_and_reraises():
     import pytest
 
-    from agent.llm import MeteredLLM
+    from orquestacion.llm import MeteredLLM
 
     llm = MeteredLLM(_BoomLLM(), stage="classify")
     with pytest.raises(RuntimeError):

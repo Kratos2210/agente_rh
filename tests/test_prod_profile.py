@@ -8,7 +8,7 @@ construido explícito (sin DB, sin .env real).
 from __future__ import annotations
 
 from api.runtime import warn_production_profile
-from src.config import Settings
+from core.config import Settings
 
 _ALL_ON = {
     "environment": "production",

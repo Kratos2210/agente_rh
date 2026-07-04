@@ -11,8 +11,8 @@ import re
 
 import pytest
 
-from agent.graph import make_memory_runner
-from agent.state import (
+from agente.graph import make_memory_runner
+from agente.state import (
     PHASE_AWAITING_DOCS,
     PHASE_CLOSED,
     PHASE_FINISHED,

@@ -72,7 +72,7 @@ def judge_verdict(raw: str) -> dict[str, Any]:
     oculta problemas).
 
     Devuelve {"grounded": bool, "answer_relevant": bool, "context_relevant": bool, "reason": str}."""
-    from agent.llm import parse_json_object
+    from orquestacion.llm import parse_json_object
 
     try:
         data = parse_json_object(raw)

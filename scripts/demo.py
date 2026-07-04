@@ -16,8 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dotenv import load_dotenv  # noqa: E402
 
-from agent.graph import make_memory_runner  # noqa: E402
-from agent.state import PHASE_FINISHED  # noqa: E402
+from agente.graph import make_memory_runner  # noqa: E402
+from agente.state import PHASE_FINISHED  # noqa: E402
 from evaluation.scorecard import semaphore_emoji  # noqa: E402
 
 # Vacante demo (espejo del seed supabase/migrations/0002_seed_demo.sql).
@@ -80,7 +80,7 @@ def _get_llm():
     import os
 
     if os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_API_KEY") != "tu_api_key_aqui":
-        from agent.llm import build_default_llm
+        from orquestacion.llm import build_default_llm
 
         print("· LLM real (OPENAI_API_BASE/MODEL del .env)\n")
         return build_default_llm()

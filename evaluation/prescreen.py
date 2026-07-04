@@ -11,8 +11,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from agent.llm import LLM, complete_staged, parse_json_object
-from agent.prompts import PRESCREEN_CV_PROMPT
+from orquestacion.llm import LLM, complete_staged, parse_json_object
+from agente.prompts import PRESCREEN_CV_PROMPT
 
 # Carreras/áreas afines (heurística de respaldo).
 _TECH_CAREERS = (

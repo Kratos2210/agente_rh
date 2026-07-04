@@ -1,7 +1,7 @@
 # Arquitectura de despliegue
 
 Cómo se despliega el Agente de Selección, qué decide cada camino y por qué. Complementa
-`deploy/k8s/README.md` (manifests) y `docs/gestion_secretos.md` (secretos).
+`despliegue/k8s/README.md` (manifests) y `docs/gestion_secretos.md` (secretos).
 
 ## El sistema, visto desde el despliegue
 
@@ -28,7 +28,7 @@ La DB es Supabase local (`supabase start` en el host; el compose redirige
 `host.docker.internal`) o un proyecto cloud. Es el camino de evaluación y de
 instalaciones de una sola máquina.
 
-### 2. Kubernetes (dev/prod) — `deploy/k8s/`
+### 2. Kubernetes (dev/prod) — `despliegue/k8s/`
 Manifests declarativos con **base + overlays kustomize por entorno**
 (`base/` común; `overlays/dev/` y `overlays/prod/`). Cada entorno vive en su propio
 namespace (`agente-rh-dev` / `agente-rh-prod`) y difiere en lo que importa:
@@ -44,10 +44,10 @@ namespace (`agente-rh-dev` / `agente-rh-prod`) y difiere en lo que importa:
 Aplicar (el secret NO se commitea; se aplica al namespace del entorno):
 
 ```bash
-cp deploy/k8s/secret.example.yaml deploy/k8s/secret.yaml   # completar
-deploy/deploy.sh validate            # valida AMBOS overlays (kubeconform strict)
-deploy/deploy.sh k8s-apply prod      # o 'dev' → namespace agente-rh-prod
-deploy/deploy.sh k8s-status prod
+cp despliegue/k8s/secret.example.yaml despliegue/k8s/secret.yaml   # completar
+despliegue/deploy.sh validate            # valida AMBOS overlays (kubeconform strict)
+despliegue/deploy.sh k8s-apply prod      # o 'dev' → namespace agente-rh-prod
+despliegue/deploy.sh k8s-status prod
 ```
 
 > ⚠️ **Nombres de env var**: pydantic lee por el nombre EXACTO del campo
@@ -109,10 +109,10 @@ miles/s); el diseño deja el camino pavimentado en vez de pagar hoy la complejid
   extra). Cada merge deja un artefacto desplegable y trazable; el overlay `prod` ya apunta a esas
   imágenes. Para fijar un build inmutable antes de aplicar:
   ```bash
-  cd deploy/k8s/overlays/prod && kustomize edit set image \
+  cd despliegue/k8s/overlays/prod && kustomize edit set image \
     agente-rh-backend=ghcr.io/kratos2210/agente-rh-backend:sha-<commit> \
     agente-rh-frontend=ghcr.io/kratos2210/agente-rh-frontend:sha-<commit>
-  deploy/deploy.sh k8s-apply prod        # requiere un cluster real
+  despliegue/deploy.sh k8s-apply prod        # requiere un cluster real
   ```
 - **Despliegue Continuo (Continuous *Deployment*)** — **NO** (deliberado). El `apply` es manual:
   hay entrevistas en curso (estado durable por conversación) y no hay aún un cluster/host
@@ -137,7 +137,7 @@ scheduler con advisory lock, torch ~90 s de import — ver la sección de server
 | **Híbrido**: frontend a Vercel + backend en VPS | ~5 USD + free | Bajo | Separar dashboard del bot |
 
 **Recomendación**: empezar por un **VPS con `docker-compose`** — es el salto más pequeño desde el
-estado actual (ya existen `Dockerfile.backend`, `docker-compose.yml`, `deploy/deploy.sh` y las
+estado actual (ya existen `Dockerfile.backend`, `docker-compose.yml`, `despliegue/deploy.sh` y las
 imágenes en GHCR): `git pull` + `deploy.sh compose-up` en el host y queda vivo. GKE/EKS + ArgoCD
 son prematuros hasta que haya varias empresas con volumen. Antes de exponer al mundo, independiente
 del destino, resolver: (1) **secretos reales** (`docs/gestion_secretos.md`), (2) **webhook de

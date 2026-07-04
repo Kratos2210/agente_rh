@@ -35,7 +35,7 @@ def main() -> int:
     args = parser.parse_args()
 
     load_dotenv()
-    from agent.llm import build_default_llm, complete_staged
+    from orquestacion.llm import build_default_llm, complete_staged
     from db import repositories as repo
     from evaluation.quality import QUALITY_JUDGE_PROMPT, judge_verdict, rate
 

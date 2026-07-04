@@ -7,7 +7,7 @@ y no dependen del modelo.
 """
 from __future__ import annotations
 
-from src.reranker import RerankConfig, SemanticReranker
+from ranking.reranker import RerankConfig, SemanticReranker
 
 
 def _make_reranker() -> SemanticReranker:

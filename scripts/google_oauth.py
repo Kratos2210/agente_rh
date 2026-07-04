@@ -49,7 +49,7 @@ REDIRECT_PORT = int(os.getenv("GOOGLE_OAUTH_REDIRECT_PORT", "8765"))
 
 def main() -> int:
     load_dotenv()
-    from src.config import get_settings
+    from core.config import get_settings
 
     settings = get_settings()
     client_path = settings.google_oauth_client_path

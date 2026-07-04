@@ -15,7 +15,7 @@ import pytest
 # Igual que pytest.ini (pythonpath=.), por si se corre el archivo suelto.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src import registry  # noqa: E402
+from core import registry  # noqa: E402
 
 
 @pytest.fixture

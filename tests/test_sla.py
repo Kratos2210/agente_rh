@@ -7,7 +7,7 @@ import api.auth as auth
 import api.main as main
 import api.scheduler as scheduler
 from fastapi.testclient import TestClient
-from src.config import get_settings
+from core.config import get_settings
 
 client = TestClient(main.app)
 

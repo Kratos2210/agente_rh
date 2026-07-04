@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 
-from agent import service
+from agente import service
 
 
 def test_read_document_b64_roundtrip(tmp_path):

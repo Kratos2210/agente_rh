@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 import api.main as main
 import db.repositories as db_repo
 from api import auth
-from src.config import get_settings
+from core.config import get_settings
 
 client = TestClient(main.app)
 
@@ -184,7 +184,7 @@ def test_prune_fired_slots_drops_past_dates():
 
 
 def test_cors_origins_parsed_from_settings():
-    from src.config import Settings
+    from core.config import Settings
 
     s = Settings(cors_origins=" https://app.midominio.pe , http://localhost:3000 ")
     origins = [o.strip() for o in s.cors_origins.split(",") if o.strip()]
@@ -195,7 +195,7 @@ def test_cors_origins_parsed_from_settings():
 
 
 def test_thread_lock_identity():
-    from agent.service import InterviewService
+    from agente.service import InterviewService
 
     s = InterviewService(runner=None)
     assert s._thread_lock("telegram:1") is s._thread_lock("telegram:1")
@@ -203,7 +203,7 @@ def test_thread_lock_identity():
 
 
 def test_same_thread_engine_access_is_serialized(monkeypatch):
-    from agent import service as svc
+    from agente import service as svc
 
     s = svc.InterviewService(runner=None)
     active = {"n": 0, "max": 0}

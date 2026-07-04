@@ -9,7 +9,7 @@ import api.scheduler as scheduler
 from api.deps import _with_cost, compute_cost
 from db.repositories import _aggregate_tokens
 from fastapi.testclient import TestClient
-from src.config import get_settings
+from core.config import get_settings
 
 client = TestClient(main.app)
 

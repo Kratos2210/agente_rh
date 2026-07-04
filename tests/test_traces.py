@@ -6,10 +6,10 @@ from __future__ import annotations
 import api.auth as auth
 import api.main as main
 import pytest
-from agent.llm import MeteredLLM
+from orquestacion.llm import MeteredLLM
 from db import repositories
 from fastapi.testclient import TestClient
-from src.config import get_settings
+from core.config import get_settings
 
 client = TestClient(main.app)
 

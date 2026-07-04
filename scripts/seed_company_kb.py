@@ -23,8 +23,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.config import get_settings  # noqa: E402
-from src.logging_config import get_logger  # noqa: E402
+from core.config import get_settings  # noqa: E402
+from core.logging_config import get_logger  # noqa: E402
 
 logger = get_logger("scripts.seed_company_kb")
 
@@ -60,7 +60,7 @@ def compose_vacancy_text(vacancy: dict, questions: list[dict]) -> str:
 def seed(vacancy_id: str | None = None, rebuild: bool = False) -> int:
     settings = get_settings()
     from db import repositories as repo
-    from src.vectorstore import index_document
+    from retrieval.vectorstore import index_document
 
     if vacancy_id:
         vacancy = repo.get_vacancy(vacancy_id)
@@ -75,7 +75,7 @@ def seed(vacancy_id: str | None = None, rebuild: bool = False) -> int:
     if rebuild:
         from langchain_chroma import Chroma
 
-        from src.embeddings import get_embeddings
+        from retrieval.embeddings import get_embeddings
 
         Chroma(
             collection_name=collection,

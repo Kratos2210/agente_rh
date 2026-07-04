@@ -43,7 +43,7 @@ def get_http_metrics(user: dict[str, Any] = Depends(require_role("admin"))) -> d
 
     Ámbito: proceso completo (no por tenant) — es diagnóstico de infraestructura,
     solo admin. Con N réplicas cada una reporta lo suyo."""
-    from api.httpmetrics import http_metrics
+    from observabilidad.httpmetrics import http_metrics
 
     return {"routes": http_metrics.snapshot()}
 

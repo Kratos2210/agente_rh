@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from api import main
 from api import telegram_bot as tb
-from src.config import Settings
+from core.config import Settings
 
 client = TestClient(main.app)
 

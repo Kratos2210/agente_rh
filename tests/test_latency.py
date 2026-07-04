@@ -10,9 +10,9 @@ Cubre:
 
 from __future__ import annotations
 
-import agent.service as svc
-from agent.service import InterviewService
-from api.httpmetrics import HttpMetrics, percentile_from_buckets
+import agente.service as svc
+from agente.service import InterviewService
+from observabilidad.httpmetrics import HttpMetrics, percentile_from_buckets
 from channels.base import InboundMessage
 from db import repositories
 from db.repositories import TURN_STAGE, _aggregate_tokens, _latency_summary, _percentile

@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 
 import api.main as main
 from api import auth
-from src.config import Settings, get_settings
+from core.config import Settings, get_settings
 
 
 # ── Funciones puras ───────────────────────────────────────────────────────────
