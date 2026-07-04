@@ -14,6 +14,7 @@ from orquestacion.llm import LLM, complete_staged, parse_json_object
 from agente.prompts import (
     ANSWER_CANDIDATE_PROMPT,
     CLASSIFY_TURN_PROMPT,
+    DOC_CHECK_PROMPT,
     EVALUATE_ANSWER_PROMPT,
     SCHEDULING_PARSE_PROMPT,
 )
@@ -96,7 +97,11 @@ def _clamp_score(value: object) -> float:
 
 
 def classify_turn(llm: LLM, *, current_question: str, message: str) -> str:
-    """Devuelve 'answer' o 'question'. Heurística de respaldo ante fallo del LLM."""
+    """Devuelve 'answer', 'question' u 'offtopic'. Heurística de respaldo ante fallo del LLM.
+
+    'question' = duda genuina sobre la vacante; 'offtopic' = conocimiento general / ajena a la
+    vacante (se deflecta sin responder). El fallback nunca devuelve 'offtopic' (no puede juzgar
+    el alcance sin el LLM): degrada a 'question'/'answer', más conservador (no deflecta de más)."""
     try:
         raw = complete_staged(
             llm,
@@ -106,7 +111,7 @@ def classify_turn(llm: LLM, *, current_question: str, message: str) -> str:
             "classify",
         )
         kind = str(parse_json_object(raw).get("kind", "")).strip().lower()
-        if kind in ("answer", "question"):
+        if kind in ("answer", "question", "offtopic"):
             return kind
     except Exception as e:  # noqa: BLE001
         logger.warning("LLM fallback en classify_turn (heurística): %s", e)
@@ -142,6 +147,24 @@ def answer_candidate_question(llm: LLM, *, company_info: str, question: str) -> 
         "Buena pregunta. No tengo ese detalle a la mano, pero el equipo te lo confirmará "
         "más adelante en el proceso. ¿Te parece si seguimos? 🙌"
     )
+
+
+def classify_candidate_document(llm: LLM, text: str) -> str:
+    """Devuelve 'cv', 'cul' u 'other' para el texto de un documento (desambiguación LLM).
+
+    Ante fallo del modelo o JSON inválido devuelve 'unknown' (fail-open: la capa que decide
+    NO bloquea con 'unknown', para no rechazar por un problema del clasificador)."""
+    snippet = sanitize_answer_for_prompt(text, max_chars=4000)
+    if not snippet.strip():
+        return "unknown"
+    try:
+        data = parse_json_object(complete_staged(llm, DOC_CHECK_PROMPT.format(text=snippet), "doc_check"))
+        kind = str(data.get("kind", "")).strip().lower()
+        if kind in ("cv", "cul", "other"):
+            return kind
+    except Exception as e:  # noqa: BLE001
+        logger.warning("LLM fallback en classify_candidate_document (unknown): %s", e)
+    return "unknown"
 
 
 def parse_slot_choice(llm: LLM, options_human: list[str], message: str) -> Optional[int]:

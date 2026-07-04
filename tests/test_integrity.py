@@ -122,6 +122,79 @@ class _AnswerLLM:
         return "{}"
 
 
+import re as _re
+
+
+def _delimited_message(prompt: str) -> str:
+    """Extrae el mensaje real del candidato (entre <<<respuesta>>> y <<<fin>>>). Necesario
+    porque el CLASSIFY_TURN_PROMPT trae ejemplos con 'Docker'/'horario' que confundirían un
+    match sobre el prompt completo (mismo cuidado que los extractores de golden/redteam)."""
+    m = _re.search(r"<<<respuesta>>>\n(.*?)\n<<<fin>>>", prompt, _re.S)
+    return (m.group(1) if m else prompt).lower()
+
+
+class _OfftopicLLM:
+    """Clasifica 'offtopic' si el MENSAJE trae 'docker', 'question' si trae 'horario', si no
+    'answer'. Cuenta las llamadas al LLM de RESPUESTA (ANSWER_CANDIDATE_PROMPT) para probar que
+    una pregunta fuera de tema se deflecta SIN llamar al modelo."""
+
+    def __init__(self):
+        self.answer_calls = 0
+
+    def complete(self, prompt: str) -> str:
+        if '"kind"' in prompt:
+            msg = _delimited_message(prompt)
+            if "docker" in msg:
+                return json.dumps({"kind": "offtopic"})
+            if "horario" in msg:
+                return json.dumps({"kind": "question"})
+            return json.dumps({"kind": "answer"})
+        if "Información disponible sobre el puesto" in prompt:   # ANSWER_CANDIDATE_PROMPT
+            self.answer_calls += 1
+            return "Docker es una plataforma de contenedores."   # respondería si lo dejáramos
+        if "needs_follow_up" in prompt:
+            return json.dumps({"score": 80, "justification": "ok", "needs_follow_up": False, "follow_up_question": "", "ack": "gracias"})
+        if "recommendation" in prompt:
+            return json.dumps({"summary": "s", "recommendation": "r"})
+        return "{}"
+
+
+def _docs_vac_and_qs():
+    vac = {"title": "V", "intro_message": "hola", "company_info": "Puesto de automatización.",
+           "semaphore_thresholds": {"green_min": 75, "yellow_min": 50}}
+    qs = [{"question_id": "q1", "position": 1, "text": "¿Tu experiencia?", "criterion": "exp", "weight": 1.0, "max_follow_ups": 0}]
+    return vac, qs
+
+
+def test_offtopic_question_deflected_without_answer_llm():
+    from agente.prompts import OFFTOPIC_DEFLECTION
+
+    llm = _OfftopicLLM()
+    runner = make_memory_runner(llm)
+    tid = "test:offtopic"
+    vac, qs = _docs_vac_and_qs()
+    runner.start(tid, vac, qs)
+    runner.send(tid, button="accept")
+    s = runner.send(tid, text="¿qué es Docker?")
+    assert s["phase"] == PHASE_INTERVIEWING
+    assert not s.get("answers")                                   # no avanzó como respuesta
+    assert any(OFFTOPIC_DEFLECTION in m for m in s.get("outbound", []))
+    assert any("Volviendo a lo nuestro" in m for m in s.get("outbound", []))
+    assert llm.answer_calls == 0                                  # deflexión determinista, sin LLM
+
+
+def test_genuine_question_still_answered_by_llm():
+    llm = _OfftopicLLM()
+    runner = make_memory_runner(llm)
+    tid = "test:genuine-q"
+    vac, qs = _docs_vac_and_qs()
+    runner.start(tid, vac, qs)
+    runner.send(tid, button="accept")
+    s = runner.send(tid, text="¿cuál es el horario?")            # duda genuina del puesto
+    assert not s.get("answers")
+    assert llm.answer_calls == 1                                  # sí llega al LLM de respuesta
+
+
 def test_empty_answer_reprompts_without_advancing():
     runner = make_memory_runner(_AnswerLLM())
     tid = "test:empty"

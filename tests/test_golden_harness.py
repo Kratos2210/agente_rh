@@ -42,7 +42,7 @@ def test_golden_set_shape_and_size():
         assert {"question", "criterion", "answer"} <= set(c)
         assert 0 <= c["expected_min"] <= c["expected_max"] <= 100
     for c in suites["classify"]:
-        assert c["expected"] in ("answer", "question")
+        assert c["expected"] in ("answer", "question", "offtopic")
     for c in suites["slot"]:
         assert c["expected"] is None or 0 <= c["expected"] < len(c["options"])
     for c in suites["prescreen"]:

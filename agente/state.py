@@ -66,6 +66,7 @@ class InterviewState(TypedDict, total=False):
 
     # Recolección de documentos (tras calificar).
     doc_idx: int                          # índice del documento que se está pidiendo
+    doc_retries: int                      # PDFs que no coinciden con el tipo pedido (corte → acepta+revisión)
     save_document: Optional[dict[str, Any]]  # documento a persistir este turno (lo lee el servicio)
 
     # Agendamiento de entrevista (tras "Continuar" de RR.HH.). Multi-etapa:
@@ -108,6 +109,7 @@ def new_state(
         scorecard=None,
         closed_reason="",
         doc_idx=0,
+        doc_retries=0,
         save_document=None,
         proposed_slots=[],
         meeting_slot=None,

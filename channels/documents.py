@@ -39,3 +39,52 @@ def validate_document(mime: str | None, size: int | None, filename: str | None) 
         mb = MAX_DOCUMENT_BYTES // (1024 * 1024)
         return (False, f"El archivo supera el límite de {mb} MB. ¿Podrías enviar una versión más liviana?")
     return (True, "")
+
+
+# ── Detección heurística del TIPO de documento (CV vs CUL) ────────────────────────
+# Puro y sin I/O ni LLM: recibe el texto ya extraído del PDF y estima qué documento es,
+# por palabras clave distintivas. La capa de servicio complementa con el LLM cuando la
+# confianza es baja (validación híbrida). Solo frases/tokens distintivos (evita falsos
+# positivos por subcadenas: nada de "cv"/"cul" sueltos — aparecen en "cultura", "vínculo"…).
+_CV_MARKERS = (
+    "experiencia laboral", "experiencia profesional", "formación académica", "formacion academica",
+    "educación", "educacion", "habilidades", "referencias", "perfil profesional",
+    "currículum", "curriculum vitae", "hoja de vida", "idiomas", "competencias",
+    "objetivo profesional", "resumen profesional", "datos personales", "logros",
+)
+_CUL_MARKERS = (
+    "certificado único laboral", "certificado unico laboral", "ministerio de trabajo",
+    "promoción del empleo", "promocion del empleo", "planilla electrónica", "planilla electronica",
+    "essalud", "sunafil", "reporte del trabajador", "récord laboral", "record laboral",
+    "certijoven", "certiadulto", "seguro social de salud",
+)
+
+
+def _count_markers(low: str, markers: tuple[str, ...]) -> int:
+    return sum(1 for m in markers if m in low)
+
+
+def _kind_confidence(dominant: int, other: int) -> float:
+    """Confianza de la heurística: alta con evidencia fuerte y margen; media con margen mínimo."""
+    if dominant >= 2 and dominant - other >= 2:
+        return 0.9
+    if dominant - other >= 1:
+        return 0.5
+    return 0.0
+
+
+def detect_document_kind_heuristic(text: str) -> tuple[str, float]:
+    """Estima el tipo de documento a partir de su texto.
+
+    Devuelve (kind, confidence) con kind ∈ {"cv", "cul", "other"}. confidence≈0 = incierto
+    (la capa de servicio pedirá desambiguación al LLM). Sin I/O ni LLM."""
+    low = (text or "").lower()
+    if not low.strip():
+        return ("other", 0.0)
+    cv = _count_markers(low, _CV_MARKERS)
+    cul = _count_markers(low, _CUL_MARKERS)
+    if cul > cv:
+        return ("cul", _kind_confidence(cul, cv))
+    if cv > cul:
+        return ("cv", _kind_confidence(cv, cul))
+    return ("other", 0.0)  # empate o sin señales → incierto

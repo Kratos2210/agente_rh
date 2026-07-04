@@ -16,10 +16,12 @@ from agente.prompts import (
     CLOSING_GREETING_NO_RESPONSE,
     CLOSING_INACTIVITY,
     CLOSING_THANKS,
+    DOC_MISMATCH,
     DOC_RECEIVED,
     DOC_RETRY,
     DOC_SKIPPED,
     EMPTY_ANSWER_NUDGE,
+    OFFTOPIC_DEFLECTION,
     QUALIFIED_NEXT_STEPS,
     QUESTIONS_EXHAUSTED,
     REQUEST_DOC,
@@ -64,6 +66,7 @@ DOC_SEQUENCE = [("cv", "tu hoja de vida (CV)"), ("cul", "tu Certificado Único L
 # cuesta llamadas LLM y el reloj de inactividad se reinicia con cada mensaje.
 MAX_CANDIDATE_QUESTIONS = 3   # dudas respondidas por pregunta de la entrevista
 MAX_SLOT_RETRIES = 3          # intentos fallidos de elegir horario antes de escalar a RR.HH.
+MAX_DOC_RETRIES = 2           # documentos que no coinciden antes de aceptar (marcado a revisión)
 
 
 def start(state: InterviewState) -> InterviewState:
@@ -338,8 +341,22 @@ def _handle_interview(state: InterviewState, llm: LLM, *, text: str, retriever=N
         state["outbound"].append(EMPTY_ANSWER_NUDGE.format(question=q["text"]))
         return
 
-    # ¿Responde o pregunta algo sobre el puesto?
-    if classify_turn(llm, current_question=q["text"], message=text) == "question":
+    # ¿Responde, pregunta algo del puesto, o pregunta algo fuera de tema?
+    kind = classify_turn(llm, current_question=q["text"], message=text)
+
+    # Fuera de tema (conocimiento general, ajeno a la vacante): se deflecta sin llamar al LLM
+    # de respuesta ni al RAG (no genera traza no fundamentada) y se retoma la entrevista. Respeta
+    # el mismo tope por pregunta para acotar el ciclo y no reiniciar el reloj de inactividad.
+    if kind == "offtopic":
+        if state.get("questions_asked", 0) >= MAX_CANDIDATE_QUESTIONS:
+            state["outbound"].append(QUESTIONS_EXHAUSTED.format(question=q["text"]))
+            return
+        state["questions_asked"] = state.get("questions_asked", 0) + 1
+        state["outbound"].append(OFFTOPIC_DEFLECTION)
+        state["outbound"].append(f"Volviendo a lo nuestro:\n\n{q['text']}")
+        return
+
+    if kind == "question":
         # Criterio de parada: tras el tope de dudas por pregunta, se difiere al equipo
         # sin llamar al LLM (evita un ciclo de costo indefinido que además reinicia
         # el reloj de inactividad en cada vuelta).
@@ -449,7 +466,10 @@ def _finalize(state: InterviewState, llm: LLM) -> None:
 # ── Recolección de documentos (CV + Certificado Único Laboral) ────────────────────
 
 def _handle_docs(state: InterviewState, *, text: str, button: str | None, document: dict | None) -> None:
-    """Recolecta los documentos en orden (DOC_SEQUENCE). Acepta el PDF o 'omitir'."""
+    """Recolecta los documentos en orden (DOC_SEQUENCE). Valida que el contenido del PDF
+    corresponda al tipo pedido (`detected_kind`, que setea la capa de servicio); si no coincide,
+    lo rechaza y vuelve a pedirlo. Acepta el PDF (correcto), 'omitir' o, tras agotar reintentos,
+    el archivo aunque no coincida (marcado para revisión humana)."""
     if _is_decline(text, button):
         state["phase"] = PHASE_CLOSED
         state["consented"] = False
@@ -462,10 +482,26 @@ def _handle_docs(state: InterviewState, *, text: str, button: str | None, docume
         return
     doc_type, label = DOC_SEQUENCE[idx]
     if document:
-        # El servicio persistirá este documento (con su tipo) tras el turno.
-        state["save_document"] = {**document, "type": doc_type}
-        state["outbound"].append(DOC_RECEIVED.format(label=label))
-        _advance_doc(state)
+        detected = document.get("detected_kind")
+        # Acepta si no se pudo determinar el tipo (fail-open) o coincide con el pedido.
+        if detected in (None, "unknown") or detected == doc_type:
+            state["save_document"] = {**document, "type": doc_type}
+            state["outbound"].append(DOC_RECEIVED.format(label=label))
+            _advance_doc(state)
+            return
+        # Mismatch: rechaza y vuelve a pedir. Criterio de parada (I1/I2): tras el tope de
+        # reintentos acepta el archivo para no trabar el flujo, pero lo marca para revisión
+        # humana (no se pierde el dato; el reclutador decide).
+        retries = state.get("doc_retries", 0) + 1
+        state["doc_retries"] = retries
+        if retries > MAX_DOC_RETRIES:
+            state["save_document"] = {
+                **document, "type": doc_type, "review_required": True, "detected_kind": detected,
+            }
+            state["outbound"].append(DOC_RECEIVED.format(label=label))
+            _advance_doc(state)
+            return
+        state["outbound"].append(DOC_MISMATCH.format(label=label))
     elif text.strip().lower() in _SKIP_SIGNALS:
         state["outbound"].append(DOC_SKIPPED.format(label=label))
         _advance_doc(state)
@@ -476,6 +512,7 @@ def _handle_docs(state: InterviewState, *, text: str, button: str | None, docume
 def _advance_doc(state: InterviewState) -> None:
     idx = state.get("doc_idx", 0) + 1
     state["doc_idx"] = idx
+    state["doc_retries"] = 0  # nuevo documento: reinicia el contador de reintentos por mismatch
     if idx < len(DOC_SEQUENCE):
         state["outbound"].append(REQUEST_DOC.format(label=DOC_SEQUENCE[idx][1]))
     else:
