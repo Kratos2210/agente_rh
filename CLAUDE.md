@@ -1057,6 +1057,36 @@ embeddings) para responder dudas del candidato sobre el puesto.
   solo el **paso 4** (operación a prueba de ausencias: secret manager + 2.º operador + branch protection
   server-side) — requiere cuentas/decisiones externas del usuario. Sin cambios de frontend (tsc no aplica).
 
+- **2026-07-03 — Roadmap v2 · paso 4 (OPERACIÓN A PRUEBA DE AUSENCIAS · piezas de código/docs)**:
+  ataca el Riesgo 2 (dependencia unipersonal + secretos planos). El paso es mayormente
+  organizacional; se entregó todo lo **codeable sin cuentas externas** (4 piezas independientes).
+  (1) **Gestión de usuarios (2.º operador)**: `api/routes/users.py` — `GET/POST /api/users` +
+  `PATCH /api/users/{user_id}` (todos **admin**, aislados por tenant). Alta valida email/rol/long.
+  contraseña + unicidad (email único global → 409); hash **bcrypt** vía `api.auth.hash_password`,
+  **nunca se devuelve** (`_public_user` quita `password_hash`). PATCH activa/desactiva, cambia
+  rol/nombre, resetea contraseña; **guarda anti auto-bloqueo** (un admin no puede desactivarse ni
+  degradarse a sí mismo); desactivar corta la sesión viva vía el chequeo de revocación S2 (`authenticate`
+  chequea `active` al instante en login; `get_current_user` en ≤60 s por el caché TTL). `repo.update_user`
+  nuevo. Router montado en `main.py`. **`scripts/create_user.py`** (CLI: email/rol/nombre/tenant, pide
+  contraseña sin eco si falta) para el bootstrap sin UI. `test_tenant_guards._RESOURCE_PARAMS` +`user_id`
+  (la ruta by-id ahora entra en la invariante estructural de aislamiento). (2) **`docs/postmortem-template.md`**
+  (5 líneas: impacto/causa/detección/mitigación/prevención + de dónde salen los datos: /observabilidad,
+  audit, trazas, logs). (3) **`deploy/k8s/secret-manager/`** — scaffolding de **External Secrets Operator**
+  (SecretStore + ExternalSecret provider-agnostic, ejemplo Doppler; materializa el MISMO Secret
+  `agente-rh-secrets`; NO cableado a kustomize a propósito: son CRDs que kubeconform no valida) + README
+  con tabla por proveedor y rotación de emergencia; enlazado desde `docs/gestion_secretos.md`.
+  (4) **`scripts/setup-branch-protection.sh`** (gh api PUT protection, 5 checks requeridos = jobs de PR;
+  para cuando el repo pase a Pro/público). **359/359 tests (+9 test_users.py: RBAC, enmascarado del hash,
+  bcrypt real, unicidad 409, rol/contraseña inválidos 422, desactivar, cross-tenant 404, auto-bloqueo ×2);
+  test_tenant_guards ajustado.** **Verificado en vivo** (backend :8000 + Supabase): login admin → crear
+  viewer (201, sin hash) → viewer GET /api/users 403 → PATCH active=false 200 → login del desactivado 401 →
+  PATCH a UUID inexistente 404 → email duplicado 409; usuarios de smoke limpiados de la DB. **Gotcha del
+  smoke**: `$UID` es variable readonly de bash (uid del SO) — usar otro nombre; un id no-UUID en la URL da
+  500 (Postgres, no valida uuid), comportamiento consistente con las otras rutas by-id. **PENDIENTE del paso 4
+  (acción externa tuya)**: cargar secretos en un gestor real + aplicar el ExternalSecret; alta+onboarding del
+  2.º humano; correr el script de branch protection tras pasar a Pro. Sin cambios de frontend (API+script;
+  la UI de usuarios queda como mejora futura). `audit/auditoria_v2.md` paso 4 marcado 🟡.
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.

@@ -349,6 +349,7 @@ from api.routes.candidates import router as candidates_router  # noqa: E402
 from api.routes.observability import router as observability_router  # noqa: E402
 from api.routes.recruiters import router as recruiters_router  # noqa: E402
 from api.routes.settings import router as settings_router  # noqa: E402
+from api.routes.users import router as users_router  # noqa: E402
 from api.routes.vacancies import router as vacancies_router  # noqa: E402
 
 app.include_router(vacancies_router)
@@ -356,6 +357,7 @@ app.include_router(candidates_router)
 app.include_router(recruiters_router)
 app.include_router(settings_router)
 app.include_router(observability_router)
+app.include_router(users_router)
 
 # ── Servidor MCP (config-gated, default off) ──────────────────────────────────────
 # Herramientas read-only en /mcp para clientes LLM externos, con el MISMO JWT,

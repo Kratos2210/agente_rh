@@ -98,5 +98,8 @@ variables de entorno del proceso (Pydantic Settings las lee igual, sin cambiar c
 - **Orquestador**: secrets de Docker Compose / Kubernetes / systemd `EnvironmentFile` con
   permisos restringidos.
 - **Gestor dedicado**: Doppler, HashiCorp Vault, AWS/GCP Secrets Manager, o **Supabase Vault**.
+  En Kubernetes, el camino "rellená y aplicá" ya está scaffoldeado con **External Secrets
+  Operator** en [`deploy/k8s/secret-manager/`](../deploy/k8s/secret-manager/README.md): sincroniza
+  desde el gestor al mismo Secret `agente-rh-secrets` que consumen los deployments, sin tocar la app.
 - Nunca commitear `.env` (ya en `.gitignore`); usar `.env.example` como plantilla sin valores.
 - Habilitar rotación automática donde el gestor lo soporte y auditar accesos.
