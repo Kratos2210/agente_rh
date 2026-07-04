@@ -24,7 +24,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -32,6 +34,34 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dotenv import load_dotenv  # noqa: E402
 
 GOLDEN_PATH = Path(__file__).resolve().parents[1] / "tests" / "golden" / "golden_set.json"
+
+
+class _ThrottledLLM:
+    """Espacia las llamadas al proveedor para no exceder el límite de tokens-por-minuto
+    del free-tier (Groq: 6000 TPM). La suite dispara ~28 llamadas en ráfaga y satura la
+    ventana → el proveedor responde 429 y el caller cae al score neutro (low_confidence),
+    que el harness marca como desvío. Con una pausa entre llamadas nos mantenemos bajo el TPM.
+
+    Transparente: delega todo salvo `complete`, de modo que el metering/tracing de
+    MeteredLLM (model/last_usage/metadata) queda intacto. Solo se activa con
+    GOLDEN_THROTTLE_SECONDS>0 (nightly); local/dispatch = sin espera."""
+
+    def __init__(self, inner, seconds: float) -> None:
+        self._inner = inner
+        self._seconds = seconds
+        self._last = 0.0
+
+    def __getattr__(self, name):  # delega .model/.last_usage/.metadata al LLM real
+        return getattr(self._inner, name)
+
+    def complete(self, prompt: str) -> str:
+        gap = self._seconds - (time.monotonic() - self._last)
+        if gap > 0:
+            time.sleep(gap)
+        try:
+            return self._inner.complete(prompt)
+        finally:
+            self._last = time.monotonic()
 
 # Suite → clave del JSON con sus casos.
 SUITE_KEYS = {
@@ -146,7 +176,12 @@ def main() -> int:
 
     # MeteredLLM para que cada llamada quede etiquetada por etapa (los runners internos
     # ya marcan stage con complete_staged).
-    llm = MeteredLLM(build_default_llm(args.model or None))
+    inner = build_default_llm(args.model or None)
+    throttle = float(os.getenv("GOLDEN_THROTTLE_SECONDS", "0") or "0")
+    if throttle > 0:
+        inner = _ThrottledLLM(inner, throttle)
+        print(f"(throttle {throttle:g}s entre llamadas para respetar el TPM del proveedor)")
+    llm = MeteredLLM(inner)
     total = sum(len(cases) for _, cases in plan)
     print(f"Golden eval · modelo={llm.model} · prompt_version={PROMPT_VERSION} · {total} caso(s)\n")
 
