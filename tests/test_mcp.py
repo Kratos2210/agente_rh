@@ -17,6 +17,7 @@ stateless+json (no requiere handshake initialize).
 
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -230,7 +231,9 @@ def test_contact_preview_does_not_mutate_and_returns_token(mcp_client, monkeypat
     assert not result.get("isError"), result
     preview = result["structuredContent"]
     assert preview["requires_confirmation"] is True
-    assert preview["candidate"]["name"] == "Daniela"
+    # PII: el preview NO expone el nombre real, solo el seudónimo derivado del id.
+    assert preview["candidate"]["name"] == "Candidato #c1"
+    assert "Daniela" not in json.dumps(preview)
     assert preview["confirm_token"]
     assert calls == []  # el preview NO ejecutó la mutación
 
@@ -336,3 +339,97 @@ def test_decide_rejects_invalid_decision(mcp_client, monkeypatch):
                         {"candidate_id": "c1", "decision": "hire"}, token=_token(role="recruiter"))
     assert result.get("isError") is True
     assert "advance" in result["content"][0]["text"]
+
+
+# ── Minimización de PII (perfil "sin PII" para clientes externos, plan B) ────────
+
+
+def test_pseudonym_is_stable_and_id_derived():
+    from adaptadores_mcp.mcp import _pseudonym
+
+    assert _pseudonym("c1") == "Candidato #c1"
+    assert _pseudonym("0123456789abcdef") == "Candidato #01234567"  # cap a 8
+    assert _pseudonym("") == "Candidato"
+    assert _pseudonym(None) == "Candidato"
+
+
+def test_mask_candidate_row_hides_name_keeps_operational():
+    from adaptadores_mcp.mcp import _mask_candidate_row
+
+    row = {"id": "abc123ff", "name": "Daniela Ramírez", "status": "invited",
+           "semaphore": "green", "total_score": 92, "prescreen_score": 88}
+    masked = _mask_candidate_row(row)
+    assert masked["name"] == "Candidato #abc123ff"
+    assert "Daniela" not in json.dumps(masked)
+    # el valor operativo se conserva intacto
+    assert masked["semaphore"] == "green" and masked["total_score"] == 92
+    assert masked["prescreen_score"] == 88 and masked["status"] == "invited"
+
+
+def test_mask_candidates_result_handles_items_and_list():
+    from adaptadores_mcp.mcp import _mask_candidates_result
+
+    paged = {"items": [{"id": "x1", "name": "Ana"}], "total": 1, "limit": 50, "offset": 0}
+    out = _mask_candidates_result(paged)
+    assert out["items"][0]["name"] == "Candidato #x1"
+    assert out["total"] == 1 and out["limit"] == 50  # metadata intacta
+
+    flat = [{"id": "y2", "name": "Beto"}]
+    assert _mask_candidates_result(flat)[0]["name"] == "Candidato #y2"
+
+
+def test_mask_candidate_detail_strips_all_pii():
+    from adaptadores_mcp.mcp import _mask_candidate_detail
+
+    detail = {
+        "candidate": {
+            "id": "cand9999", "name": "Daniela Ramírez", "status": "advanced",
+            "cv_profile": {"email": "dani@mail.com", "phone": "+51999888777", "summary": "..."},
+            "prescreen": {"pre_score": 92, "verdict": "pass",
+                          "summary": "Daniela Ramírez cumple los requisitos del puesto"},
+            "channel_user_id": "555",
+            "documents": [{"type": "cv", "filename": "CV_Daniela_Ramirez.pdf", "stored": "db"}],
+        },
+        "scorecard": {"total_score": 92, "semaphore": "green",
+                      "per_criterion": [{"label": "Experiencia", "score": 90}]},
+        "transcript": [{"role": "user", "text": "Hola, soy Daniela, mi cel es 999888777"}],
+        "meetings": [{"id": "m1", "stage": "hr", "modality": "virtual", "status": "scheduled",
+                      "candidate_phone": "+51999888777", "recruiter_phone": "+51988",
+                      "meet_link": "https://meet.example/x", "location": "Oficina Lima"}],
+        "stage_feedback": [{"stage": "hr", "decision": "advance"}],
+    }
+    masked = _mask_candidate_detail(detail)
+    blob = json.dumps(masked, ensure_ascii=False)
+
+    # nada de PII de contacto ni CV ni nombre real ni transcripción
+    assert "Daniela" not in blob
+    assert "dani@mail.com" not in blob and "999888777" not in blob
+    assert "CV_Daniela_Ramirez.pdf" not in blob
+    assert "cv_profile" not in masked["candidate"]
+    assert masked["candidate"]["name"] == "Candidato #cand9999"
+    assert masked["candidate"]["cv_profile_present"] is True
+    assert "channel_user_id" not in masked["candidate"]
+    # prescreen: se conserva score+verdict, el summary (cita el nombre/CV) fuera
+    assert masked["candidate"]["prescreen"] == {"pre_score": 92, "verdict": "pass"}
+    assert masked["candidate"]["documents"] == [{"type": "cv", "stored": "db"}]
+    assert "transcript" not in masked and masked["transcript_messages"] == 1
+
+    # valor operativo intacto: scorecard, etapa, modalidad, estado, ubicación (empresa)
+    assert masked["scorecard"]["total_score"] == 92
+    m = masked["meetings"][0]
+    assert m["stage"] == "hr" and m["status"] == "scheduled" and m["location"] == "Oficina Lima"
+    assert "candidate_phone" not in m and "recruiter_phone" not in m
+    assert masked["stage_feedback"] == [{"stage": "hr", "decision": "advance"}]
+
+
+def test_mask_vacancy_minimizes_recruiter_contact():
+    from adaptadores_mcp.mcp import _mask_vacancy
+
+    v = {"id": "v1", "title": "Analista IA", "candidate_count": 3,
+         "recruiter": {"id": "r1", "name": "Grace Mendieta", "role": "RR.HH.",
+                       "email": "grace@sifrah.com", "phone": "+51900", "telegram_chat_id": "42"}}
+    masked = _mask_vacancy(v)
+    rec = masked["recruiter"]
+    assert rec["name"] == "Grace Mendieta" and rec["role"] == "RR.HH."  # staff útil se conserva
+    assert "email" not in rec and "phone" not in rec and "telegram_chat_id" not in rec
+    assert masked["title"] == "Analista IA" and masked["candidate_count"] == 3
