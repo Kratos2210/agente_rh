@@ -38,12 +38,16 @@ class Settings(BaseSettings):
     llm_max_retries: int = 2
 
     # Optimización de costos (paso 5): rutear las etapas SIMPLES a un modelo más barato.
-    # `classify` (binario respuesta/duda) y `schedule` (elegir un número de opción) no
-    # necesitan el modelo grande. Vacío = todo con `openai_model` (comportamiento actual).
-    # El modelo barato usa la MISMA base_url/api_key (mismo proveedor compatible-OpenAI).
+    # `schedule` (elegir un número de opción) no necesita el modelo grande. Vacío = todo
+    # con `openai_model` (comportamiento actual). El modelo barato usa la MISMA
+    # base_url/api_key (mismo proveedor compatible-OpenAI).
+    # NOTA: `classify` SE QUITÓ de las etapas baratas (2026-07-04): al pasar a 3 vías
+    # (answer|question|offtopic) el modelo chico (llama-3.1-8b) sobre-deflectaba dudas
+    # legítimas del puesto (sueldo/horario→offtopic) — no pasa el banco golden. La
+    # decisión de alcance necesita el modelo principal (qwen: 10/10). Ver ADR.
     llm_cheap_model: str = ""
-    # Etapas ruteadas al modelo barato (CSV). Por defecto las dos más simples y frecuentes.
-    llm_cheap_stages: str = "classify,schedule"
+    # Etapas ruteadas al modelo barato (CSV). Por defecto la más simple y frecuente.
+    llm_cheap_stages: str = "schedule"
 
     # Caché semántica de las dudas del candidato (paso 5): si una pregunta MUY parecida ya
     # fue respondida para la MISMA vacante (coseno >= semantic_cache_threshold), se devuelve
@@ -258,6 +262,11 @@ class Settings(BaseSettings):
     # Sobre el umbral el archivo queda solo en disco (uploads/, stored="disk");
     # al migrar a S3/Storage este umbral define qué va a la DB y qué al object store.
     document_db_max_bytes: int = 5 * 1024 * 1024
+    # Validación de CONTENIDO del documento recibido (CV/CUL): extrae el texto del PDF y
+    # verifica que corresponda al tipo pedido (heurística por palabras clave + desambiguación
+    # LLM cuando duda). Ante mismatch el motor rechaza y vuelve a pedirlo. Fail-open: si la
+    # extracción falla o está desactivado, se acepta sin validar (comportamiento previo).
+    document_content_check_enabled: bool = True
     # Purga de checkpoints LangGraph de conversaciones terminales con más de N días
     # sin actividad (audit D4: crecían sin límite). 0 = desactivada.
     checkpoint_retention_days: int = 30

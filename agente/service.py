@@ -259,8 +259,9 @@ class InterviewService:
             elif inbound.button:
                 label = "Acepto" if inbound.button == "accept" else "No interesado"
                 repositories.add_message(conv["id"], "user", f"[{label}]")
+            document = self._maybe_detect_document_kind(inbound.document, state)
             new_state = self.runner.send(
-                inbound.thread_id, text=inbound.text, button=inbound.button, document=inbound.document
+                inbound.thread_id, text=inbound.text, button=inbound.button, document=document
             )
 
         self._persist_save_document(candidate, conv, new_state)
@@ -346,6 +347,37 @@ class InterviewService:
         self._record_usage(vacancy, candidate, conv)
         return self._result(new_state)
 
+    def _maybe_detect_document_kind(
+        self, document: dict | None, state: InterviewState
+    ) -> dict | None:
+        """Enriquece el documento entrante con `detected_kind` (cv/cul/other/None) para que el
+        motor valide su contenido contra el tipo pedido. Validación híbrida: heurística por
+        palabras clave y, si duda, desambiguación LLM. Solo corre en la fase de documentos y si
+        está activado. Fail-open: ante cualquier problema deja `detected_kind=None` (no bloquea)."""
+        if not document or state.get("phase") != PHASE_AWAITING_DOCS:
+            return document
+        if not getattr(self.settings, "document_content_check_enabled", True):
+            return document
+        try:
+            from pathlib import Path
+
+            from channels.documents import detect_document_kind_heuristic
+            from evaluation.scorer import classify_candidate_document
+            from orquestacion.classifier import extract_intro_text
+
+            text = extract_intro_text(Path(document.get("local_path", "")))
+            kind, conf = detect_document_kind_heuristic(text)
+            if conf >= 0.8:
+                detected: str | None = kind  # heurística fuerte → se confía
+            else:
+                llm_kind = classify_candidate_document(self.runner.llm, text)
+                # LLM es la autoridad cuando la heurística duda; 'unknown' (fallo) → fail-open.
+                detected = llm_kind if llm_kind in ("cv", "cul", "other") else None
+            return {**document, "detected_kind": detected}
+        except Exception:  # noqa: BLE001 — la validación nunca debe tumbar el turno
+            logger.warning("Detección de tipo de documento falló; se acepta sin validar", exc_info=True)
+            return document
+
     def _persist_save_document(self, candidate: dict, conv: dict, state: InterviewState) -> None:
         """Persiste el documento que el motor marcó este turno (CV/CUL): contenido DURABLE en
         Postgres (sobrevive redeploys) + metadata en candidates.documents. Si no se puede leer el
@@ -376,19 +408,22 @@ class InterviewService:
                 stored = "db"
             except Exception:  # noqa: BLE001 — si la DB falla, al menos queda el disco
                 stored = "disk"
-        repositories.add_candidate_document(
-            candidate["id"],
-            {
-                "type": doc_type,
-                "filename": filename,
-                "file_id": doc.get("file_id", ""),
-                "local_path": doc.get("local_path", ""),
-                "mime": mime,
-                "size_bytes": size,
-                "stored": stored,
-                "received_at": _now_iso(),
-            },
-        )
+        meta = {
+            "type": doc_type,
+            "filename": filename,
+            "file_id": doc.get("file_id", ""),
+            "local_path": doc.get("local_path", ""),
+            "mime": mime,
+            "size_bytes": size,
+            "stored": stored,
+            "received_at": _now_iso(),
+        }
+        # El motor lo aceptó pese a no coincidir con el tipo pedido (tras agotar reintentos):
+        # queda marcado para revisión humana (el reclutador decide). Incluye lo que se detectó.
+        if doc.get("review_required"):
+            meta["review_required"] = True
+            meta["detected_kind"] = doc.get("detected_kind")
+        repositories.add_candidate_document(candidate["id"], meta)
         repositories.add_message(conv["id"], "user", f"[Documento: {filename or 'archivo'}]")
 
     def initiate_contact(self, candidate: dict, vacancy: dict) -> TurnResult:

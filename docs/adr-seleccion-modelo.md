@@ -10,12 +10,18 @@ modelo no está justificada por escrito") y 2.3.3 ("ninguna palanca activa de re
    `reasoning_effort: "none"` (sin `<think>`) y `temperature: 0.2`.
 2. **Arquitectura agnóstica de proveedor**: el LLM es inyectable (`agent/llm.build_default_llm`);
    cambiar de proveedor = cambiar `OPENAI_API_BASE` / `OPENAI_API_KEY` / `OPENAI_MODEL`.
-3. **Routing de costos por etapa** (paso 5): las etapas simples y frecuentes (`classify`,
-   `schedule`) van a un modelo más barato (`LLM_CHEAP_MODEL` + `LLM_CHEAP_STAGES`) sin tocar el
+3. **Routing de costos por etapa** (paso 5): la etapa simple y frecuente `schedule` (elegir un
+   número de opción) va a un modelo más barato (`LLM_CHEAP_MODEL` + `LLM_CHEAP_STAGES`) sin tocar el
    motor. **Modelo barato elegido y validado: `llama-3.1-8b-instant`** (Groq, ~$0.05/$0.08 por 1M
    in/out — un orden de magnitud bajo el principal), aprobado contra el banco de aceptación golden:
-   `classify` 7/7 y `slot` 6/6 (ver 2.1.2 y "Cómo elegir un modelo barato"). El costo real por
-   modelo/etapa queda medido (`llm_usage.model`, O-2).
+   `slot` 6/6 (ver 2.1.2 y "Cómo elegir un modelo barato"). El costo real por modelo/etapa queda
+   medido (`llm_usage.model`, O-2).
+   **`classify` volvió al modelo principal (2026-07-04)**: al pasar la clasificación de turno a
+   3 vías (`answer|question|offtopic`, para deflectar preguntas de conocimiento general), el modelo
+   chico sobre-deflectaba dudas legítimas del puesto (sueldo/horario → `offtopic`) — falló el banco
+   golden con `llama-3.1-8b-instant` (7/10), mientras que qwen3-32b acierta 10/10. La decisión de
+   alcance del turno es sensible a la UX (deflectar una duda real es peor que el ahorro), así que
+   `classify` deja de ser una etapa barata.
 4. **Caché semántica de dudas** (paso 5): las respuestas a preguntas del candidato sobre el puesto
    se cachean por vacante (`INTERVIEW_ANSWER_CACHE_ENABLED`); una duda repetida no gasta tokens.
 
@@ -55,26 +61,30 @@ razonamiento intermedio). Ver 2.2.1 de la auditoría.
 
 ## Cómo elegir un modelo barato (banco de aceptación, 2.1.2)
 
-El golden acepta `--model` para benchmarkear un candidato SIN tocar el `.env`. Se validan las
-suites de las etapas ruteadas (`classify` para `classify`, `slot` para `schedule`):
+El golden acepta `--model` para benchmarkear un candidato SIN tocar el `.env`. Hoy la única etapa
+ruteada al modelo barato es `schedule`, validada con la suite `slot`:
 
 ```
-uv run python scripts/golden_eval.py --model <candidato> --suite classify
 uv run python scripts/golden_eval.py --model <candidato> --suite slot
 ```
 
-Un candidato se acepta si pasa ambas (sale con código 0). Candidatos medidos (Groq, 2026-07-03):
+Un candidato se acepta si pasa (sale con código 0). Candidatos medidos (Groq):
 
-| Candidato | classify | slot | Veredicto |
+| Candidato | slot | classify (3 vías) | Veredicto |
 |---|---|---|---|
-| `llama-3.1-8b-instant` | 7/7 | 6/6 | ✅ **elegido** (el más barato) |
-| `openai/gpt-oss-20b` | 7/7 | 6/6 | ✅ apto (alternativa) |
+| `llama-3.1-8b-instant` | 6/6 | 7/10 ❌ (sobre-deflecta sueldo/horario) | ✅ para `schedule`; ❌ para `classify` |
+| `openai/gpt-oss-20b` | 6/6 | (no re-medido tras 3 vías) | ✅ apto para `schedule` |
+| `qwen/qwen3-32b` (principal) | — | 10/10 | sirve `classify` |
+
+Nota (2026-07-04): antes `classify` también se ruteaba al modelo barato (era binario
+`answer/question`, 7/7). Con la clasificación de 3 vías (`+offtopic`) el 8b falla el banco, así que
+`classify` volvió al modelo principal.
 
 ## Palancas de costo activas (paso 5)
 
 | Palanca | Config | Efecto |
 |---|---|---|
-| Routing por etapa | `LLM_CHEAP_MODEL=llama-3.1-8b-instant`, `LLM_CHEAP_STAGES` (`classify,schedule`) | Etapas simples → modelo barato validado (golden 13/13); medible en `llm_usage.model`. |
+| Routing por etapa | `LLM_CHEAP_MODEL=llama-3.1-8b-instant`, `LLM_CHEAP_STAGES` (`schedule`) | Etapa simple → modelo barato validado (`slot` 6/6); medible en `llm_usage.model`. `classify` volvió al principal (3 vías). |
 | Caché de dudas | `INTERVIEW_ANSWER_CACHE_ENABLED` | Duda repetida por vacante → 0 tokens (hit semántico). |
 | Guardrails de consumo | `TurnGovernor`, topes de iteración, cortes sin-LLM | Ya evitan gasto inútil por diseño (auditoría 2.2.1/2.2.2). |
 | Presupuesto + alerta | `llm_budget` por tenant (O-2) | Alerta al 80% del presupuesto mensual. |
