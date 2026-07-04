@@ -7,6 +7,10 @@ namespace: agente-rh-prod
 resources:
   - namespace.yaml
   - ../../base
+  # Observabilidad LLM in-cluster (mejora): Phoenix (Arize self-hosted) recibe las trazas
+  # del backend. El configmap-patch enciende PHOENIX_ENABLED apuntando a este Service.
+  - phoenix-deployment.yaml
+  - phoenix-service.yaml
 images:
   # En prod se despliega un tag INMUTABLE y versionado (no `latest`): el CD publica
   # `ghcr.io/<owner>/agente-rh-*:sha-<commit>`. El `newTag` de abajo es un placeholder;
