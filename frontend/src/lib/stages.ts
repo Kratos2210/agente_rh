@@ -3,6 +3,13 @@
 
 export const ACCENT = { c: "#8b8cfa", btn: "#6366f1", soft: "rgba(139,140,250,.15)", bd: "rgba(139,140,250,.34)" };
 
+// Costo LLM acumulado (USD): con `.toFixed(2)` un consumo real chico (p.ej. $0.0017 de unas
+// pocas llamadas) se veía como "$0.00". Mostramos más decimales cuando el acumulado es sub-centavo
+// para que el costo realmente usado sea visible; a partir de un centavo, 2 decimales.
+export function fmtCost(c: number): string {
+  return c > 0 && c < 0.01 ? c.toFixed(4) : c.toFixed(2);
+}
+
 export interface StageMeta { label: string; color: string; soft: string }
 
 // Estados del backend → presentación. Los off-path (descartados) usan rojo.

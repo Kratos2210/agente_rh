@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     langsmith_tracing: str = "false"
     langsmith_api_key: str = ""
     langsmith_project: str = "agente-rh"
+    # Privacidad (Ley 29733): LangSmith es un SaaS en la nube; los prompts llevan PII del
+    # candidato (CV, respuestas). Con estos flags en true, a LangSmith solo le llega la
+    # ESTRUCTURA de la traza + latencia/tokens, NO el texto de entrada/salida. Default true
+    # (seguro por defecto). Poné false SOLO para inspeccionar contenido con data demo/ficticia.
+    langsmith_hide_inputs: bool = True
+    langsmith_hide_outputs: bool = True
 
     # Trazas LLM propias (observabilidad O-1): persistir prompt/respuesta POR LLAMADA
     # en `llm_traces` para replay/debug de evaluaciones. Off por default: los prompts

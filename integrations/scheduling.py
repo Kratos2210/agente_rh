@@ -48,13 +48,27 @@ def _parse_hhmm(value: str, default: tuple[int, int]) -> tuple[int, int]:
         return default
 
 
+def _to_display_tz(dt: datetime) -> datetime:
+    """Lleva un datetime con zona a la zona de visualización (Lima) antes de formatear.
+
+    Postgres devuelve `timestamptz` en UTC (`+00:00`); sin esta conversión el asunto/cuerpo
+    del correo mostraba la hora en UTC (p.ej. 11:15 Lima → 16:15). Los datetime *naive*
+    (recién calculados por `compute_free_slots`) ya vienen en hora local y se dejan igual;
+    los que ya están en Lima quedan invariantes (astimezone es no-op)."""
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(_tz("America/Lima"))
+
+
 def human_slot(dt: datetime) -> str:
     """Representación legible en español: 'lunes 23/06 a las 09:00'."""
+    dt = _to_display_tz(dt)
     return f"{_WEEKDAYS[dt.weekday()]} {dt.day:02d}/{dt.month:02d} a las {dt:%H:%M}"
 
 
 def human_slot_long(dt: datetime) -> str:
     """Versión larga para correos: 'lunes 23 de junio, 09:00'."""
+    dt = _to_display_tz(dt)
     return f"{_WEEKDAYS[dt.weekday()]} {dt.day} de {_MONTHS[dt.month - 1]}, {dt:%H:%M}"
 
 
