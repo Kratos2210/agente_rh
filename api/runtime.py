@@ -78,6 +78,48 @@ def init_phoenix(settings: Settings) -> bool:
         return False
 
 
+def warn_production_profile(settings: Settings) -> list[str]:
+    """Guard de "perfil de producción" (roadmap v2, paso 1 · auditoria_v2 Riesgo 1).
+
+    En `ENVIRONMENT=production`, AVISA (no bloquea) si los signos vitales de calidad y las
+    palancas de costo están apagados — para que producción sin medición sea una decisión
+    VISIBLE, nunca un default de dev heredado en silencio. A diferencia de
+    `assert_secure_config` (que sí bloquea por secretos inseguros), esto solo advierte: correr
+    con la calidad apagada es subóptimo, no inseguro. Devuelve la lista de avisos (para test).
+
+    Fuera de producción no dice nada (los defaults conservadores son correctos en dev)."""
+    if not settings.is_production:
+        return []
+    warnings: list[str] = []
+    if not settings.llm_trace_enabled:
+        warnings.append(
+            "LLM_TRACE_ENABLED=false: sin trazas, el juez de calidad diario no tiene qué "
+            "muestrear — la calidad de la IA queda sin medición continua."
+        )
+    if not str(settings.llm_cheap_model or "").strip():
+        warnings.append(
+            "LLM_CHEAP_MODEL vacío: las etapas simples (classify/schedule) corren en el "
+            "modelo principal — costo sin optimizar (hay un modelo barato validado en el ADR)."
+        )
+    if not settings.interview_answer_cache_enabled:
+        warnings.append(
+            "INTERVIEW_ANSWER_CACHE_ENABLED=false: la caché de dudas está apagada — "
+            "cada duda repetida gasta RAG + LLM."
+        )
+    if warnings:
+        from src.logging_config import get_logger
+
+        log = get_logger("api.runtime")
+        for w in warnings:
+            log.warning("Perfil de producción incompleto: %s", w)
+        log.warning(
+            "Producción corre con %d signo(s) vital(es) de LLMOps apagado(s). Es una decisión "
+            "válida, pero explícita: revisar el overlay prod y scripts/seed_prod_settings.py.",
+            len(warnings),
+        )
+    return warnings
+
+
 def _now_iso() -> str:
     """Timestamp UTC ISO (usado al registrar el envío del examen psicológico)."""
     from datetime import datetime, timezone
