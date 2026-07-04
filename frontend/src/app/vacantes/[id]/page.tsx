@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { Shell, BackLink } from "@/components/Shell";
 import { KanbanBoard } from "@/components/ui";
 import { api, errorMessage, CandidateRow, Metrics, Vacancy } from "@/lib/api";
-import { ACCENT, avatarColor, buildColumns, cvChip, initials, stageMeta } from "@/lib/stages";
+import { ACCENT, avatarColor, buildColumns, cvChip, fmtCost, initials, stageMeta } from "@/lib/stages";
 
 const MONO = "var(--font-jetbrains), monospace";
 const PAGE_SIZE = 100;
@@ -81,7 +81,12 @@ export default function VacancyPage() {
       .then(([v, page, m]) => { setVacancy(v); setCandidates(page.items); setTotal(page.total); setMetrics(m); })
       .catch((e) => setError(errorMessage(e)));
   }, [id, q, offset]);
-  useEffect(() => { load(); }, [load]);
+  // Refresco automático: los candidatos avanzan de estado server-side (entrevista, agenda).
+  useEffect(() => {
+    load();
+    const timer = setInterval(load, 5000);
+    return () => clearInterval(timer);
+  }, [load]);
 
   const handleContact = async (e: React.MouseEvent, candId: string) => {
     e.preventDefault(); e.stopPropagation();
@@ -168,9 +173,9 @@ export default function VacancyPage() {
         Tokens consumidos: <b style={{ fontFamily: MONO, color: "#9aa4b8", fontWeight: 600 }}>{(metrics?.tokens?.total ?? 0).toLocaleString()}</b>
         {metrics?.est_cost ? (
           <>
-            {" · "}Costo estimado: <b style={{ fontFamily: MONO, color: "#9aa4b8", fontWeight: 600 }}>${metrics.est_cost.toFixed(2)}</b>
+            {" · "}Costo estimado: <b style={{ fontFamily: MONO, color: "#9aa4b8", fontWeight: 600 }}>${fmtCost(metrics.est_cost)}</b>
             {Object.entries(metrics.cost_by_model || {}).map(([m, c]) => (
-              <span key={m} style={{ marginLeft: 8, color: "var(--muted-2)" }}>({m}: ${c.toFixed(2)})</span>
+              <span key={m} style={{ marginLeft: 8, color: "var(--muted-2)" }}>({m}: ${fmtCost(c)})</span>
             ))}
           </>
         ) : null}

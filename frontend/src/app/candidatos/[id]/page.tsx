@@ -61,7 +61,14 @@ export default function CandidatePage() {
     if (!id) return;
     api.getCandidate(id).then(setData).catch((e) => setError(errorMessage(e)));
   };
-  useEffect(load, [id]);
+  // Refresco automático: el candidato cambia de fase (entrevistado→evaluado→agendado…)
+  // mientras el reclutador mira la ficha; `load` solo actualiza `data`, no los formularios.
+  useEffect(() => {
+    load();
+    const timer = setInterval(load, 5000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
   useEffect(() => setAdmin(isAdmin()), []);
 
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(""), 3500); };

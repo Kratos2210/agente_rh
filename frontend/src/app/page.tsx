@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Shell } from "@/components/Shell";
 import { Funnel, MiniBar } from "@/components/ui";
 import { api, errorMessage, Metrics, Recruiter, Vacancy } from "@/lib/api";
-import { ACCENT, avatarColor, initials } from "@/lib/stages";
+import { ACCENT, avatarColor, fmtCost, initials } from "@/lib/stages";
 
 const MONO = "var(--font-jetbrains), monospace";
 // Latencia legible: segundos con un decimal a partir de 1000 ms.
@@ -28,9 +28,16 @@ export default function Home() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api.listVacancies().then(setVacancies).catch((e) => setError(errorMessage(e)));
-    api.getMetrics().then(setMetrics).catch(() => {});
-    api.listRecruiters().then(setRecruiters).catch(() => {});
+    // Refresco automático: el estado avanza server-side (bot Telegram, scheduler) sin que
+    // el usuario toque nada; sin polling el panel mostraba métricas/embudo congelados al montar.
+    const load = () => {
+      api.listVacancies().then(setVacancies).catch((e) => setError(errorMessage(e)));
+      api.getMetrics().then(setMetrics).catch(() => {});
+      api.listRecruiters().then(setRecruiters).catch(() => {});
+    };
+    load();
+    const timer = setInterval(load, 5000);
+    return () => clearInterval(timer);
   }, []);
 
   const f = metrics?.funnel || {};
@@ -46,7 +53,7 @@ export default function Home() {
       label: metrics?.est_cost ? "Tokens IA · costo" : "Tokens IA",
       value:
         (tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}K` : String(tokens)) +
-        (metrics?.est_cost ? ` · $${metrics.est_cost.toFixed(2)}` : ""),
+        (metrics?.est_cost ? ` · $${fmtCost(metrics.est_cost)}` : ""),
     },
   ];
   const funnelRows: [string, number, string][] = [
