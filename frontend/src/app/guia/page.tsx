@@ -11,6 +11,10 @@
 // fórmula del scorecard, los 7 prompts, pipeline RAG), referencia completa de los
 // 51 endpoints, esquema tabla-por-tabla + diagrama ER, tabla de configuración y sección
 // de troubleshooting/gotchas (17.5). Los snippets citan archivo:función reales.
+// v8 (2026-07-04): review end-to-end — deep-dives nuevos (LangSmith sin PII, RAG intuición,
+// MCP como adaptador, Seguridad auth/RBAC/RLS con código, gate del CV, por qué las capas) +
+// pasada de exactitud de todos los números (51 endpoints /api/*, 364 tests, 21 tablas,
+// 26 migraciones, 96 parámetros) unificados en toda la guía.
 import { Shell } from "@/components/Shell";
 
 export const metadata = {
@@ -23,7 +27,7 @@ const GUIA_CSS = "#guia-doc{--bg:#0a0e16; --surface:#0f1524; --surface2:#141b2d;
 const GUIA_HTML = `
 <header class="hero">
   <div class="wrap">
-    <div class="tag">Datawith.AI · Guía end-to-end · v6 · para todo público (edición de estudio)</div>
+    <div class="tag">Datawith.AI · Guía end-to-end · v8 · para todo público (edición de estudio)</div>
     <h1>Agente de Selección de Talento — Guía completa</h1>
     <p>Un asistente con inteligencia artificial que <b>entrevista candidatos por Telegram</b>, los
     <b>evalúa</b> contra los requisitos del puesto, le entrega a Recursos Humanos un <b>informe con
@@ -38,7 +42,7 @@ const GUIA_HTML = `
       <span class="pill">IA: Groq · Qwen3-32B</span><span class="pill">Google Calendar + Meet</span>
       <span class="pill">Multi-empresa + Login por roles</span><span class="pill">Proceso multi-etapa</span>
       <span class="pill">Observabilidad (trazas · costos · SLAs · calidad continua)</span><span class="pill">Docker + Kubernetes (webhook)</span>
-      <span class="pill">359 pruebas automáticas</span>
+      <span class="pill">364 pruebas automáticas</span>
     </div>
   </div>
 </header>
@@ -74,14 +78,14 @@ const GUIA_HTML = `
   <p class="lead">En una frase: <b>un reclutador virtual que habla con los candidatos, los puntúa con
   criterios objetivos y le ahorra a RR.HH. las primeras horas de filtrado y coordinación.</b></p>
   <div class="grid g4">
-    <div class="card"><div class="kpi">359</div><div class="kpi-lbl">pruebas automáticas (en verde)</div></div>
-    <div class="card"><div class="kpi">51</div><div class="kpi-lbl">endpoints de la API</div></div>
+    <div class="card"><div class="kpi">364</div><div class="kpi-lbl">pruebas automáticas (en verde)</div></div>
+    <div class="card"><div class="kpi">51</div><div class="kpi-lbl">endpoints de la API (/api/*)</div></div>
     <div class="card"><div class="kpi">21</div><div class="kpi-lbl">tablas en la base de datos</div></div>
     <div class="card"><div class="kpi">26</div><div class="kpi-lbl">migraciones (cambios de esquema)</div></div>
     <div class="card"><div class="kpi">7</div><div class="kpi-lbl">fases de la conversación</div></div>
     <div class="card"><div class="kpi">7</div><div class="kpi-lbl">etapas de IA (con conteo de tokens)</div></div>
     <div class="card"><div class="kpi">3</div><div class="kpi-lbl">roles de usuario (admin/reclutador/lector)</div></div>
-    <div class="card"><div class="kpi">93</div><div class="kpi-lbl">parámetros de configuración</div></div>
+    <div class="card"><div class="kpi">96</div><div class="kpi-lbl">parámetros de configuración</div></div>
   </div>
   <div class="note">🧭 <b>Idea rectora:</b> el <b>cerebro</b> (qué decir y cómo puntuar) es lógica
   <b>pura y comprobable</b>, separada de las <b>conexiones externas</b> (Telegram, base de datos, IA,
@@ -212,7 +216,7 @@ const GUIA_HTML = `
       <g>
         <rect x="770" y="30" width="274" height="86" rx="10" fill="#141b2d" stroke="#34d399"/>
         <text x="907" y="54" text-anchor="middle" fill="#e8edf6" font-size="13" font-weight="700">🗄️ Supabase · PostgreSQL</text>
-        <text x="907" y="74" text-anchor="middle" fill="#7e8aa0" font-size="10.5">negocio: 20 tablas (RLS por empresa)</text>
+        <text x="907" y="74" text-anchor="middle" fill="#7e8aa0" font-size="10.5">negocio: 21 tablas (RLS por empresa)</text>
         <text x="907" y="91" text-anchor="middle" fill="#7e8aa0" font-size="10.5">memoria LangGraph · outbox · auditoría</text>
 
         <rect x="770" y="142" width="274" height="54" rx="10" fill="#141b2d" stroke="#a78bfa"/>
@@ -284,6 +288,14 @@ const GUIA_HTML = `
   <div class="note">🔌 <b>Patrón clave — adaptadores:</b> sourcing, agendamiento, canales e IA se
   definen como <b>contratos</b> (un "molde") con una implementación real y una simulada. Cambiar de
   Telegram a WhatsApp, o de Google a otro calendario, es cambiar el adaptador, no el cerebro.</div>
+  <div class="note">🧱 <b>Por qué estas capas (dirección de dependencias).</b> Las capas apuntan en una
+  sola dirección, sin ciclos: <code>agente → orquestacion → retrieval → ranking</code>, con
+  <span class="file">core/</span> (config, logging) transversal. La regla de oro: <b>el cerebro es lógica
+  pura</b> — no conoce Chroma, ni el LLM, ni la base de datos; todo eso se le <b>inyecta</b> como un
+  callable (el LLM, el retriever) o se proyecta después (la DB). Por eso el cerebro se prueba con una "IA
+  falsa" determinista, sin infra, y por eso cambiar una pieza externa (proveedor de IA, portal, calendario)
+  <b>nunca obliga a tocar</b> la lógica de decisión. Separar "qué decidir" de "con qué hablar" es lo que
+  hace al sistema testeable y predecible.</div>
 </section>
 
 <!-- 3 -->
@@ -316,7 +328,7 @@ const GUIA_HTML = `
       <tr><td class="file">db/</td><td>Cliente de Supabase y funciones de lectura/escritura (repositorios).</td></tr>
       <tr><td class="file">supabase/migrations/</td><td>Los 26 cambios de esquema de la base de datos, versionados.</td></tr>
       <tr><td class="file">frontend/</td><td>Dashboard web (esta guía vive en <span class="file">frontend/src/app/guia</span>).</td></tr>
-      <tr><td class="file">tests/</td><td>Pruebas automáticas (359 casos).</td></tr>
+      <tr><td class="file">tests/</td><td>Pruebas automáticas (364 casos).</td></tr>
       <tr><td class="file">scripts/</td><td>Herramientas de línea de comandos: demo sin infra, verificación end-to-end multi-etapa, suite golden, juez de fundamentación, siembra de la base de conocimiento (RAG) y cliente MCP de ejemplo.</td></tr>
       <tr><td class="file">docs/</td><td>Auditorías (seguridad, e2e), runbook de secretos, decisiones de arquitectura (<span class="file">arquitectura.md</span>), guía de despliegue (<span class="file">despliegue.md</span>) y el mapa de conformidad con la rúbrica (<span class="file">mapa_rubrica.md</span>).</td></tr>
     </tbody>
@@ -339,7 +351,7 @@ const GUIA_HTML = `
         sesión en localStorage, guard de sesión, nav con entradas condicionadas por rol
         (Observabilidad solo admin) y logout.</li>
       </ul></div>
-    <div class="card"><h4>La estrategia de tests (359 casos, 44 archivos)</h4>
+    <div class="card"><h4>La estrategia de tests (364 casos, 45 archivos)</h4>
       <ul class="tight">
         <li><b>IA falsa inyectada:</b> el motor recibe un <code>FakeLLM</code> determinista — la
         entrevista completa se prueba en milisegundos, sin red ni credenciales.</li>
@@ -783,6 +795,33 @@ def compute_semaphore(total, *, green_min, yellow_min):
     <li><b>Dos puntajes por candidato:</b> el del CV (pre-filtro) y el de la entrevista.</li>
     <li><b>Costos visibles:</b> cada llamada a la IA cuenta tokens por etapa (tabla <code>llm_usage</code>).</li>
   </ul>
+
+  <details class="deep"><summary>El gate del CV, paso a paso (y por qué filtrar ANTES de entrevistar)</summary><div class="body">
+    <p><b>Por qué un gate.</b> Entrevistar cuesta tiempo del candidato y <b>tokens</b> (cada turno llama a
+    la IA). No tiene sentido conversar con alguien que claramente no da el perfil. El gate lee el CV una
+    vez y decide si vale la pena contactarlo — es el filtro más barato del embudo.</p>
+    <div class="flow">
+      <div class="step"><b>1 · Importar</b><span class="file">integrations/sourcing.py</span>: patrón Protocol + factory. Hoy <code>SimulatedConnector</code> (fixture tipo Bumeran con nombre/CV/email/teléfono); mañana un conector real, sin tocar el resto.</div>
+      <div class="arr">→</div>
+      <div class="step"><b>2 · Puntuar el CV</b><span class="file">evaluation/prescreen.py</span>: la IA (etapa <code>prescreen</code>) lee el perfil y da nota + veredicto. <b>Fallback heurístico</b> si la IA falla o devuelve JSON inválido.</div>
+      <div class="arr">→</div>
+      <div class="step"><b>3 · Enrutar</b><span class="file">agente/sourcing_service.py</span>: <code>pass</code> → "por contactar"; <code>reject</code> → descartado con motivo. Idempotente.</div>
+    </div>
+    <p><b>La heurística de respaldo</b> (cuando no hay IA) es determinista y explicable — nunca deja el
+    embudo mudo:</p>
+    <div class="src">evaluation/prescreen.py · _heuristic (recortado)</div>
+    <pre class="snippet">score  = min(years, 4) / 4 * 40        <span class="c"># hasta 40 pts por experiencia (tope 4 años)</span>
+score += 25 if career_ok else 0         <span class="c"># 25 pts por carrera afín</span>
+score += min(skills_hits, 5) / 5 * 35   <span class="c"># hasta 35 pts por skills relevantes</span>
+verdict = "pass" if score &gt;= pass_min + 15 else "borderline" if score &gt;= pass_min else "reject"</pre>
+    <div class="note">🔁 <b>Idempotencia por <code>source_ref</code> (migración 0023).</b> Cada postulante
+    trae un id estable de la plataforma. Re-sincronizar <b>no duplica</b> al candidato ni re-contacta a
+    quien ya avanzó de fase — el dedupe es por ese id, no por el chat (que puede reasignarse en modo demo).
+    Fue un bug real que destapó un smoke y se cerró con esta columna.</div>
+    <p><b>Resultado:</b> dos puntajes independientes por candidato — el del <b>CV</b> (este gate) y el de
+    la <b>entrevista</b> — visibles por separado en el dashboard, y un embudo con métricas
+    (importados → aptos → contactados) por vacante.</p>
+  </div></details>
 </section>
 
 <!-- 8 -->
@@ -864,7 +903,7 @@ def compute_semaphore(total, *, green_min, yellow_min):
       <b>prueba automática</b> (<code>test_tenant_guards.py</code>) recorre todas las rutas y <b>falla si
       alguien agrega un endpoint sin ese candado</b>. Es la defensa principal, garantizada en cada cambio.</p></div>
     <div class="card"><h4>Base de datos (RLS latente)</h4>
-      <p>Las 20 tablas tienen "Row Level Security" activada, 19 con política por empresa (desde la
+      <p>Las 21 tablas tienen "Row Level Security" activada, 20 con política por empresa (desde la
       migración 0018; la de métricas HTTP no guarda datos de candidatos y solo la ve el backend). Hoy queda
       <b>de reserva</b> (el backend usa una llave privilegiada que la omite), pero protege si se filtrara
       una llave pública o se conectara un cliente directo. Activarla sobre el backend queda para cuando
@@ -884,6 +923,54 @@ def compute_semaphore(total, *, green_min, yellow_min):
   externas (<span class="file">docs/auditoria_integraciones_externas.md</span>): 5 hallazgos (F1–F5),
   todos cerrados o mitigados — fuga de token en logs, escape de HTML en correos, scopes de Google
   mínimos, aislamiento por empresa y endurecimiento de secretos.</div>
+
+  <details class="deep"><summary>Auth, RBAC y aislamiento por empresa — con el código real</summary><div class="body">
+    <p><b>1 · Quién sos (autenticación).</b> Cada request trae un <b>Bearer JWT</b>. La dependencia
+    <code>get_current_user</code> lo decodifica (firma + rotación), exige que traiga <code>tenant_id</code>,
+    consulta si la sesión fue <b>revocada</b> (caché TTL 60 s: revocar = desactivar el usuario) y devuelve
+    <code>{id, email, role, tenant_id}</code>. Si algo falla → <b>401</b>.</p>
+    <div class="src">api/auth.py · get_current_user (recortado)</div>
+    <pre class="snippet">claims = decode_access_token(creds.credentials, settings)   <span class="c"># 401 si firma/exp inválida</span>
+if not claims.get("tenant_id"):        raise HTTPException(401, "Token sin tenant")
+if _is_user_revoked(claims["sub"]):    raise HTTPException(401, "La sesión fue revocada")
+return {"id": ..., "role": claims["role"], "tenant_id": claims["tenant_id"]}</pre>
+    <p><b>2 · Qué podés (RBAC jerárquico).</b> <code>require_role("recruiter")</code> es una dependencia
+    que corre DESPUÉS de <code>get_current_user</code> y compara el rango del rol
+    (<code>viewer 0 &lt; recruiter 1 &lt; admin 2</code>). Si no llega → <b>403</b>. Los endpoints solo
+    declaran su rol mínimo; la jerarquía la resuelve el helper.</p>
+    <pre class="snippet">def require_role(required):
+    def _dep(user = Depends(get_current_user)):
+        if not role_allows(user["role"], required):   <span class="c"># viewer&lt;recruiter&lt;admin</span>
+            raise HTTPException(403, "No tienes permisos para esta acción")
+        return user
+    return _dep</pre>
+    <p><b>3 · Qué datos ves (aislamiento por empresa).</b> Autenticado no basta: un reclutador de ACME no
+    debe ver candidatos de otra empresa. Todo endpoint que carga un recurso por id de la URL pasa por un
+    <b>guard de tenant</b> que devuelve <b>404</b> (no 403: ni siquiera confirma que el id exista) si el
+    <code>tenant_id</code> no coincide.</p>
+    <pre class="snippet">def _require_candidate_in_tenant(candidate_id, user):   <span class="c"># api/deps.py</span>
+    cand = repo.get_candidate(candidate_id)
+    vac  = repo.get_vacancy(cand["vacancy_id"]) if cand else None
+    if not vac or vac["tenant_id"] != user["tenant_id"]:
+        raise HTTPException(404, "Candidato no encontrado")   <span class="c"># cross-tenant = no existe</span>
+    return cand, vac</pre>
+    <div class="note">🛡️ <b>Garantía en CI:</b> <code>tests/test_tenant_guards.py</code> recorre TODAS las
+    rutas de FastAPI e impone que cada una fuera de la allowlist pública resuelva el usuario del token
+    <b>y</b> que toda ruta con id en la URL pase por un guard de tenant. Si alguien agrega un endpoint sin
+    el candado, <b>la build falla</b> — el aislamiento no depende de acordarse.</div>
+    <p><b>4 · Defensa en profundidad (RLS latente).</b> La migración <code>0018</code> activa Row Level
+    Security con una política <code>tenant_isolation</code> en las 21 tablas: cada fila solo es visible si
+    su <code>tenant_id</code> = <code>app_current_tenant()</code> (que lee el claim del JWT de PostgREST).
+    Hoy queda <b>de reserva</b> porque el backend usa la llave <i>service_role</i> (BYPASSRLS); protege si
+    se filtrara la llave pública o se conectara un cliente directo.</p>
+    <pre class="snippet"><span class="c">-- 0018_rls_tenant_isolation.sql</span>
+create policy tenant_isolation on &lt;tabla&gt; for all to anon, authenticated
+    using      (tenant_id = app_current_tenant())
+    with check (tenant_id = app_current_tenant());</pre>
+    <p><b>Por qué dos capas.</b> La capa de app (guards) es la defensa <b>activa</b> y verificada en cada
+    build; RLS es la <b>red de seguridad</b> a nivel base de datos por si un día algo esquiva la app. Dos
+    barreras independientes: para filtrar datos de otra empresa habría que romper las dos.</p>
+  </div></details>
 </section>
 
 <!-- 10 -->
@@ -957,9 +1044,10 @@ def compute_semaphore(total, *, green_min, yellow_min):
       <p><b>Por qué local y no la nube:</b> los prompts llevan datos personales del candidato (nombre,
       respuestas, CV). En <b>Phoenix self-hosted</b> esos datos <b>no salen de la máquina</b> → cumple la
       <b>Ley 29733</b>. El <b>Arize AX cloud</b> (SaaS en EE.UU.) daría monitoreo de producción de largo
-      plazo, pero implicaría enviar esa PII fuera; si se quisiera, habría que agregarlo config-gated y en
-      modo <i>metadata-only</i> (<code>hide_inputs/hide_outputs</code>). Apagado por defecto por convención
-      de superficie mínima.</p>
+      plazo, pero implicaría enviar esa PII fuera. El <b>modo metadata-only</b>
+      (<code>hide_inputs/hide_outputs</code>), que evita ese envío, <b>ya está implementado para LangSmith</b>
+      (ver el deep-dive de abajo) y se reusaría igual para el cloud; apagado por defecto por convención de
+      superficie mínima.</p>
       <p>⚠️ <b>Gotcha:</b> la instrumentación es global al proceso del backend → solo las
       llamadas LLM hechas <b>dentro del backend</b> (turno del bot, sync/pre-filtro) emiten spans; los
       scripts sueltos (<span class="file">demo.py</span>, golden) corren en otro proceso y no aparecen.</p></div>
@@ -971,6 +1059,36 @@ def compute_semaphore(total, *, green_min, yellow_min):
       Calidad (requiere trazas). Convierte la evaluación en un <b>signo vital</b>, no una revisión que
       hay que acordarse de correr.</p></div>
   </div>
+
+  <details class="deep"><summary>LangSmith y la privacidad: trazar sin exponer datos personales (paso a paso)</summary><div class="body">
+    <p><b>Qué es LangSmith y qué NO es.</b> Es una <b>grabadora pasiva</b> de observabilidad: guarda una
+    copia de lo que entra y sale de cada llamada a la IA para que TÚ lo inspecciones en su panel.
+    <b>No evalúa ni tokeniza tu prompt</b> — eso lo hace el proveedor del modelo (Groq). Si LangSmith
+    estuviera apagado, el candidato se evaluaría exactamente igual. (Tiene aparte una función
+    <i>Evaluators/Datasets</i> que sí corre evaluaciones, pero es opt-in y aquí no se usa.)</p>
+    <p><b>El problema.</b> Por defecto, una "traza" incluye el <b>texto completo</b> del prompt y la
+    respuesta. Nuestros prompts llevan PII: el CV, el nombre y las respuestas del candidato
+    (<code>prescreen</code>/<code>evaluate</code>) y sus dudas (<code>answer</code>). Sin protección, todo
+    eso viajaría a la nube de LangSmith (servidores en EE.UU.) — choca con la <b>Ley 29733</b>.</p>
+    <p><b>La solución (implementada, no futura).</b> Los flags <code>LANGSMITH_HIDE_INPUTS/OUTPUTS</code>
+    (default <b>true</b>) hacen que el SDK <b>borre el texto en tu máquina, ANTES de subir</b>.
+    <code>setup_tracing</code> (<span class="file">observabilidad/observability.py</span>) los exporta al
+    arrancar, antes de que el SDK cree su cliente.</p>
+    <div class="src">Lo que LangSmith realmente guarda con hide=true (traza real, verificada)</div>
+    <pre class="snippet">inputs       : {}          <span class="c">← el prompt NO llega</span>
+outputs      : None        <span class="c">← la respuesta NO llega</span>
+total_tokens : 1221 (882 in / 339 out)   <span class="c">← solo el CONTEO (métrica, no contenido)</span>
+latency      : 0.97 s
+metadata     : modelo qwen/qwen3-32b, temperature, stage=prescreen</pre>
+    <p><b>Por qué ocultar no degrada nada.</b> LangSmith no está en el camino de la evaluación:
+    (1) el <b>puntaje del candidato</b> lo calcula tu propio código (<span class="file">evaluation/scorer.py</span>)
+    + Groq; (2) el <b>juez de alucinaciones</b> lee de tu tabla <code>llm_traces</code> (Postgres, contenido
+    completo en TU infra). Con hide=true solo pierdes una cosa: leer el texto del prompt dentro del panel de
+    LangSmith. Todo lo demás (métricas, latencia, tokens, árbol de llamadas, calidad del agente) queda igual.</p>
+    <div class="note">🧭 <b>Regla de bolsillo.</b> LangSmith = observabilidad en dev con métricas sin PII.
+    El contenido con PII vive en TU infra: <code>llm_traces</code> (Postgres) + Phoenix self-hosted. Para
+    producción, lo más limpio es apagar LangSmith y quedarte con esas dos.</div>
+  </div></details>
 </section>
 
 <!-- 11 -->
@@ -1202,6 +1320,30 @@ return "\\n\\n".join(d.page_content for d in docs[:final_k])</pre>
     se abre recién en la PRIMERA duda (importar torch cuesta ~90 s en Mac Intel), nunca en el
     arranque. El retriever se inyecta al grafo igual que el LLM: el cerebro no sabe de Chroma.</p>
   </div>
+
+  <details class="deep"><summary>Por qué está diseñado así (la intuición detrás del RAG)</summary><div class="body">
+    <p><b>Alcance: solo para dudas, no para puntuar.</b> El RAG se activa en UN punto — cuando el candidato
+    <b>pregunta</b> sobre el puesto (<i>"¿es remoto?", "¿cuánto pagan?", "¿qué stack usan?"</i>). No
+    interviene en el scoring (eso es <code>evaluate</code> contra los criterios) ni en la lógica del flujo.
+    Su trabajo: responder dudas con información <b>fundamentada</b>, no inventada.</p>
+    <p><b>Por qué búsqueda híbrida (BM25 + vectorial).</b> Son complementarias: la <b>vectorial</b> capta el
+    <i>significado</i> (encuentra "trabajo presencial" aunque la pregunta diga "¿voy a la oficina?"); <b>BM25</b>
+    capta <i>palabras exactas</i> (siglas y nombres propios: "SQL", "UiPath", "Multitest", donde la semántica
+    ayuda poco). Juntas cubren las dos formas de preguntar.</p>
+    <p><b>Por qué un re-ranker cross-encoder.</b> La búsqueda vectorial ordena por distancia de embeddings
+    (rápida, pero gruesa). El cross-encoder <b>lee la pregunta y cada fragmento JUNTOS</b> y les asigna una
+    relevancia real — más caro, por eso solo reordena los ~10 candidatos ya filtrados, no todo el corpus.</p>
+    <div class="note">🔬 <b>Probado en vivo:</b> ante <i>"¿es remoto o presencial?"</i> el retriever trajo
+    <code>## Modalidad presencial</code> + <code>## Ubicación Santiago de Surco</code>; ante <i>"¿qué
+    herramientas usan?"</i> trajo <code>Funciones — RPA (UiPath, Power Automate, Blue Prism)</code>.
+    <b>Matiz honesto:</b> hoy la base tiene UNA sola vacante, así que el re-ranker discrimina poco (todos los
+    fragmentos salen del mismo documento). Brilla cuando hay muchas fuentes que compiten (varias vacantes +
+    PDFs de políticas/beneficios/cultura, indexables con <span class="file">retrieval/vectorstore.py::index_document</span>).</div>
+    <p><b>Cómo cierra el círculo.</b> El <b>juez de fundamentación</b> (O-5) evalúa justo estas respuestas
+    <code>answer</code>: mide si se apoyan solo en lo recuperado (caza alucinaciones). Y el <b>golden de
+    recuperación</b> mide <i>hit@k</i> (¿trajo el fragmento correcto?) sin gastar IA. RAG genera → juez
+    verifica que no alucine → golden verifica que recupere bien.</p>
+  </div></details>
 </section>
 
 <!-- 12 -->
@@ -1304,7 +1446,14 @@ return "\\n\\n".join(d.page_content for d in docs[:final_k])</pre>
     <code>confirm_token</code> firmado que expira en 120 s y solo vale para ese candidato y esa
     acción; recién la segunda llamada con el token ejecuta (ambas quedan auditadas). Desactivado por
     defecto (<code>MCP_ENABLED</code>); cliente de ejemplo en
-    <span class="file">scripts/mcp_client_demo.py</span>.</p></div>
+    <span class="file">scripts/mcp_client_demo.py</span>.</p>
+    <div class="note">🧩 <b>Qué aporta a la arquitectura — adaptador delgado, cero autoridad nueva.</b>
+    Cada herramienta MCP <b>reusa la MISMA función del endpoint FastAPI</b> del dashboard (p.ej.
+    <code>mcp.list_candidates</code> → <code>routes/candidates.list_all_candidates</code>), así que
+    <b>hereda gratis</b> el aislamiento por empresa, el RBAC, el enmascarado por rol y los listados sin N+1.
+    El MCP es una <b>fachada = subconjunto</b> de la API: <b>capacidad, no autoridad nueva</b> — no duplica
+    lógica ni abre superficie de ataque extra. Es un <b>canal aditivo</b> (para orquestadores/asistentes de
+    IA externos), no parte del camino crítico del candidato (que sigue siendo Telegram + dashboard).</div></div>
 
   <details class="deep"><summary>El flujo de dos pasos, con el JSON real (adaptadores_mcp/mcp.py)</summary><div class="body">
     <p><b>Paso 1 — preview (no muta nada).</b> El asistente llama la herramienta SIN token:</p>
@@ -1483,7 +1632,7 @@ return "\\n\\n".join(d.page_content for d in docs[:final_k])</pre>
     <figcaption>ER simplificado: la cadena empresa → vacante → candidato → conversación y sus satélites.</figcaption>
   </figure>
 
-  <details class="deep"><summary>Las 20 tablas, una por una (columnas clave · quién escribe)</summary><div class="body">
+  <details class="deep"><summary>Las 21 tablas, una por una (columnas clave · quién escribe)</summary><div class="body">
     <table>
       <thead><tr><th>Tabla</th><th>Columnas clave (recortado)</th><th>Quién la escribe</th></tr></thead>
       <tbody>
@@ -1507,6 +1656,7 @@ return "\\n\\n".join(d.page_content for d in docs[:final_k])</pre>
         <tr><td class="mono">llm_usage</td><td>FKs opcionales, <code>stage</code>, <code>model</code>, <code>input/output/total_tokens</code>, <code>calls/errors/duration_ms</code>, <code>prompt_version</code></td><td><code>MeteredLLM</code> vía el servicio, por etapa y por turno.</td></tr>
         <tr><td class="mono">llm_traces</td><td><code>stage/model/prompt_version</code>, <code>prompt_text</code>, <code>response_text</code>, <code>error</code>, <code>duration_ms</code> (capados; PII → retención/erasure las purgan)</td><td><code>MeteredLLM</code> si <code>LLM_TRACE_ENABLED</code>.</td></tr>
         <tr><td class="mono">http_metrics_snapshots</td><td><code>taken_at</code>, <code>route</code>, <code>count/errors/client_errors</code>, <code>avg/p95/p99/max_ms</code> (acumulados desde el arranque)</td><td>Scheduler (snapshot periódico, O-6). Solo service_role.</td></tr>
+        <tr><td class="mono">quality_metrics</td><td><code>tenant_id</code>, <code>metric</code> (grounded, answer_relevance), <code>day</code>, <code>rate</code>, <code>sample_size</code>, <code>threshold</code>, unique(tenant,metric,day)</td><td>Barrido de calidad diario (paso 4), <code>save_quality_metric</code>. RLS por empresa.</td></tr>
       </tbody>
     </table>
     <div class="note">➕ Aparte de estas 20 viven las <b>tablas del checkpointer</b> de LangGraph
@@ -1520,7 +1670,7 @@ return "\\n\\n".join(d.page_content for d in docs[:final_k])</pre>
 <section id="config">
   <h2><span class="num">14</span>Configuración</h2>
   <div class="simple">🟢 <b>En simple:</b> el comportamiento se ajusta con variables en un archivo
-  <code>.env</code> (93 parámetros). No hay que tocar código para cambiar de proveedor de IA, activar
+  <code>.env</code> (96 parámetros). No hay que tocar código para cambiar de proveedor de IA, activar
   Google real o ajustar el horario de contacto.</div>
   <div class="note">🔐 <b>Convención — apagado por defecto:</b> toda capacidad no esencial viene
   desactivada de fábrica (servidor MCP, trazas de IA, Sentry, Phoenix, logs JSON, retención…) y se
