@@ -1652,6 +1652,18 @@ uv run python scripts/demo.py --alberto</pre>
       (uv + pytest), lint + typecheck del frontend, build Docker, validación de K8s (dev+prod) y un
       <b>gate de <code>PROMPT_VERSION</code></b> (cambiar un prompt sin subir la versión rompe el build).
       Un workflow <b>nightly</b> corre la suite golden contra la IA real.</p></div>
+    <div class="card"><h4>📦 Entrega Continua (GHCR)</h4>
+      <p>En cada <b>merge a <code>main</code></b>, el job <code>publish-image</code> publica ambas
+      imágenes a <b>GitHub Container Registry</b>
+      (<code>ghcr.io/kratos2210/agente-rh-{backend,frontend}</code>) con tag
+      <code>sha-&lt;commit&gt;</code> (inmutable) + <code>latest</code>. Cada merge deja un
+      <b>artefacto desplegable y versionado</b>, listo para bajar a cualquier host.</p></div>
+    <div class="card"><h4>🚦 Despliegue Continuo: pendiente</h4>
+      <p><b>No</b> hay deploy automático a producción — es una decisión, no una deuda: aún no existe
+      un host/cluster de destino (todo corre local, el pipeline llega hasta GHCR). El salto natural
+      cuando haya infra: un <b>VPS con <code>docker-compose</code></b> (el camino más corto, ya hay
+      <code>deploy.sh compose-up</code>) o GitHub Environments / ArgoCD para K8s. Racional completo en
+      <span class="file">docs/despliegue.md</span>.</p></div>
     <div class="card"><h4>🌿 Flujo de trabajo (rama → PR → CI)</h4>
       <p>Cada cambio va por <b>rama de feature + Pull Request</b>; el CI corre en el PR y solo se mergea
       en verde, así <code>main</code> queda siempre estable. Un <b>hook <code>pre-push</code> local</b>
@@ -1675,6 +1687,7 @@ uv run python scripts/demo.py --alberto</pre>
     <li><span class="badge b-green">✓</span> <b>Observabilidad O-1…O-6</b>: trazas de IA, costos y presupuesto por empresa, percentiles de latencia, alertas SLA por correo, suite golden (28 casos) + juez de fundamentación, logs JSON + Sentry.</li>
     <li><span class="badge b-green">✓</span> <b>Roadmap LLMOps completo (5/5)</b>: CI vivo (remote + gate de prompts + nightly), entornos separados dev/prod, <b>webhook de Telegram</b> (habilita varias réplicas + rolling), <b>calidad continua</b> (juez como barrido diario + signo vital en el dashboard + golden de recuperación) y <b>optimización de costos</b> (modelo barato por etapa + caché de dudas + ADR de selección de modelo).</li>
     <li><span class="badge b-green">✓</span> <b>Roadmap v2 (post-auditoría)</b>: perfil de producción "todo encendido" + guard de arranque, <b>candado distribuido por conversación</b> (advisory lock Postgres, habilita réplicas en webhook), relevancia de contexto (3.er criterio RAGAS), <b>few-shot + red teaming</b> como proceso (12 ataques en el nightly; una brecha real de inyección cerrada con defensa en profundidad) y <b>gestión de usuarios</b> para el 2.º operador (con plantilla de post-mortem y scaffolding de secret manager).</li>
+    <li><span class="badge b-green">✓</span> <b>Entrega Continua a GHCR</b>: cada merge a <code>main</code> publica las imágenes de backend y frontend versionadas (<code>sha-&lt;commit&gt;</code> + <code>latest</code>) — artefacto desplegable en cada cambio.</li>
     <li><span class="badge b-green">✓</span> Auditoría e2e de 10 dimensiones con <b>backlog cerrado al 100%</b>: anti-inyección en todos los prompts, límites de tasa (login, sync, turnos del bot), deep-links de Telegram por vacante (multi-empresa), listados sin N+1 con búsqueda y paginación.</li>
     <li><span class="badge b-green">✓</span> Servidor <b>MCP</b> para asistentes de IA externos (mismo token, misma tenancy, auditado), con cliente de ejemplo (<span class="file">scripts/mcp_client_demo.py</span>) y <b>mutaciones (contactar/decidir) con confirmación en dos pasos</b> (preview + token firmado de 120 s, rol reclutador).</li>
     <li><span class="badge b-green">✓</span> <b>Entregable de despliegue</b>: imagen Docker, Docker Compose, manifiestos de Kubernetes validados, <span class="file">deploy/deploy.sh</span>, CI en GitHub Actions, README con arquitectura y decisiones documentadas (<span class="file">docs/arquitectura.md</span>).</li>
@@ -1685,6 +1698,7 @@ uv run python scripts/demo.py --alberto</pre>
   <h3>Pendiente / futuro</h3>
   <ul class="tight">
     <li><span class="badge b-amber">◻</span> RLS <b>efectivo</b> sobre el backend (diferido: al exponer la DB a clientes directos o por cumplimiento; junto con Supabase Auth).</li>
+    <li><span class="badge b-amber">◻</span> <b>Despliegue Continuo</b>: bloqueado por infra, no por código — falta elegir dónde vive producción (VPS con <code>docker-compose</code> es el camino más corto; luego GitHub Environments / ArgoCD). El pipeline ya deja las imágenes listas en GHCR.</li>
     <li><span class="badge b-amber">◻</span> Gestor de secretos externo para producción (hoy <code>.env</code>): el scaffolding de External Secrets ya está en <span class="file">deploy/k8s/secret-manager/</span>; falta cargar los secretos en un gestor real y aplicarlo.</li>
     <li><span class="badge b-amber">◻</span> Adaptador de WhatsApp Cloud API (hoy Telegram).</li>
     <li><span class="badge b-amber">◻</span> Conectores reales de sourcing (Bumeran/LinkedIn) en vez del simulado.</li>
