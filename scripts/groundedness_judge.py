@@ -49,6 +49,7 @@ def main() -> int:
 
     grounded_flags: list[bool] = []
     relevant_flags: list[bool] = []
+    context_flags: list[bool] = []
     for t in traces:
         raw = complete_staged(
             llm,
@@ -60,15 +61,21 @@ def main() -> int:
         v = judge_verdict(raw)
         grounded_flags.append(v["grounded"])
         relevant_flags.append(v["answer_relevant"])
+        context_flags.append(v.get("context_relevant", False))
         stamp = str(t.get("created_at", ""))[:19]
-        marks = f"{'✅' if v['grounded'] else '❌'}fund {'✅' if v['answer_relevant'] else '❌'}relev"
+        marks = (
+            f"{'✅' if v['grounded'] else '❌'}fund "
+            f"{'✅' if v['answer_relevant'] else '❌'}relev "
+            f"{'✅' if v.get('context_relevant') else '❌'}ctx"
+        )
         print(f"{marks}  {t.get('id', '?')} ({stamp})  {v['reason'][:120]}")
-        if not (v["grounded"] and v["answer_relevant"]):
+        if not (v["grounded"] and v["answer_relevant"] and v.get("context_relevant")):
             print(f"   respuesta: {str(t.get('response_text', ''))[:160]}")
 
-    g_rate, r_rate = rate(grounded_flags), rate(relevant_flags)
+    g_rate, r_rate, c_rate = rate(grounded_flags), rate(relevant_flags), rate(context_flags)
     print(f"\nFundamentadas {sum(grounded_flags)}/{len(grounded_flags)} (tasa {g_rate:.0%}, "
-          f"mínimo {args.min_rate:.0%}) · Relevantes {sum(relevant_flags)}/{len(relevant_flags)} ({r_rate:.0%}).")
+          f"mínimo {args.min_rate:.0%}) · Relevantes {sum(relevant_flags)}/{len(relevant_flags)} ({r_rate:.0%}) "
+          f"· Contexto {sum(context_flags)}/{len(context_flags)} ({c_rate:.0%}).")
     if g_rate < args.min_rate:
         print("⚠ Respuestas no fundamentadas por encima del tolerado: revisar company_info/prompt.")
         return 1

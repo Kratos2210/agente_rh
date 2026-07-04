@@ -186,7 +186,7 @@ export default function ObservabilidadPage() {
                     </span>
                     <div style={{ flex: 1, minWidth: 200 }}>
                       <div style={{ fontSize: 13.5, fontWeight: 600, color: "#dbe2ee" }}>
-                        {m.metric === "grounded" ? "Fundamentación" : m.metric === "answer_relevance" ? "Relevancia" : m.metric}
+                        {m.metric === "grounded" ? "Fundamentación" : m.metric === "answer_relevance" ? "Relevancia de respuesta" : m.metric === "context_relevance" ? "Relevancia de contexto" : m.metric}
                       </div>
                       <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 3 }}>
                         {when(m.day)} · n={m.sample_size} · umbral {Math.round(m.threshold * 100)}%
