@@ -26,7 +26,7 @@ from fastapi.testclient import TestClient
 
 import db.repositories as db_repo
 from api import auth
-from src.config import get_settings
+from core.config import get_settings
 
 _ACCEPT = {"Accept": "application/json, text/event-stream"}
 
@@ -60,7 +60,7 @@ def mcp_client(monkeypatch):
     monkeypatch.setattr(db_repo, "get_user", lambda uid: {"id": uid, "active": True})
     monkeypatch.setattr(db_repo, "add_audit_log", lambda entry: None)
 
-    from api.mcp import mount_mcp
+    from adaptadores_mcp.mcp import mount_mcp
 
     server = None
 
@@ -192,7 +192,7 @@ def _mock_candidate(monkeypatch, status: str = "prescreen_passed", tenant_id: st
 
 
 def test_confirm_token_roundtrip_and_rejections():
-    from api.mcp import CONFIRM_TTL_SECONDS, _issue_confirm_token, _verify_confirm_token
+    from adaptadores_mcp.mcp import CONFIRM_TTL_SECONDS, _issue_confirm_token, _verify_confirm_token
 
     user = {"id": "u1", "tenant_id": "t1"}
     tok = _issue_confirm_token(user, "decide_candidate", "c1", "reject", now=1000.0)
@@ -211,7 +211,7 @@ def test_confirm_token_roundtrip_and_rejections():
 
 def test_access_jwt_is_not_a_valid_confirm_token():
     """Un JWT de sesión robado no puede usarse como confirmación (clave derivada)."""
-    from api.mcp import _verify_confirm_token
+    from adaptadores_mcp.mcp import _verify_confirm_token
 
     user = {"id": "u1", "tenant_id": "t1"}
     jwt_token = _token(role="recruiter", user_id="u1", tenant_id="t1")

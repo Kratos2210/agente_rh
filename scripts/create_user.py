@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.logging_config import get_logger  # noqa: E402
+from core.logging_config import get_logger  # noqa: E402
 
 logger = get_logger("scripts.create_user")
 

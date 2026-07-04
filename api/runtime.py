@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.config import Settings, get_settings
+from core.config import Settings, get_settings
 
 # Estado global del proceso (settings, loop, refs al bot). Se llena en el lifespan.
 _state: dict[str, Any] = {}
@@ -43,7 +43,7 @@ def init_sentry(settings: Settings) -> bool:
         )
         return True
     except Exception:  # noqa: BLE001
-        from src.logging_config import get_logger
+        from core.logging_config import get_logger
 
         get_logger("api.runtime").exception("Sentry no pudo inicializarse (se sigue sin él)")
         return False
@@ -72,7 +72,7 @@ def init_phoenix(settings: Settings) -> bool:
         LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
         return True
     except Exception:  # noqa: BLE001
-        from src.logging_config import get_logger
+        from core.logging_config import get_logger
 
         get_logger("api.runtime").exception("Phoenix no pudo inicializarse (se sigue sin él)")
         return False
@@ -107,7 +107,7 @@ def warn_production_profile(settings: Settings) -> list[str]:
             "cada duda repetida gasta RAG + LLM."
         )
     if warnings:
-        from src.logging_config import get_logger
+        from core.logging_config import get_logger
 
         log = get_logger("api.runtime")
         for w in warnings:

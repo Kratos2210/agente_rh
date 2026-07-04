@@ -14,9 +14,9 @@ import json
 import re
 from datetime import datetime, timedelta, timezone
 
-from agent.graph import make_memory_runner
-from agent.nodes import MAX_CANDIDATE_QUESTIONS, MAX_SLOT_RETRIES
-from agent.state import PHASE_SCHEDULED, PHASE_SCHEDULING
+from agente.graph import make_memory_runner
+from agente.nodes import MAX_CANDIDATE_QUESTIONS, MAX_SLOT_RETRIES
+from agente.state import PHASE_SCHEDULED, PHASE_SCHEDULING
 
 
 class FakeLLM:
@@ -215,8 +215,8 @@ class _RecordingScheduler:
 
 
 def _run_finalize(monkeypatch, *, fail_calendar: bool):
-    from agent import service as svc
-    from agent.service import InterviewService
+    from agente import service as svc
+    from agente.service import InterviewService
 
     events: list = []
     saved: dict = {}

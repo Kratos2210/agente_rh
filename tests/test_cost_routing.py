@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from agent.llm import MeteredLLM, build_stage_overrides
-from src.config import Settings
+from orquestacion.llm import MeteredLLM, build_stage_overrides
+from core.config import Settings
 
 
 class _FakeInner:
@@ -78,7 +78,7 @@ def test_build_stage_overrides_empty_without_cheap_model():
 
 
 def test_build_stage_overrides_maps_configured_stages(monkeypatch):
-    import agent.llm as llm_mod
+    import orquestacion.llm as llm_mod
 
     monkeypatch.setattr(llm_mod, "build_default_llm", lambda model=None: _FakeInner(model or "x"))
     ov = build_stage_overrides(Settings(llm_cheap_model="cheap-x", llm_cheap_stages="classify, schedule"))
@@ -96,7 +96,7 @@ def _vec(*xs) -> bytes:
 
 
 def test_best_match_respects_threshold():
-    from src.semantic_cache import best_match
+    from retrieval.semantic_cache import best_match
 
     query = np.frombuffer(_vec(1, 0), dtype=np.float32)
     rows = [{"embedding": _vec(1, 0), "answer": "sí"}, {"embedding": _vec(0, 1), "answer": "no"}]
@@ -118,8 +118,8 @@ class _FakeEmbeddings:
 
 
 def test_answer_cache_roundtrip_and_gating(monkeypatch, tmp_path):
-    import src.embeddings as emb
-    from agent.answer_cache import build_answer_cache
+    import retrieval.embeddings as emb
+    from retrieval.answer_cache import build_answer_cache
 
     monkeypatch.setattr(emb, "get_embeddings", lambda *a, **k: _FakeEmbeddings())
     db = str(tmp_path / "ac.db")
@@ -161,7 +161,7 @@ def _interview_state():
 
 
 def test_answer_cache_hit_short_circuits_llm(monkeypatch):
-    import agent.nodes as nodes
+    import agente.nodes as nodes
 
     monkeypatch.setattr(nodes, "is_meaningful_answer", lambda t: True)
     monkeypatch.setattr(nodes, "classify_turn", lambda llm, **k: "question")
@@ -178,7 +178,7 @@ def test_answer_cache_hit_short_circuits_llm(monkeypatch):
 
 
 def test_answer_cache_miss_generates_and_stores(monkeypatch):
-    import agent.nodes as nodes
+    import agente.nodes as nodes
 
     monkeypatch.setattr(nodes, "is_meaningful_answer", lambda t: True)
     monkeypatch.setattr(nodes, "classify_turn", lambda llm, **k: "question")

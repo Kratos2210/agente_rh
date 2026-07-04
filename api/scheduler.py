@@ -29,8 +29,8 @@ from api.runtime import (
 )
 from db import repositories as repo
 from notifications import outbox
-from src.config import Settings
-from src.logging_config import get_logger
+from core.config import Settings
+from core.logging_config import get_logger
 
 logger = get_logger("api.scheduler")
 
@@ -297,8 +297,8 @@ def _bot_send(chat_id: int, messages: list[str]) -> bool:
 
 def _reminder_messages(conv: dict[str, Any], service) -> list[str]:
     """Texto del recordatorio según la fase (en entrevista incluye la pregunta pendiente)."""
-    from agent.prompts import REMINDER_DOCS, REMINDER_GREETING, REMINDER_INTERVIEW, SCHEDULING_REMINDER
-    from agent.state import PHASE_AWAITING_DOCS, PHASE_GREETING, PHASE_SCHEDULING, current_question
+    from agente.prompts import REMINDER_DOCS, REMINDER_GREETING, REMINDER_INTERVIEW, SCHEDULING_REMINDER
+    from agente.state import PHASE_AWAITING_DOCS, PHASE_GREETING, PHASE_SCHEDULING, current_question
 
     state = conv.get("state")
     if state == PHASE_GREETING:
@@ -319,7 +319,7 @@ def _inactivity_sweep(settings: Settings) -> dict[str, int]:
     Síncrono (lo corre el scheduler en un hilo). Idempotente por `reminders_sent`."""
     from datetime import datetime, timezone
 
-    from agent.state import PHASE_AWAITING_DOCS, PHASE_GREETING, PHASE_INTERVIEWING, PHASE_SCHEDULING
+    from agente.state import PHASE_AWAITING_DOCS, PHASE_GREETING, PHASE_INTERVIEWING, PHASE_SCHEDULING
 
     report = {"checked": 0, "reminded": 0, "finalized": 0}
     # Config POR-TENANT (Fase 0.1): resuelve el tenant de cada conversación por su vacante.
@@ -376,7 +376,7 @@ def _reconcile_scheduling_stuck(convs, meeting_conv_ids, now, threshold_seconds)
 
     Puro y testeable. Señala coordinaciones de horario que quedaron estancadas (p. ej. el
     candidato no eligió y no hay reunión) para que RR.HH. las retome."""
-    from agent.state import PHASE_SCHEDULING
+    from agente.state import PHASE_SCHEDULING
 
     stuck: list[str] = []
     for c in convs:
@@ -403,7 +403,7 @@ def _collect_ops_alerts(tenant_id: str | None = None) -> list[dict[str, Any]]:
     None = global (barrido del scheduler)."""
     from datetime import datetime, timezone
 
-    from agent.state import PHASE_AWAITING_DOCS, PHASE_GREETING, PHASE_INTERVIEWING, PHASE_SCHEDULING
+    from agente.state import PHASE_AWAITING_DOCS, PHASE_GREETING, PHASE_INTERVIEWING, PHASE_SCHEDULING
 
     alerts: list[dict[str, Any]] = []
     vac_tenant = _vacancy_tenant_map() if tenant_id else {}
@@ -844,7 +844,7 @@ def _quality_judge_llm():
     """LLM juez, construido perezosamente una vez por proceso (cacheado en _state)."""
     llm = _state.get("quality_llm")
     if llm is None:
-        from agent.llm import build_default_llm
+        from orquestacion.llm import build_default_llm
 
         llm = build_default_llm()
         _state["quality_llm"] = llm
@@ -866,7 +866,7 @@ def _judge_traces(
 ) -> tuple[list[bool], list[bool], list[bool]]:
     """Juzga cada traza (fundamentación + relevancia de respuesta + relevancia de contexto).
     Devuelve (grounded[], relevant[], context[])."""
-    from agent.llm import complete_staged
+    from orquestacion.llm import complete_staged
     from evaluation.quality import QUALITY_JUDGE_PROMPT, judge_verdict
 
     grounded: list[bool] = []
@@ -996,7 +996,7 @@ def _http_snapshot_sweep(settings: Settings) -> dict[str, int]:
         return {"saved": 0}
     _state["http_snapshot_last"] = now_mono
 
-    from api.httpmetrics import http_metrics
+    from observabilidad.httpmetrics import http_metrics
 
     rows = http_metrics.snapshot()
     repo.save_http_snapshot(rows)

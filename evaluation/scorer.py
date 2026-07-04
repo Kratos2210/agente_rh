@@ -1,6 +1,6 @@
 """Evaluación de respuestas del candidato y utilidades conversacionales del turno.
 
-Todo se apoya en un LLM inyectable (protocolo agent.llm.LLM) y degrada con gracia
+Todo se apoya en un LLM inyectable (protocolo orquestacion.llm.LLM) y degrada con gracia
 ante fallos del modelo: sin LLM o JSON inválido se usa una heurística conservadora.
 """
 
@@ -10,14 +10,14 @@ from dataclasses import dataclass
 
 from typing import Optional
 
-from agent.llm import LLM, complete_staged, parse_json_object
-from agent.prompts import (
+from orquestacion.llm import LLM, complete_staged, parse_json_object
+from agente.prompts import (
     ANSWER_CANDIDATE_PROMPT,
     CLASSIFY_TURN_PROMPT,
     EVALUATE_ANSWER_PROMPT,
     SCHEDULING_PARSE_PROMPT,
 )
-from src.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

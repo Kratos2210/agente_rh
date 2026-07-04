@@ -13,12 +13,12 @@ from datetime import datetime, timedelta
 
 import api.auth as auth
 import api.main as main
-from agent.graph import make_memory_runner
-from agent.state import PHASE_SCHEDULED, PHASE_SCHEDULING
+from agente.graph import make_memory_runner
+from agente.state import PHASE_SCHEDULED, PHASE_SCHEDULING
 from fastapi.testclient import TestClient
 from integrations.scheduling import SimulatedScheduler, _tz, compute_free_slots
 from notifications.email import build_psych_exam_email
-from src.config import get_settings
+from core.config import get_settings
 
 client = TestClient(main.app)
 

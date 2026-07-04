@@ -10,9 +10,9 @@ from datetime import datetime, timedelta, timezone
 
 import api.main as main
 import db.repositories as repo
-from agent.state import PHASE_SCHEDULING
+from agente.state import PHASE_SCHEDULING
 from notifications import outbox
-from src.config import Settings
+from core.config import Settings
 
 S = Settings()
 NOW = datetime(2026, 1, 2, 12, 0, tzinfo=timezone.utc)

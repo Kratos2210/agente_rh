@@ -11,8 +11,8 @@ import json
 import re
 from datetime import datetime, timedelta
 
-from agent.graph import make_memory_runner
-from agent.state import PHASE_SCHEDULED, PHASE_SCHEDULING
+from agente.graph import make_memory_runner
+from agente.state import PHASE_SCHEDULED, PHASE_SCHEDULING
 from evaluation.scorer import parse_slot_choice
 from integrations.scheduling import (
     GoogleScheduler,

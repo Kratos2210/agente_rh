@@ -29,8 +29,8 @@ import api.routes.vacancies as vac_routes
 import api.scheduler as scheduler
 import db.repositories as db_repo
 from api import auth
-from api.httpmetrics import HttpMetrics, http_metrics
-from src.config import get_settings
+from observabilidad.httpmetrics import HttpMetrics, http_metrics
+from core.config import get_settings
 
 client = TestClient(main.app)
 
@@ -259,7 +259,7 @@ def test_checkpoint_purge_sweep_gating(monkeypatch):
 
 
 def _doc_service_env(monkeypatch, *, size: int, max_db: int):
-    from agent import service as svc
+    from agente import service as svc
 
     service = svc.InterviewService(runner=None, settings=SimpleNamespace(document_db_max_bytes=max_db))
     saved: dict[str, object] = {}
@@ -311,7 +311,7 @@ def test_delivery_failed_alert_filtered_by_activity(monkeypatch):
 
 
 def test_sync_business_records_transition_once(monkeypatch):
-    from agent import service as svc
+    from agente import service as svc
 
     transitions: list[tuple] = []
     monkeypatch.setattr(db_repo, "update_candidate", lambda cid, payload: {})

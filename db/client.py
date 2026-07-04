@@ -11,7 +11,7 @@ from functools import lru_cache
 
 from supabase import Client, create_client
 
-from src.config import Settings, get_settings
+from core.config import Settings, get_settings
 
 
 @lru_cache(maxsize=1)

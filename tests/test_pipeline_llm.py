@@ -14,8 +14,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agent.graph import make_memory_runner
-from agent.prompts import PROMPT_VERSION
+from agente.graph import make_memory_runner
+from agente.prompts import PROMPT_VERSION
 from evaluation.scorecard import build_scorecard
 from tests.test_interview import FakeLLM, _questions, _vacancy
 
@@ -69,8 +69,8 @@ def test_broken_retriever_does_not_break_turn():
 
 
 def test_retriever_respects_gate():
-    from agent.rag import build_company_retriever
-    from src.config import Settings
+    from retrieval.rag import build_company_retriever
+    from core.config import Settings
 
     # Gate apagado → None (sin RAG); el default del producto es encendido.
     assert build_company_retriever(Settings(interview_rag_enabled=False)) is None
@@ -79,8 +79,8 @@ def test_retriever_respects_gate():
 
 
 def test_retriever_fails_safe_and_does_not_retry(monkeypatch):
-    from agent import rag
-    from src.config import Settings
+    from retrieval import rag
+    from core.config import Settings
 
     retrieve = rag.build_company_retriever(Settings(interview_rag_enabled=True))
     assert retrieve is not None
@@ -91,7 +91,7 @@ def test_retriever_fails_safe_and_does_not_retry(monkeypatch):
         calls["n"] += 1
         raise RuntimeError("sin corpus indexado")
 
-    import src.embeddings as emb
+    import retrieval.embeddings as emb
 
     monkeypatch.setattr(emb, "get_embeddings", fake_embeddings)
     assert retrieve("¿pregunta?") == ""   # degrada a vacío
@@ -103,8 +103,8 @@ def test_retriever_hybrid_dedupes_and_respects_reranker(monkeypatch):
     """El camino vivo combina vectorial + BM25 (dedupe) y el orden final lo pone el re-ranker."""
     from langchain_core.documents import Document
 
-    from agent import rag
-    from src.config import Settings
+    from retrieval import rag
+    from core.config import Settings
 
     doc = lambda t: Document(page_content=t)  # noqa: E731
 
@@ -141,8 +141,8 @@ def test_retriever_hybrid_dedupes_and_respects_reranker(monkeypatch):
 
     import langchain_chroma
     import langchain_community.retrievers as lcr
-    import src.embeddings as emb
-    import src.reranker as rr
+    import retrieval.embeddings as emb
+    import ranking.reranker as rr
 
     monkeypatch.setattr(emb, "get_embeddings", lambda model: object())
     monkeypatch.setattr(langchain_chroma, "Chroma", FakeChroma)

@@ -9,7 +9,7 @@ Cubre los helpers del lock combinado de `InterviewService` sin DB real:
 
 from __future__ import annotations
 
-from agent.service import InterviewService, _advisory_key
+from agente.service import InterviewService, _advisory_key
 
 _BIGINT_MIN = -(2**63)
 _BIGINT_MAX = 2**63 - 1

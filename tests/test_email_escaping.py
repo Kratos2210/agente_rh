@@ -8,7 +8,7 @@ HTML del correo (los clientes de correo renderizan HTML).
 from __future__ import annotations
 
 from notifications.email import build_meeting_email, build_scorecard_email
-from src.config import Settings
+from core.config import Settings
 
 S = Settings(
     smtp_host="smtp.test",

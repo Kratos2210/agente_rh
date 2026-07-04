@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from src import semantic_cache
+from retrieval import semantic_cache
 
 
 class FakeEmbeddings:

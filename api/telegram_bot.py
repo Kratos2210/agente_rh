@@ -25,12 +25,12 @@ from telegram.ext import (
     filters,
 )
 
-from agent.service import InterviewService
+from agente.service import InterviewService
 from api.ratelimit import TURN_BLOCKED, TURN_CAP_NOTICE, TURN_COOLDOWN, TurnGovernor
 from channels.base import CHANNEL_TELEGRAM, InboundMessage
 from channels.telegram import send_messages
-from src.config import Settings
-from src.logging_config import get_logger
+from core.config import Settings
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 
@@ -133,8 +133,8 @@ def _is_allowed(chat_id: int) -> bool:
 
 def build_bot_app(settings: Settings, state: dict[str, Any]) -> Application:
     """Construye la Application de PTB con el servicio de entrevista inyectado."""
-    from agent.graph import make_postgres_runner
-    from agent.llm import MeteredLLM, build_default_llm, build_stage_overrides
+    from agente.graph import make_postgres_runner
+    from orquestacion.llm import MeteredLLM, build_default_llm, build_stage_overrides
     from db.client import get_database_url
 
     _init_allowed_users(settings)
@@ -148,8 +148,8 @@ def build_bot_app(settings: Settings, state: dict[str, Any]) -> Application:
     )
 
     # RAG de dudas del candidato (config-gated, lazy): None si interview_rag_enabled=False.
-    from agent.answer_cache import build_answer_cache
-    from agent.rag import build_company_retriever
+    from retrieval.answer_cache import build_answer_cache
+    from retrieval.rag import build_company_retriever
 
     runner = make_postgres_runner(
         MeteredLLM(

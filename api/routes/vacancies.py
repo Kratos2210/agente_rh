@@ -159,8 +159,8 @@ def sync_applicants_endpoint(
         raise HTTPException(
             429, "Sincronización muy frecuente. Espera un minuto e inténtalo de nuevo."
         )
-    from agent.llm import MeteredLLM, build_default_llm, build_stage_overrides
-    from agent.sourcing_service import sync_applicants
+    from orquestacion.llm import MeteredLLM, build_default_llm, build_stage_overrides
+    from agente.sourcing_service import sync_applicants
     from integrations.sourcing import get_connector
 
     settings = current_settings()

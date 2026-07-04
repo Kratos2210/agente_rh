@@ -56,12 +56,12 @@ jobs:
         run: |
           for env in dev prod; do
             echo "== overlay $env =="
-            kubectl kustomize "deploy/k8s/overlays/$env/" > "/tmp/rendered-$env.yaml"
+            kubectl kustomize "despliegue/k8s/overlays/$env/" > "/tmp/rendered-$env.yaml"
             docker run --rm -i ghcr.io/yannh/kubeconform:latest -strict -summary - < "/tmp/rendered-$env.yaml"
           done
 
   prompt-version-gate:
-    # Cambiar agent/prompts.py exige subir PROMPT_VERSION (y correr la suite golden).
+    # Cambiar agente/prompts.py exige subir PROMPT_VERSION (y correr la suite golden).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,14 +78,14 @@ jobs:
             echo "Sin base comparable (primer push o force-push); gate omitido."
             exit 0
           fi
-          if git diff --quiet "$BASE" HEAD -- agent/prompts.py; then
-            echo "agent/prompts.py sin cambios; OK."
+          if git diff --quiet "$BASE" HEAD -- agente/prompts.py; then
+            echo "agente/prompts.py sin cambios; OK."
             exit 0
           fi
-          OLD=$(git show "$BASE:agent/prompts.py" 2>/dev/null | grep -E '^PROMPT_VERSION' || true)
-          NEW=$(grep -E '^PROMPT_VERSION' agent/prompts.py || true)
+          OLD=$(git show "$BASE:agente/prompts.py" 2>/dev/null | grep -E '^PROMPT_VERSION' || true)
+          NEW=$(grep -E '^PROMPT_VERSION' agente/prompts.py || true)
           if [ "$OLD" = "$NEW" ]; then
-            echo "::error file=agent/prompts.py::agent/prompts.py cambió pero PROMPT_VERSION no. Sube la versión y corre scripts/golden_eval.py."
+            echo "::error file=agente/prompts.py::agente/prompts.py cambió pero PROMPT_VERSION no. Sube la versión y corre scripts/golden_eval.py."
             exit 1
           fi
           echo "PROMPT_VERSION actualizado: ${OLD:-<nuevo>} -> $NEW"
@@ -134,9 +134,9 @@ jobs:
             echo ""
             echo "El overlay \`prod\` ya apunta a estas imágenes. Para fijar este build inmutable antes de desplegar:"
             echo '```'
-            echo "cd deploy/k8s/overlays/prod && kustomize edit set image \\"
+            echo "cd despliegue/k8s/overlays/prod && kustomize edit set image \\"
             echo "  agente-rh-backend=${{ steps.meta.outputs.backend }}:${{ steps.meta.outputs.tag }} \\"
             echo "  agente-rh-frontend=${{ steps.meta.outputs.frontend }}:${{ steps.meta.outputs.tag }}"
-            echo "deploy/deploy.sh k8s-apply prod   # requiere un cluster real"
+            echo "despliegue/deploy.sh k8s-apply prod   # requiere un cluster real"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

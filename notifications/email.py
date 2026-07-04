@@ -14,8 +14,8 @@ from html import escape as _esc
 from typing import Any
 
 from evaluation.scorecard import semaphore_emoji
-from src.config import Settings
-from src.logging_config import get_logger
+from core.config import Settings
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

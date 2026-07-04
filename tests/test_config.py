@@ -1,7 +1,7 @@
 """Tests de configuración y localización de PDFs (no requieren modelos)."""
 from __future__ import annotations
 
-from src.config import Settings, parse_pdf_paths
+from core.config import Settings, parse_pdf_paths
 
 
 def test_parse_pdf_paths_glob_data_dir(tmp_path):

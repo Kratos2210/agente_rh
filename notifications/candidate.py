@@ -11,10 +11,10 @@ from typing import Any
 
 import httpx
 
-from agent.prompts import NOTIFY_ADVANCE, NOTIFY_HIRED, NOTIFY_REJECT
+from agente.prompts import NOTIFY_ADVANCE, NOTIFY_HIRED, NOTIFY_REJECT
 from channels.base import CHANNEL_TELEGRAM
-from src.config import Settings
-from src.logging_config import get_logger
+from core.config import Settings
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 import api.auth as auth
 import jwt
 import pytest
-from src.config import Settings
+from core.config import Settings
 
 _STRONG = "S" * 40  # secreto fuerte (>= 32 bytes, no default)
 

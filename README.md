@@ -20,9 +20,9 @@ auditoría y observabilidad completas.
    (frontend/)       │  · Scheduler 30 s (advisory lock)            │       · checkpoints LangGraph
                      │  · MCP server /mcp (7 tools, opcional)       │       · outbox durable
    Asistentes IA ───▶│                                              │
-   (MCP)             │  agent/ (LangGraph) · evaluation/ (scoring)  │
-                     │  integrations/ (sourcing, Google Calendar)   │
-                     │  notifications/ (email, outbox) · src/ (RAG) │
+   (MCP)             │  agente/ (LangGraph) · evaluation/ (scoring) │
+                     │  retrieval/ ranking/ orquestacion/ (RAG+LLM) │
+                     │  integrations/ · notifications/ · core/      │
                      └──────────────────────────────────────────────┘
 ```
 
@@ -34,11 +34,11 @@ en Postgres → el contenedor es reemplazable sin perder conversaciones.
 
 | Patrón | Dónde | Qué hace |
 |---|---|---|
-| **RAG** (hybrid retrieval + re-ranker + generación) | `src/vectorstore.py` (Chroma + BM25 + vectorial), `src/reranker.py` (cross-encoder), `src/qa_chain.py`, `agent/rag.py` | Responde dudas del candidato sobre el puesto fundamentándose en la base de conocimiento de la empresa. Embeddings `multilingual-e5` + semantic cache. |
-| **Orquestación LangChain** | `src/qa_chain.py`, `agent/llm.py` (`LangChainLLM`), `src/embeddings.py`, `src/classifier.py` | Cadenas de prompts, LLM intercambiable (Groq/Qwen3 u otro compatible-OpenAI), metadata propagada a trazas. |
-| **Flujos cíclicos LangGraph** | `agent/graph.py`, `agent/nodes.py`, `agent/state.py` | Máquina de estados durable (checkpointer Postgres, hilo `canal:chat`): follow-ups por respuesta vaga, dudas con tope, reintentos de horario con escalamiento, timeouts, agendamiento ×3 etapas. |
-| **MCP seguro** | `api/mcp.py` | 7 tools bajo el mismo JWT del dashboard (tenancy, RBAC, revocación y auditoría heredados): 5 de lectura + 2 mutaciones (contactar/decidir) con **confirmación en dos pasos** — preview sin efectos + `confirm_token` HMAC de 120 s ligado a la invocación. `MCP_ENABLED` off por defecto. |
-| **Observabilidad** | `src/observability.py`, `agent/llm.py` (`MeteredLLM`), `api/httpmetrics.py`, `scripts/golden_eval.py`, `scripts/groundedness_judge.py` | Trazas LLM con contenido, costos por modelo/empresa + presupuesto, p50/p95/p99 por etapa y ruta, latencia end-to-end del turno, SLAs push, suite golden (28 casos) + juez de alucinaciones, logs JSON + request-id, Sentry. Gancho LangSmith opcional. |
+| **RAG** (hybrid retrieval + re-ranker + generación) | `retrieval/vectorstore.py` (Chroma + BM25 + vectorial), `ranking/reranker.py` (cross-encoder), `orquestacion/qa_chain.py`, `retrieval/rag.py` | Responde dudas del candidato sobre el puesto fundamentándose en la base de conocimiento de la empresa. Embeddings `multilingual-e5` + semantic cache. |
+| **Orquestación LangChain** | `orquestacion/qa_chain.py`, `orquestacion/llm.py` (`LangChainLLM`), `retrieval/embeddings.py`, `orquestacion/classifier.py` | Cadenas de prompts, LLM intercambiable (Groq/Qwen3 u otro compatible-OpenAI), metadata propagada a trazas. |
+| **Flujos cíclicos LangGraph** | `agente/graph.py`, `agente/nodes.py`, `agente/state.py` | Máquina de estados durable (checkpointer Postgres, hilo `canal:chat`): follow-ups por respuesta vaga, dudas con tope, reintentos de horario con escalamiento, timeouts, agendamiento ×3 etapas. |
+| **MCP seguro** | `adaptadores_mcp/mcp.py` | 7 tools bajo el mismo JWT del dashboard (tenancy, RBAC, revocación y auditoría heredados): 5 de lectura + 2 mutaciones (contactar/decidir) con **confirmación en dos pasos** — preview sin efectos + `confirm_token` HMAC de 120 s ligado a la invocación. `MCP_ENABLED` off por defecto. |
+| **Observabilidad** | `observabilidad/observability.py`, `orquestacion/llm.py` (`MeteredLLM`), `observabilidad/httpmetrics.py`, `scripts/golden_eval.py`, `scripts/groundedness_judge.py` | Trazas LLM con contenido, costos por modelo/empresa + presupuesto, p50/p95/p99 por etapa y ruta, latencia end-to-end del turno, SLAs push, suite golden (28 casos) + juez de alucinaciones, logs JSON + request-id, Sentry. Gancho LangSmith opcional. |
 
 ## Requisitos
 
@@ -79,10 +79,10 @@ uv run python scripts/demo.py --alberto
 | Camino | Artefactos | Para qué |
 |---|---|---|
 | **Docker Compose** | `docker-compose.yml` + `Dockerfile.backend` + `frontend/Dockerfile` + `Caddyfile` | Demo / on-premise de una máquina: `docker compose up --build` → `http://localhost:3000`. |
-| **Kubernetes** | `deploy/k8s/` (kustomize; validado con kubeconform) | Producción. Backend `replicas: 1` (bot en polling — la decisión y el camino a escalar están documentados), frontend escala libre. |
+| **Kubernetes** | `despliegue/k8s/` (kustomize; validado con kubeconform) | Producción. Backend `replicas: 1` (bot en polling — la decisión y el camino a escalar están documentados), frontend escala libre. |
 | **Serverless** | `docs/despliegue.md` | Decisión argumentada: NO para el núcleo (bot long-lived, scheduler, RAG con estado), sí viable para API/notificaciones tras migrar el bot a webhook. |
 
-Automatización: **`deploy/deploy.sh`** (`build`, `push`, `compose-up/down`, `validate`,
+Automatización: **`despliegue/deploy.sh`** (`build`, `push`, `compose-up/down`, `validate`,
 `k8s-apply`, `k8s-status`, `scale <n>` — el escalado del backend exige `--force` y explica la
 restricción del bot en polling). Detalle completo: **`docs/despliegue.md`**.
 
@@ -115,6 +115,7 @@ build de la imagen Docker + validación de manifests K8s.
 | Documento | Contenido |
 |---|---|
 | `/guia` (ruta del dashboard) | Guía end-to-end de 19 secciones para todo público. |
+| `docs/mapa_rubrica.md` | Mapa de conformidad rúbrica de "IA en Producción" → carpetas-puntero → código real. |
 | `docs/arquitectura.md` | Decisiones de arquitectura (ADR-lite): qué se eligió, alternativas y por qué. |
 | `docs/despliegue.md` | Los tres caminos de despliegue y la decisión microservicios/serverless. |
 | `docs/gestion_secretos.md` | Inventario de secretos, rotación por secreto y camino a un secret manager. |

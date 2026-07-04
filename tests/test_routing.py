@@ -7,9 +7,9 @@ Orden de resolución probado: conversación existente (sticky) → payload del d
 
 from __future__ import annotations
 
-from agent import service as svc
-from agent.prompts import NO_OPEN_VACANCY, VACANCY_UNAVAILABLE
-from agent.service import InterviewService
+from agente import service as svc
+from agente.prompts import NO_OPEN_VACANCY, VACANCY_UNAVAILABLE
+from agente.service import InterviewService
 from channels.base import InboundMessage
 
 UUID_A = "11111111-1111-1111-1111-111111111111"  # vacante default (tenant 1)

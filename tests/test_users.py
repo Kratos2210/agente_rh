@@ -11,7 +11,7 @@ import api.auth as auth
 import api.main as main
 import pytest
 from fastapi.testclient import TestClient
-from src.config import get_settings
+from core.config import get_settings
 
 client = TestClient(main.app)
 

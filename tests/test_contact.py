@@ -6,7 +6,7 @@ Supabase: validan estados por fase y que nunca se re-contacta.
 
 from __future__ import annotations
 
-import agent.sourcing_service as ss
+import agente.sourcing_service as ss
 from integrations.sourcing import SimulatedConnector
 
 VACANCY = {

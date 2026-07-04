@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent.llm import MeteredLLM
+from orquestacion.llm import MeteredLLM
 from db.repositories import _aggregate_tokens, _funnel
 
 

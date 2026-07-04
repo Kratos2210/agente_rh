@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from agent.llm import LLM, complete_staged, parse_json_object
-from agent.prompts import PROMPT_VERSION, SCORECARD_PROMPT
-from src.logging_config import get_logger
+from orquestacion.llm import LLM, complete_staged, parse_json_object
+from agente.prompts import PROMPT_VERSION, SCORECARD_PROMPT
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

@@ -149,8 +149,8 @@ def main() -> int:
     args = parser.parse_args()
 
     load_dotenv()
-    from agent.llm import MeteredLLM, build_default_llm
-    from agent.prompts import PROMPT_VERSION
+    from orquestacion.llm import MeteredLLM, build_default_llm
+    from agente.prompts import PROMPT_VERSION
 
     data = load_redteam()
     surfaces = list(SURFACE_KEYS) if args.surface == "all" else [args.surface]

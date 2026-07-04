@@ -81,9 +81,9 @@ from api.routes.candidates import (  # noqa: F401 — re-export (compat tests/co
 )
 from db import repositories as repo  # noqa: F401 — re-export (los tests parchean main.repo)
 from notifications import outbox  # noqa: F401 — re-export (los tests parchean main.outbox)
-from src.config import Settings, get_settings
-from src.logging_config import get_logger, setup_logging
-from src.observability import setup_tracing
+from core.config import Settings, get_settings
+from core.logging_config import get_logger, setup_logging
+from observabilidad.observability import setup_tracing
 
 logger = get_logger("api.main")
 
@@ -218,7 +218,7 @@ app.add_middleware(
 async def _http_metrics_middleware(request: Request, call_next):
     import time
 
-    from api.httpmetrics import http_metrics
+    from observabilidad.httpmetrics import http_metrics
 
     start = time.perf_counter()
     status = 500  # si call_next lanza, cuenta como error del servidor
@@ -241,7 +241,7 @@ async def _http_metrics_middleware(request: Request, call_next):
 async def _request_id_middleware(request: Request, call_next):
     import uuid
 
-    from src.logging_config import set_request_id
+    from core.logging_config import set_request_id
 
     rid = (request.headers.get("x-request-id") or "").strip()[:64] or uuid.uuid4().hex[:16]
     set_request_id(rid)
@@ -364,6 +364,6 @@ app.include_router(users_router)
 # tenancy y auditoría del dashboard. Ver api/mcp.py.
 _mcp_server = None
 if get_settings().mcp_enabled:
-    from api.mcp import mount_mcp
+    from adaptadores_mcp.mcp import mount_mcp
 
     _mcp_server = mount_mcp(app)

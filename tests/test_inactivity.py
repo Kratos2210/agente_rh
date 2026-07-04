@@ -6,8 +6,8 @@ recordatorios ya enviados y la configuración (minutos / máximo de recordatorio
 
 from __future__ import annotations
 
-from agent.graph import make_memory_runner
-from agent.state import PHASE_CLOSED, PHASE_GREETING
+from agente.graph import make_memory_runner
+from agente.state import PHASE_CLOSED, PHASE_GREETING
 from api.main import _inactivity_decision, _reminder_messages
 
 _CFG = {"enabled": True, "reminder_minutes": 2, "max_reminders": 2}

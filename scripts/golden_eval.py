@@ -128,8 +128,8 @@ def main() -> int:
     args = parser.parse_args()
 
     load_dotenv()
-    from agent.llm import MeteredLLM, build_default_llm
-    from agent.prompts import PROMPT_VERSION
+    from orquestacion.llm import MeteredLLM, build_default_llm
+    from agente.prompts import PROMPT_VERSION
 
     data = load_golden()
     suites = list(SUITE_KEYS) if args.suite == "all" else [args.suite]

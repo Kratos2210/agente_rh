@@ -10,9 +10,9 @@ from types import SimpleNamespace
 
 import api.main as main
 import api.scheduler as scheduler
-from api.httpmetrics import http_metrics
+from observabilidad.httpmetrics import http_metrics
 from fastapi.testclient import TestClient
-from src.logging_config import JsonFormatter, get_request_id, set_request_id
+from core.logging_config import JsonFormatter, get_request_id, set_request_id
 
 client = TestClient(main.app)
 

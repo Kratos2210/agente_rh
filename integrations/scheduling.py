@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
-from src.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger("integrations.scheduling")
 

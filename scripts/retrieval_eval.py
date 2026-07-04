@@ -67,8 +67,8 @@ def main() -> int:
     cases = golden["cases"]
     min_rate = args.min_rate if args.min_rate is not None else float(golden.get("min_hit_rate", 0.8))
 
-    from agent.rag import build_company_retriever
-    from src.config import get_settings
+    from retrieval.rag import build_company_retriever
+    from core.config import get_settings
 
     settings = get_settings()
     retrieve = build_company_retriever(settings)
