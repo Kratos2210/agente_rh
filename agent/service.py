@@ -8,6 +8,8 @@ supabase-py son síncronos.
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import threading
 import time
 from dataclasses import dataclass, field
@@ -32,6 +34,7 @@ from agent.state import (
 )
 from channels.base import InboundMessage
 from db import repositories
+from src.logging_config import get_logger
 from integrations.scheduling import (
     MeetingResult,
     compute_free_slots,
@@ -45,6 +48,17 @@ RecruiterNotifier = Callable[[dict, dict, dict, dict], None]
 # Callback que notifica la reunión agendada (email + Telegram al reclutador).
 #   notify(vacancy, candidate, meeting, recruiter) -> None
 MeetingNotifier = Callable[[dict, dict, dict, dict], None]
+
+logger = get_logger("agent.service")
+
+
+def _advisory_key(thread_id: str) -> int:
+    """Entero de 64 bits con signo (cabe en el bigint de Postgres) derivado del thread_id.
+
+    `pg_advisory_lock` toma una key numérica; el thread_id es "canal:chat". blake2b da un
+    digest estable → misma conversación, misma key en cualquier proceso/réplica."""
+    digest = hashlib.blake2b(thread_id.encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, "big", signed=True)
 
 
 def _now_iso() -> str:
@@ -106,6 +120,7 @@ class InterviewService:
         notify_meeting: Optional[MeetingNotifier] = None,
         scheduler: Optional[Any] = None,
         settings: Optional[Any] = None,
+        database_url: Optional[str] = None,
     ):
         self.runner = runner
         self.notify_recruiter = notify_recruiter
@@ -116,19 +131,99 @@ class InterviewService:
         # candidato pueden invocar el motor del MISMO thread desde dos hilos worker a la
         # vez; LangGraph no serializa, así que dos send() concurrentes pisarían el
         # checkpoint. Un lock por thread_id (el dict crece un puntero por conversación
-        # vista en la vida del proceso — despreciable) elimina la carrera.
+        # vista en la vida del proceso — despreciable) elimina la carrera EN EL PROCESO.
         self._thread_locks: dict[str, threading.Lock] = {}
         self._thread_locks_guard = threading.Lock()
+        # Lock distribuido (roadmap v2, paso 3 · auditoria_v2 Riesgo 3): con `replicas>1`
+        # (webhook), dos updates del mismo chat pueden caer en pods distintos → el lock
+        # in-process no basta. Con `database_url`, además tomamos un advisory lock de
+        # Postgres por thread_id (patrón del scheduler). Sin él, o ante fallo de la DB,
+        # se degrada al lock local. Pool perezoso (no abre conexión hasta el primer turno).
+        self.database_url = database_url or None
+        self._lock_pool: Any = None
+        self._lock_pool_guard = threading.Lock()
 
     def _thread_lock(self, thread_id: str) -> threading.Lock:
         with self._thread_locks_guard:
             return self._thread_locks.setdefault(thread_id, threading.Lock())
 
+    def _get_lock_pool(self):
+        """Pool psycopg dedicado a advisory locks (perezoso). None si no hay database_url
+        o si el pool no pudo abrirse (degrada a lock local, sin reintentar)."""
+        if not self.database_url:
+            return None
+        if self._lock_pool is not None:
+            return self._lock_pool
+        with self._lock_pool_guard:
+            if self._lock_pool is None and self.database_url:
+                try:
+                    from psycopg_pool import ConnectionPool
+
+                    self._lock_pool = ConnectionPool(
+                        self.database_url, min_size=0, max_size=4,
+                        kwargs={"autocommit": True}, open=True,
+                    )
+                except Exception:  # noqa: BLE001 — sin pool, se sigue con el lock local
+                    logger.warning(
+                        "Lock distribuido: no se pudo abrir el pool; se usa solo el lock local",
+                        exc_info=True,
+                    )
+                    self.database_url = None
+        return self._lock_pool
+
+    def _acquire_advisory(self, thread_id: str):
+        """Toma el advisory lock de Postgres para el thread; devuelve la conexión que lo
+        sostiene, o None si no hay pool / falla (degradación a lock local)."""
+        pool = self._get_lock_pool()
+        if pool is None:
+            return None
+        try:
+            conn = pool.getconn(timeout=5.0)
+        except Exception:  # noqa: BLE001 — pool ocupado/caído: seguimos con el lock local
+            logger.warning("Lock distribuido: sin conexión disponible; solo lock local")
+            return None
+        try:
+            conn.execute("select pg_advisory_lock(%s)", (_advisory_key(thread_id),))
+            return conn
+        except Exception:  # noqa: BLE001
+            logger.warning("Lock distribuido: fallo al adquirir; solo lock local", exc_info=True)
+            with contextlib.suppress(Exception):
+                pool.putconn(conn)
+            return None
+
+    def _release_advisory(self, conn, thread_id: str) -> None:
+        if conn is None:
+            return
+        try:
+            conn.execute("select pg_advisory_unlock(%s)", (_advisory_key(thread_id),))
+        except Exception:  # noqa: BLE001
+            logger.warning("Lock distribuido: fallo al liberar", exc_info=True)
+        finally:
+            pool = self._lock_pool
+            if pool is not None:
+                try:
+                    pool.putconn(conn)
+                except Exception:  # noqa: BLE001
+                    with contextlib.suppress(Exception):
+                        conn.close()
+
+    @contextlib.contextmanager
+    def _conversation_lock(self, thread_id: str):
+        """Serializa un turno de la conversación: lock local (intra-proceso) SIEMPRE +
+        advisory lock de Postgres (entre réplicas) si hay database_url. Cede exactamente
+        una vez; ante cualquier fallo de la DB queda al menos el lock local."""
+        with self._thread_lock(thread_id):
+            conn = self._acquire_advisory(thread_id)
+            try:
+                yield
+            finally:
+                self._release_advisory(conn, thread_id)
+
     def process(self, inbound: InboundMessage) -> TurnResult:
         # t0 ANTES del lock: la espera por otro turno en curso también es latencia
         # que percibe el candidato (O-3).
         t0 = time.perf_counter()
-        with self._thread_lock(inbound.thread_id):
+        with self._conversation_lock(inbound.thread_id):
             return self._process(inbound, turn_started=t0)
 
     def _process(self, inbound: InboundMessage, turn_started: float | None = None) -> TurnResult:
@@ -236,7 +331,7 @@ class InterviewService:
 
         Avanza el motor con `timeout=True`, proyecta el estado a Supabase (status
         `no_response` si la entrevista quedó sin responder) y devuelve el mensaje de cierre."""
-        with self._thread_lock(thread_id):
+        with self._conversation_lock(thread_id):
             return self._finalize_inactive(thread_id)
 
     def _finalize_inactive(self, thread_id: str) -> TurnResult:
@@ -303,7 +398,7 @@ class InterviewService:
         de botones para que el canal lo envíe. No marca `invited` (eso lo hace el endpoint
         tras confirmar el envío)."""
         thread_id = f"{candidate['channel']}:{candidate['channel_user_id']}"
-        with self._thread_lock(thread_id):
+        with self._conversation_lock(thread_id):
             conv = repositories.get_or_create_conversation(candidate["id"], vacancy["id"], thread_id)
             questions = [_to_qspec(q) for q in repositories.get_vacancy_questions(vacancy["id"])]
             state = self.runner.start(
@@ -354,7 +449,7 @@ class InterviewService:
         `stage` = "hr" | "lead" | "manager"; `modality` = "virtual" | "onsite".
         La dispara el endpoint de decisión/avance de etapa. El saludo + opciones los envía el bot."""
         thread_id = f"{candidate['channel']}:{candidate['channel_user_id']}"
-        with self._thread_lock(thread_id):
+        with self._conversation_lock(thread_id):
             conv = repositories.get_or_create_conversation(candidate["id"], vacancy["id"], thread_id)
             cfg = repositories.get_app_setting("scheduling", {}, vacancy.get("tenant_id")) or {}
             recruiter = self._resolve_recruiter(vacancy)
