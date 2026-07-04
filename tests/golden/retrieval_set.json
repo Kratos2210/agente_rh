@@ -1,5 +1,5 @@
 {
-  "_comment": "Golden de RECUPERACIÓN (paso 4): mide hit@k del retriever de company_kb SIN LLM. Cada caso: una duda típica del candidato → un substring que DEBE aparecer en el contexto recuperado. Requiere la colección sembrada (scripts/seed_company_kb.py) con la vacante demo 'Analista de Automatizaciones e IA'. Correr: uv run python scripts/retrieval_eval.py",
+  "_comment": "Golden de RECUPERACIÓN (paso 4 + roadmap v2 paso 3): mide hit@k del retriever de company_kb SIN LLM. Cada caso: una duda típica del candidato → un substring que DEBE aparecer en el contexto recuperado. Requiere la colección sembrada (scripts/seed_company_kb.py) con la vacante demo 'Analista de Automatizaciones e IA'. Correr: uv run python scripts/retrieval_eval.py. REGLA DE CRECIMIENTO: agregar 2-3 dudas por cada vacante real que se cargue, con un 'expect' que exista textualmente en su company_info/details.",
   "min_hit_rate": 0.8,
   "cases": [
     {
@@ -37,6 +37,36 @@
       "question": "¿Dan descuento en los productos de la marca?",
       "expect": "Descuentos en la marca",
       "note": "Beneficio de descuento."
+    },
+    {
+      "id": "utilidades",
+      "question": "¿El puesto reparte utilidades?",
+      "expect": "Utilidades",
+      "note": "Sección Beneficios: utilidades."
+    },
+    {
+      "id": "lenguajes-programacion",
+      "question": "¿Qué lenguajes de programación se usan en el rol?",
+      "expect": "Python y JavaScript",
+      "note": "Funciones: automatizaciones en Python y JavaScript."
+    },
+    {
+      "id": "metodologias-agiles",
+      "question": "¿Bajo qué metodologías ágiles se trabaja?",
+      "expect": "SCRUM",
+      "note": "Funciones: gestión de proyectos con SCRUM/Kanban."
+    },
+    {
+      "id": "levantamiento-bpmn",
+      "question": "¿Se hace levantamiento de procesos con BPMN?",
+      "expect": "BPMN",
+      "note": "Funciones: análisis con metodologías BPM (BPMN)."
+    },
+    {
+      "id": "integracion-erp-crm",
+      "question": "¿El rol integra sistemas como ERP o CRM?",
+      "expect": "ERP",
+      "note": "Funciones: integración de sistemas (ERP, CRM) vía APIs."
     }
   ]
 }

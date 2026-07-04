@@ -861,13 +861,17 @@ def _traces_by_tenant(traces: list[dict[str, Any]], vac_tenant: dict[str, str]) 
     return out
 
 
-def _judge_traces(llm, traces: list[dict[str, Any]]) -> tuple[list[bool], list[bool]]:
-    """Juzga cada traza (fundamentación + relevancia). Devuelve (grounded[], relevant[])."""
+def _judge_traces(
+    llm, traces: list[dict[str, Any]]
+) -> tuple[list[bool], list[bool], list[bool]]:
+    """Juzga cada traza (fundamentación + relevancia de respuesta + relevancia de contexto).
+    Devuelve (grounded[], relevant[], context[])."""
     from agent.llm import complete_staged
     from evaluation.quality import QUALITY_JUDGE_PROMPT, judge_verdict
 
     grounded: list[bool] = []
     relevant: list[bool] = []
+    context: list[bool] = []
     for t in traces:
         try:
             raw = complete_staged(
@@ -878,12 +882,13 @@ def _judge_traces(llm, traces: list[dict[str, Any]]) -> tuple[list[bool], list[b
                 "judge",
             )
             v = judge_verdict(raw)
-        except Exception:  # noqa: BLE001 — un fallo del juez cuenta conservador (no fundamentado)
+        except Exception:  # noqa: BLE001 — un fallo del juez cuenta conservador (todo false)
             logger.exception("Juez de calidad falló en una traza")
-            v = {"grounded": False, "answer_relevant": False}
+            v = {"grounded": False, "answer_relevant": False, "context_relevant": False}
         grounded.append(v["grounded"])
         relevant.append(v["answer_relevant"])
-    return grounded, relevant
+        context.append(v.get("context_relevant", False))
+    return grounded, relevant, context
 
 
 def _quality_sweep(settings: Settings) -> dict[str, int]:
@@ -895,7 +900,12 @@ def _quality_sweep(settings: Settings) -> dict[str, int]:
     import time
     from datetime import datetime, timezone
 
-    from evaluation.quality import METRIC_ANSWER_RELEVANCE, METRIC_GROUNDED, rate
+    from evaluation.quality import (
+        METRIC_ANSWER_RELEVANCE,
+        METRIC_CONTEXT_RELEVANCE,
+        METRIC_GROUNDED,
+        rate,
+    )
 
     last = _state.get("quality_sweep_last")  # None (no 0.0): ver _checkpoint_purge_sweep
     now_mono = time.monotonic()
@@ -932,19 +942,21 @@ def _quality_sweep(settings: Settings) -> dict[str, int]:
         swept.add(f"{today}|{tid}")
         report["tenants"] += 1
         min_rate = float(cfg.get("min_rate", 0.9) or 0.9)
-        grounded, relevant = _judge_traces(_quality_judge_llm(), sample)
-        g_rate, r_rate = rate(grounded), rate(relevant)
+        grounded, relevant, context = _judge_traces(_quality_judge_llm(), sample)
+        g_rate, r_rate, c_rate = rate(grounded), rate(relevant), rate(context)
         repo.save_quality_metric(tid, METRIC_GROUNDED, today, g_rate, len(sample), min_rate)
         repo.save_quality_metric(tid, METRIC_ANSWER_RELEVANCE, today, r_rate, len(sample), min_rate)
+        repo.save_quality_metric(tid, METRIC_CONTEXT_RELEVANCE, today, c_rate, len(sample), min_rate)
         logger.info(
-            "Calidad (tenant %s): fundamentación %.0f%% · relevancia %.0f%% (n=%d)",
-            tid, g_rate * 100, r_rate * 100, len(sample),
+            "Calidad (tenant %s): fundamentación %.0f%% · relevancia %.0f%% · contexto %.0f%% (n=%d)",
+            tid, g_rate * 100, r_rate * 100, c_rate * 100, len(sample),
         )
         if g_rate < min_rate:
             report["alerted"] += 1
             detail = (
                 f"Calidad de respuestas: fundamentación {g_rate:.0%} en {len(sample)} muestra(s) "
-                f"de las últimas 24 h, bajo el mínimo de {min_rate:.0%}. Relevancia {r_rate:.0%}. "
+                f"de las últimas 24 h, bajo el mínimo de {min_rate:.0%}. "
+                f"Relevancia {r_rate:.0%} · contexto {c_rate:.0%}. "
                 f"Revisar company_info/prompt (o correr scripts/groundedness_judge.py)."
             )
             logger.warning("Calidad (tenant %s): %s", tid, detail)

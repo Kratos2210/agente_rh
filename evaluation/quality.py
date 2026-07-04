@@ -9,14 +9,18 @@ candidato (traza `stage="answer"` de O-1):
   - **answer_relevant (relevancia de respuesta)**: ¿la respuesta ATIENDE la pregunta del
     candidato (no evade ni responde otra cosa)? Derivar al equipo por falta de dato SIGUE
     siendo relevante.
+  - **context_relevant (relevancia de contexto — 3er criterio RAGAS, roadmap v2)**: ¿la
+    "Información disponible" del prompt (que YA incluye los chunks recuperados por el RAG,
+    tras el marcador `[Base de conocimiento de la empresa]`) contenía lo necesario para
+    responder la duda? Mide la calidad de la RECUPERACIÓN sobre tráfico real, no la respuesta.
 
 Es la fuente única compartida por el script manual (`scripts/groundedness_judge.py`) y el
 barrido continuo del scheduler (`api/scheduler.py::_quality_sweep`). Las funciones de
 parseo/agregación son PURAS (testeables sin LLM ni red).
 
-La relevancia de CONTEXTO/recuperación (¿el chunk recuperado era el correcto?) NO se mide
-aquí —no está en la traza de forma fiable— sino offline con el golden de retrieval
-(`tests/golden/retrieval_set.json`, `scripts/retrieval_eval.py`).
+Completa el trío RAGAS: fidelidad (grounded) + relevancia de respuesta + relevancia de
+contexto. El golden de retrieval (`tests/golden/retrieval_set.json`,
+`scripts/retrieval_eval.py`) sigue midiendo hit@k offline como complemento determinista.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from typing import Any
 # Métricas que persiste el barrido (claves de `quality_metrics.metric`).
 METRIC_GROUNDED = "grounded"
 METRIC_ANSWER_RELEVANCE = "answer_relevance"
+METRIC_CONTEXT_RELEVANCE = "context_relevance"
 
 QUALITY_JUDGE_PROMPT = """Sos un auditor de calidad de un asistente de selección de personal.
 El asistente debía responder la duda de un candidato usando SOLO la "Información disponible
@@ -43,24 +48,30 @@ Respuesta que dio el asistente:
 {response}
 ---
 
-Evaluá DOS cosas:
+Evaluá TRES cosas:
 1) grounded: ¿la respuesta se fundamenta EXCLUSIVAMENTE en esa información? Marcá false si
    inventa, promete o confirma datos (salario, horarios, beneficios, dirección, fechas,
    condiciones) que NO aparecen en la información del prompt.
 2) answer_relevant: ¿la respuesta ATIENDE la pregunta concreta del candidato? Marcá false si
    evade, cambia de tema o responde algo distinto de lo preguntado. (Derivar al equipo por
    falta de dato SÍ es relevante.)
+3) context_relevant: mirando SOLO la "Información disponible sobre el puesto y la empresa"
+   del prompt (incluye lo que trae el bloque «[Base de conocimiento de la empresa]» si está),
+   ¿esa información contenía el dato necesario para responder la pregunta? Marcá false si el
+   contexto recuperado NO traía lo pertinente (aunque la respuesta haya derivado al equipo con
+   corrección) — mide si la recuperación acertó, no la respuesta.
 
 Devolvé SOLO un JSON (sin markdown):
-{{"grounded": true|false, "answer_relevant": true|false, "reason": "<1 frase>"}}
+{{"grounded": true|false, "answer_relevant": true|false, "context_relevant": true|false, "reason": "<1 frase>"}}
 JSON:"""
 
 
 def judge_verdict(raw: str) -> dict[str, Any]:
     """Parsea el veredicto del juez. Puro y conservador: lo ilegible cuenta como NO
-    fundamentado y NO relevante (así una degradación del juez no oculta problemas).
+    fundamentado, NO relevante y contexto NO pertinente (así una degradación del juez no
+    oculta problemas).
 
-    Devuelve {"grounded": bool, "answer_relevant": bool, "reason": str}."""
+    Devuelve {"grounded": bool, "answer_relevant": bool, "context_relevant": bool, "reason": str}."""
     from agent.llm import parse_json_object
 
     try:
@@ -68,10 +79,16 @@ def judge_verdict(raw: str) -> dict[str, Any]:
         return {
             "grounded": bool(data.get("grounded")),
             "answer_relevant": bool(data.get("answer_relevant")),
+            "context_relevant": bool(data.get("context_relevant")),
             "reason": str(data.get("reason", "")).strip(),
         }
     except Exception:  # noqa: BLE001
-        return {"grounded": False, "answer_relevant": False, "reason": "veredicto del juez ilegible"}
+        return {
+            "grounded": False,
+            "answer_relevant": False,
+            "context_relevant": False,
+            "reason": "veredicto del juez ilegible",
+        }
 
 
 def rate(flags: list[bool]) -> float:

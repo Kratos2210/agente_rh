@@ -14,7 +14,20 @@ data:
   # Debe apuntar al MISMO host público del Ingress. El secret va en el Secret del namespace
   # (TELEGRAM_WEBHOOK_SECRET); si se omite, se deriva del token del bot.
   TELEGRAM_WEBHOOK_URL: "https://app.REEMPLAZAR.midominio.com"
-  # PII real: trazas de IA OFF por defecto (activarlas solo con retención acorde,
-  # Ley 29733). MCP OFF salvo que se use un cliente LLM externo autenticado.
-  LLM_TRACE_ENABLED: "false"
+  # PERFIL DE PRODUCCIÓN "todo encendido" (roadmap v2, paso 1): las capacidades de
+  # calidad y costo que en dev nacen apagadas se ENCIENDEN aquí, para que producción no
+  # herede en silencio los defaults conservadores de dev (auditoria_v2 · Riesgo 1).
+  # Trazas de IA ON: alimentan al juez de calidad diario (sin trazas no hay qué muestrear).
+  # PII real ⇒ va de la mano con la retención/erasure ya implementada (Ley 29733).
+  LLM_TRACE_ENABLED: "true"
+  # Optimización de costos: las etapas simples y frecuentes (classify/schedule) van a un
+  # modelo barato validado con el banco de aceptación golden (docs/adr-seleccion-modelo.md).
+  LLM_CHEAP_MODEL: "llama-3.1-8b-instant"
+  LLM_CHEAP_STAGES: "classify,schedule"
+  # Caché semántica de dudas: un hit devuelve la respuesta sin RAG ni LLM (0 tokens),
+  # seguro entre candidatos (mismo company_info por vacante).
+  INTERVIEW_ANSWER_CACHE_ENABLED: "true"
+  # MCP OFF salvo que se use un cliente LLM externo autenticado.
   MCP_ENABLED: "false"
+  # NOTA: los settings por-tenant de calidad (quality_alerts.enabled) viven en la DB, no
+  # aquí: sembrarlos en la DB de prod con `scripts/seed_prod_settings.py` tras desplegar.

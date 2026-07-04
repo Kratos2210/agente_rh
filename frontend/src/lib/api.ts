@@ -468,7 +468,7 @@ export const api = {
 
 // Signo vital de calidad (paso 4): tasa diaria de fundamentación/relevancia del bot.
 export interface QualityMetric {
-  metric: "grounded" | "answer_relevance" | string;
+  metric: "grounded" | "answer_relevance" | "context_relevance" | string;
   day: string;
   rate: number;
   sample_size: number;

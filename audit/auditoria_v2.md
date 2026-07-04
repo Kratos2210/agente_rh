@@ -115,8 +115,8 @@ Cada sub-área sigue la plantilla del framework 2. Para no repetir la v1, la jus
 - Sin changelog de por qué cambia cada versión de prompt (solo el diff de git).
 
 **🎯 Recomendaciones**
-1. El experimento few-shot de la v1 sigue siendo el siguiente movimiento de mayor valor/esfuerzo en esta sub-área.
-2. Nota de 1 línea por bump de `PROMPT_VERSION` (en el propio archivo o en el PR).
+1. El experimento few-shot de la v1 sigue siendo el siguiente movimiento de mayor valor/esfuerzo en esta sub-área. ✅ **Hecho (2026-07-03, roadmap v2 · paso 5):** 2 ejemplos de calibración en `EVALUATE_ANSWER_PROMPT`, medidos contra el golden real → evaluate 11/11, sin regresión.
+2. Nota de 1 línea por bump de `PROMPT_VERSION` (en el propio archivo o en el PR). ✅ **Hecho:** changelog embebido junto a `PROMPT_VERSION` en `agent/prompts.py`.
 
 #### 3.2.2 Cadenas y Agentes (Orquestación) — 📊 Puntaje: 4/5 (v1: 4 — sin cambio de puntaje, con una advertencia que se activó)
 
@@ -172,7 +172,7 @@ Cada sub-área sigue la plantilla del framework 2. Para no repetir la v1, la jus
 
 **🎯 Recomendaciones**
 1. Al pasar a plan Pro (o repo público): activar branch protection con los 5 checks requeridos — la configuración ya se intentó y está documentada.
-2. Sesión de red teaming asistida por LLM sobre el flujo Telegram→prompt→scorecard (heredada de la v1, sigue pendiente y sigue siendo barata).
+2. Sesión de red teaming asistida por LLM sobre el flujo Telegram→prompt→scorecard (heredada de la v1, sigue pendiente y sigue siendo barata). ✅ **Hecho (2026-07-03, roadmap v2 · paso 5):** convertida en proceso repetible (`tests/redteam/redteam_set.json` + `scripts/redteam_eval.py` + job nightly). Halló una brecha real de inyección en las dudas → cerrada con defensa en profundidad; 12/12 ataques contenidos.
 
 ### 🔴 FASE 3: OPERACIÓN
 
@@ -268,7 +268,7 @@ Ordenado por impacto/esfuerzo; los pasos 1 y 3 atacan el Riesgo 1, el 2 el Riesg
 2. **Lock distribuido por conversación (esfuerzo: horas-día).** Advisory lock de Postgres keyed por `thread_id` en `InterviewService.process()` (patrón ya probado en el scheduler), degradando al lock local sin `DATABASE_URL`. Cierra el Riesgo 3 y habilita de verdad `replicas:2`. Completar con el e2e webhook contra un ingress público real (primer despliegue a cluster, aunque sea efímero).
 3. **Relevancia de contexto + retrieval creciente (esfuerzo: 1-2 días).** Tercer criterio en el juez compartido (¿el contexto recuperado era pertinente a la duda?) persistido como tercera métrica en `quality_metrics`; regla de crecer `retrieval_set.json` con 2-3 dudas por cada vacante real. Completa el trío RAGAS (fidelidad ✅, relevancia de respuesta ✅, relevancia de contexto ◻).
 4. **Operación a prueba de ausencias (esfuerzo: días, decisión del usuario).** Ejecutar la migración a secret manager del runbook; segundo humano con acceso de lectura a `/observabilidad` y al correo de equipo; plantilla de post-mortem de 5 líneas; branch protection server-side al pasar a Pro.
-5. **Experimento few-shot + red teaming (esfuerzo: días, oportunista).** Los dos pendientes de calidad heredados de la v1 que no bloquean nada pero afinan: 2 ejemplos few-shot en el prompt de evaluación medidos contra el golden, y una sesión de red teaming asistida por LLM sobre Telegram→prompt→scorecard.
+5. **Experimento few-shot + red teaming (esfuerzo: días, oportunista).** Los dos pendientes de calidad heredados de la v1 que no bloquean nada pero afinan: 2 ejemplos few-shot en el prompt de evaluación medidos contra el golden, y una sesión de red teaming asistida por LLM sobre Telegram→prompt→scorecard. ✅ **CERRADO (2026-07-03).** (a) Few-shot: 2 ejemplos de calibración en `EVALUATE_ANSWER_PROMPT` (concreto→alto sin repregunta; prometedor-pero-escueto→medio con repregunta), con comillas «» para no chocar con el extractor de respuesta real; medido contra el golden real (Groq qwen3-32b) → **evaluate 11/11 dentro de rango**, cero regresión. `PROMPT_VERSION` con changelog de una línea por bump (cierra también la reco 3.2.1). (b) Red teaming como **proceso repetible**: `tests/redteam/redteam_set.json` (12 ataques a los 4 puntos de inyección: gaming del score, desvío del ruteo, dudas manipuladas, elección de horario inexistente) + `scripts/redteam_eval.py` (corre contra el LLM real, marca BREACH y sale 1) + job en `nightly-quality.yml`. La primera corrida **halló una brecha real** (el modelo obedecía "respondé solo con la palabra X" en las dudas) → cerrada con defensa en profundidad (detección de eco en el input + deriva segura sin LLM, `is_echo_injection`) → **12/12 ataques contenidos**.
 
 **Trayectoria esperada:** los pasos 1-2 convierten "capacidad construida" en "capacidad operando" — con eso el sistema queda genuinamente en **Nivel 4 técnico** (métricas cuantitativas continuas en producción y despliegue sin corte); el paso 4 ataca el único límite estructural restante (la dimensión Equipo), que es organizacional, no de código.
 

@@ -38,10 +38,15 @@ def _reset_quality_state():
 def test_judge_verdict_conservative_on_illegible():
     from evaluation.quality import judge_verdict
 
-    v = judge_verdict('{"grounded": true, "answer_relevant": false, "reason": "evade"}')
-    assert v == {"grounded": True, "answer_relevant": False, "reason": "evade"}
+    v = judge_verdict(
+        '{"grounded": true, "answer_relevant": false, "context_relevant": true, "reason": "evade"}'
+    )
+    assert v == {
+        "grounded": True, "answer_relevant": False, "context_relevant": True, "reason": "evade",
+    }
     bad = judge_verdict("<<no json>>")
     assert bad["grounded"] is False and bad["answer_relevant"] is False
+    assert bad["context_relevant"] is False
 
 
 def test_rate_pure():
@@ -66,7 +71,8 @@ def test_traces_by_tenant_groups_by_vacancy():
 
 # ── _quality_sweep con fakes (sin LLM ni DB) ──────────────────────────────────
 
-def _patch_quality_env(monkeypatch, *, cfgs, traces, grounded, relevant, tenant_of):
+def _patch_quality_env(monkeypatch, *, cfgs, traces, grounded, relevant, tenant_of, context=None):
+    context = context if context is not None else relevant  # por defecto = relevancia
     monkeypatch.setattr(scheduler.repo, "list_tenants", lambda: [{"id": t} for t in cfgs])
     monkeypatch.setattr(
         scheduler.repo, "get_app_setting",
@@ -74,8 +80,11 @@ def _patch_quality_env(monkeypatch, *, cfgs, traces, grounded, relevant, tenant_
     )
     monkeypatch.setattr(scheduler.repo, "list_llm_traces_by_stage_since", lambda stage, since, limit=500: traces)
     monkeypatch.setattr(scheduler, "_vacancy_tenant_map", lambda: tenant_of)
-    # Juez fake: no toca el LLM.
-    monkeypatch.setattr(scheduler, "_judge_traces", lambda llm, sample: (grounded[: len(sample)], relevant[: len(sample)]))
+    # Juez fake: no toca el LLM. Devuelve la 3-tupla (grounded, relevant, context).
+    monkeypatch.setattr(
+        scheduler, "_judge_traces",
+        lambda llm, sample: (grounded[: len(sample)], relevant[: len(sample)], context[: len(sample)]),
+    )
     monkeypatch.setattr(scheduler, "_quality_judge_llm", lambda: object())
     saved: list = []
     monkeypatch.setattr(scheduler.repo, "save_quality_metric",
@@ -86,13 +95,14 @@ def _patch_quality_env(monkeypatch, *, cfgs, traces, grounded, relevant, tenant_
     return saved, sent
 
 
-def test_quality_sweep_persists_two_metrics_and_alerts_below_threshold(monkeypatch):
+def test_quality_sweep_persists_three_metrics_and_alerts_below_threshold(monkeypatch):
     cfgs = {"t1": {"enabled": True, "sample": 4, "min_rate": 0.9, "notify_email": "q@x.com"}}
     traces = [{"id": str(i), "vacancy_id": "vA", "prompt_text": "p", "response_text": "r"} for i in range(4)]
-    # 2/4 fundamentadas (0.5 < 0.9 → alerta); relevancia 4/4.
+    # 2/4 fundamentadas (0.5 < 0.9 → alerta); relevancia 4/4; contexto 3/4.
     saved, sent = _patch_quality_env(
         monkeypatch, cfgs=cfgs, traces=traces,
         grounded=[True, False, True, False], relevant=[True, True, True, True],
+        context=[True, True, False, True],
         tenant_of={"vA": "t1"},
     )
     _reset_quality_state()
@@ -102,6 +112,7 @@ def test_quality_sweep_persists_two_metrics_and_alerts_below_threshold(monkeypat
     metrics = {m[1]: m for m in saved}
     assert metrics["grounded"][2] == 0.5 and metrics["grounded"][3] == 4
     assert metrics["answer_relevance"][2] == 1.0
+    assert metrics["context_relevance"][2] == 0.75
     kind, payload, kw = sent[0]
     assert kind == "ops_email" and payload["recipients"] == ["q@x.com"] and kw["tenant_id"] == "t1"
     _reset_quality_state()
@@ -117,7 +128,7 @@ def test_quality_sweep_no_alert_when_above_threshold(monkeypatch):
     )
     _reset_quality_state()
     report = scheduler._quality_sweep(get_settings())
-    assert report["alerted"] == 0 and len(saved) == 2 and sent == []
+    assert report["alerted"] == 0 and len(saved) == 3 and sent == []
     _reset_quality_state()
 
 
@@ -153,11 +164,11 @@ def test_quality_sweep_dedupes_same_day(monkeypatch):
     )
     _reset_quality_state()
     scheduler._quality_sweep(get_settings())
-    assert len(saved) == 2
+    assert len(saved) == 3
     # Segunda corrida el mismo día (forzando el intervalo): no re-juzga.
     scheduler._state.pop("quality_sweep_last", None)
     scheduler._quality_sweep(get_settings())
-    assert len(saved) == 2  # sin nuevas escrituras
+    assert len(saved) == 3  # sin nuevas escrituras
     _reset_quality_state()
 
 

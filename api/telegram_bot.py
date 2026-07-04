@@ -169,6 +169,9 @@ def build_bot_app(settings: Settings, state: dict[str, Any]) -> Application:
         notify_meeting=_build_meeting_notifier(settings),
         scheduler=get_scheduler(settings),
         settings=settings,
+        # Lock distribuido por conversación (roadmap v2, paso 2): con DATABASE_URL, el
+        # turno toma además un advisory lock de Postgres → seguro con replicas>1 (webhook).
+        database_url=get_database_url(),
     )
     state["service"] = service
 

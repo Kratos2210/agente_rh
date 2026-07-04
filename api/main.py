@@ -111,6 +111,16 @@ async def lifespan(app: FastAPI):
 
     assert_secure_config(settings)
 
+    # Perfil de producción (roadmap v2, paso 1): AVISA (no bloquea) si en producción los
+    # signos vitales de calidad/costo nacen apagados. Dentro de try/except: nunca rompe el
+    # arranque (calidad apagada es subóptimo, no inseguro).
+    try:
+        from api.runtime import warn_production_profile
+
+        warn_production_profile(settings)
+    except Exception:  # noqa: BLE001
+        logger.exception("El guard de perfil de producción falló (se sigue igual)")
+
     # Auth: crea el admin inicial si no hay usuarios (idempotente). No rompe el arranque
     # si la DB no está disponible (el login fallará luego con un error claro).
     try:
