@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.datawith.agente-rh-backend</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/lbeto/.local/bin/uv</string>
+        <string>run</string>
+        <string>uvicorn</string>
+        <string>api.main:app</string>
+        <string>--host</string>
+        <string>0.0.0.0</string>
+        <string>--port</string>
+        <string>8000</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/lbeto/proyectos/py-pro/agente_rh</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/lbeto/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>/Users/lbeto</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/lbeto/proyectos/py-pro/agente_rh/uvicorn.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/lbeto/proyectos/py-pro/agente_rh/uvicorn.log</string>
+</dict>
+</plist>

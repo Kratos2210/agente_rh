@@ -9,6 +9,11 @@ Principios (auditoría de integraciones):
   - Capa de adaptación, no lógica nueva: cada tool invoca la MISMA función del endpoint
     FastAPI correspondiente (`api/routes/*`), heredando tenancy, enmascarado por rol y
     los listados sin N+1.
+  - Minimización de PII (Ley 29733): un cliente MCP externo reenvía las respuestas al
+    proveedor del LLM, así que las tools de candidatos ENMASCARAN la PII antes de salir
+    (nombre→seudónimo; CV/teléfono/correo/transcripción fuera). Se conserva el valor
+    operativo (semáforo, scores, estado, métricas) y se opera por candidate_id. El
+    dashboard no se toca: sigue con la PII completa en la infra propia.
   - Capability ≠ autoridad: las mutaciones (contactar/decidir) exigen rol `recruiter` y
     **confirmación en dos pasos**: la primera llamada NO muta — devuelve un preview con
     los efectos y un `confirm_token` firmado (HMAC, TTL 120 s, ligado a tool + candidato
@@ -126,6 +131,97 @@ def _audit_tool(
     _audit(user, f"mcp.{tool}", entity_type=entity_type, entity_id=entity_id)
 
 
+# ── Minimización de PII para clientes externos (perfil "sin PII", plan B) ────────
+# Las tools de candidatos reusan los endpoints del dashboard, que devuelven PII
+# (nombre, CV, teléfono, transcripción). Un cliente MCP externo (p. ej. Claude Code)
+# reenvía esas respuestas al proveedor del LLM → aquí se ENMASCARA la PII ANTES de
+# que salga del proceso. Se conserva el valor operativo (semáforo, scores, estado,
+# métricas, decisiones por id) y la identidad se reemplaza por un seudónimo estable
+# derivado del id. El dashboard NO se toca: sigue viendo la PII completa localmente.
+
+_CONTACT_KEY_MARKERS = ("phone", "email", "telegram", "chat_id", "channel_user", "calendar")
+
+
+def _pseudonym(candidate_id: Any) -> str:
+    """Seudónimo estable y referenciable derivado del id (que ya se expone)."""
+    cid = str(candidate_id or "")
+    return f"Candidato #{cid[:8]}" if cid else "Candidato"
+
+
+def _scrub_contact_keys(obj: dict[str, Any]) -> dict[str, Any]:
+    """Copia del dict sin claves de contacto directo (teléfono/email/chat/agenda)."""
+    return {
+        k: v for k, v in obj.items()
+        if not any(marker in k.lower() for marker in _CONTACT_KEY_MARKERS)
+    }
+
+
+def _mask_candidate_row(row: Any) -> Any:
+    """Fila de candidato con el nombre reemplazado por seudónimo (resto es operativo)."""
+    if not isinstance(row, dict):
+        return row
+    r = dict(row)
+    if "name" in r:
+        r["name"] = _pseudonym(r.get("id"))
+    return r
+
+
+def _mask_candidates_result(result: Any) -> Any:
+    """Enmascara la lista de candidatos (formato {items:[...]} o lista plana)."""
+    if isinstance(result, dict) and "items" in result:
+        return {**result, "items": [_mask_candidate_row(x) for x in result["items"]]}
+    if isinstance(result, list):
+        return [_mask_candidate_row(x) for x in result]
+    return result
+
+
+def _mask_candidate_detail(detail: Any) -> Any:
+    """Detalle del candidato sin PII: nombre→seudónimo, CV/documentos/transcripción
+    fuera. Conserva scorecard (scores + justificación), reuniones sin teléfonos/correos,
+    feedback por etapa, examen psicológico (ya enmascarado por rol) y transiciones."""
+    if not isinstance(detail, dict):
+        return detail
+    d = dict(detail)
+    cand = dict(d.get("candidate") or {})
+    cid = cand.get("id")
+    if "name" in cand:
+        cand["name"] = _pseudonym(cid)
+    cand["cv_profile_present"] = bool(cand.get("cv_profile"))
+    cand.pop("cv_profile", None)  # email/teléfono/resumen del CV
+    # Prescreen: el `summary` del gate de CV cita el nombre y detalles del CV → fuera.
+    # Se conserva lo operativo (puntaje + verdict del gate).
+    pres = cand.get("prescreen")
+    if isinstance(pres, dict):
+        cand["prescreen"] = {k: pres[k] for k in ("pre_score", "verdict") if k in pres}
+    docs = cand.get("documents")
+    if isinstance(docs, list):  # nombres de archivo pueden contener el nombre real
+        cand["documents"] = [
+            {"type": x.get("type"), "stored": x.get("stored")}
+            for x in docs if isinstance(x, dict)
+        ]
+    d["candidate"] = _scrub_contact_keys(cand)
+    # Transcripción = palabras del propio candidato → puede contener PII. Fuera; se
+    # conserva solo el conteo (señal operativa de avance de la entrevista).
+    tr = d.get("transcript")
+    d["transcript_messages"] = len(tr) if isinstance(tr, list) else 0
+    d.pop("transcript", None)
+    meetings = d.get("meetings")
+    if isinstance(meetings, list):
+        d["meetings"] = [_scrub_contact_keys(m) if isinstance(m, dict) else m for m in meetings]
+    return d
+
+
+def _mask_vacancy(vacancy: Any) -> Any:
+    """Vacante con el contacto del reclutador (staff) minimizado; el resto intacto."""
+    if not isinstance(vacancy, dict):
+        return vacancy
+    r = dict(vacancy)
+    rec = r.get("recruiter")
+    if isinstance(rec, dict):
+        r["recruiter"] = _scrub_contact_keys(rec)
+    return r
+
+
 def build_mcp_server():
     """Construye el FastMCP: 5 herramientas de lectura + 2 mutaciones con confirmación."""
     from mcp.server.fastmcp import FastMCP
@@ -140,7 +236,10 @@ def build_mcp_server():
             "(contact_candidate, decide_candidate) usan confirmación en dos pasos: "
             "llámalas primero SIN confirm_token para obtener un preview de los "
             "efectos y un token; muestra el preview al usuario humano y, solo si lo "
-            "aprueba, repite la llamada con el confirm_token (expira en 120 s)."
+            "aprueba, repite la llamada con el confirm_token (expira en 120 s). "
+            "PRIVACIDAD (Ley 29733): las respuestas de candidatos vienen SIN PII — el "
+            "nombre aparece como seudónimo 'Candidato #<id>' y el CV, teléfono, correo "
+            "y la transcripción NO se exponen. Trabaja siempre por candidate_id."
         ),
         stateless_http=True,
         json_response=True,
@@ -154,38 +253,42 @@ def build_mcp_server():
 
     @mcp.tool()
     def list_vacancies() -> list[dict[str, Any]]:
-        """Lista las vacantes del tenant con su embudo (importados/aptos/etc.) y reclutador."""
+        """Lista las vacantes del tenant con su embudo (importados/aptos/etc.) y reclutador.
+        El contacto del reclutador (teléfono/correo) viene minimizado."""
         from api.routes.vacancies import list_vacancies as impl
 
         user = _require_user("viewer")
         _audit_tool(user, "list_vacancies")
-        return impl(user=user)
+        return [_mask_vacancy(v) for v in impl(user=user)]
 
     @mcp.tool()
     def list_candidates(
         vacancy_id: str = "", q: str = "", limit: int = 50, offset: int = 0
     ) -> dict[str, Any]:
         """Lista candidatos con semáforo y estado. Con `vacancy_id` filtra esa vacante;
-        sin él, el pipeline global del tenant. `q` busca por nombre; paginado."""
+        sin él, el pipeline global del tenant. `q` busca por nombre; paginado. El nombre
+        de cada candidato viene enmascarado como seudónimo (identifícalos por su id)."""
         user = _require_user("viewer")
         _audit_tool(user, "list_candidates")
         if vacancy_id:
             from api.routes.vacancies import list_candidates as impl
 
-            return impl(vacancy_id, q=q, limit=limit, offset=offset, user=user)
+            return _mask_candidates_result(impl(vacancy_id, q=q, limit=limit, offset=offset, user=user))
         from api.routes.candidates import list_all_candidates as impl
 
-        return impl(q=q, limit=limit, offset=offset, user=user)
+        return _mask_candidates_result(impl(q=q, limit=limit, offset=offset, user=user))
 
     @mcp.tool()
     def get_candidate_detail(candidate_id: str) -> dict[str, Any]:
-        """Detalle completo de un candidato: scorecard por criterio, transcripción,
-        reuniones, feedback por etapa y transiciones (examen psicológico según rol)."""
+        """Detalle de un candidato SIN PII: scorecard por criterio (scores +
+        justificación), reuniones (sin teléfonos/correos), feedback por etapa y
+        transiciones. El nombre viene como seudónimo; el CV, los datos de contacto y
+        la transcripción NO se exponen (solo el conteo de mensajes)."""
         from api.routes.candidates import get_candidate_detail as impl
 
         user = _require_user("viewer")
         _audit_tool(user, "get_candidate_detail", entity_type="candidate", entity_id=candidate_id)
-        return impl(candidate_id, user=user)
+        return _mask_candidate_detail(impl(candidate_id, user=user))
 
     @mcp.tool()
     def get_metrics() -> dict[str, Any]:
@@ -235,7 +338,7 @@ def build_mcp_server():
                 "action": "contact",
                 "candidate": {
                     "id": candidate_id,
-                    "name": candidate.get("name", ""),
+                    "name": _pseudonym(candidate_id),
                     "status": candidate.get("status"),
                 },
                 "effects": (
@@ -287,7 +390,7 @@ def build_mcp_server():
                 "action": decision,
                 "candidate": {
                     "id": candidate_id,
-                    "name": candidate.get("name", ""),
+                    "name": _pseudonym(candidate_id),
                     "status": candidate.get("status"),
                 },
                 "effects": effects,
