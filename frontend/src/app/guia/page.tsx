@@ -144,7 +144,6 @@ const GUIA_HTML = `
       <li>Confirmación clara de próximos pasos.</li>
     </ul></div>
   </div>
-  <div class="note">Inspirado en "SofIA" de Sifrah, la entrevista real que motivó el proyecto.</div>
 </section>
 
 <!-- 2 -->
@@ -1002,6 +1001,27 @@ create policy tenant_isolation on &lt;tabla&gt; for all to anon, authenticated
       cola de envíos con botón de reintento, rendimiento HTTP por ruta (con p95/p99), el
       <b>signo vital de calidad</b> de la IA y la bitácora de auditoría.</p></div>
   </div>
+
+  <div class="card"><h4>📊 Rendimiento HTTP — qué significa cada columna</h4>
+    <p>La tarjeta <b>Rendimiento HTTP</b> de <span class="file">/observabilidad</span> (solo admin) muestra
+    una fila por ruta de la API con estos valores, <b>acumulados desde el último arranque del backend</b>:</p>
+    <table>
+      <tr><th>Columna</th><th>Qué es</th></tr>
+      <tr><td class="mono">Requests</td><td>Total de llamadas a esa ruta.</td></tr>
+      <tr><td class="mono">4xx</td><td>Errores del <b>cliente</b> (400–499): token inválido/vencido, sin permiso, recurso no encontrado, datos mal formados. <b>No</b> son fallos del servidor: suelen indicar un cliente mal configurado o un intento no autorizado.</td></tr>
+      <tr><td class="mono">5xx</td><td>Errores del <b>servidor</b> (500–599): un fallo interno del backend. Es la columna a vigilar — cualquier valor &gt; 0 merece revisión (aparece resaltado en rojo).</td></tr>
+      <tr><td class="mono">Prom. (ms)</td><td>Latencia <b>promedio</b> de la ruta en milisegundos.</td></tr>
+      <tr><td class="mono">p95 (ms)</td><td>El 95% de las llamadas tardó <b>menos</b> que este valor (los picos que sí sufre 1 de cada 20 usuarios).</td></tr>
+      <tr><td class="mono">p99 (ms)</td><td>Igual, para el 99% — el "peor caso" habitual (1 de cada 100).</td></tr>
+      <tr><td class="mono">Máx. (ms)</td><td>La llamada <b>más lenta</b> registrada a esa ruta.</td></tr>
+    </table>
+    <div class="note">💡 <b>Cómo leerlo.</b> El <b>promedio</b> engaña (una sola llamada lentísima lo dispara);
+    por eso se miran <b>p95/p99</b>, que reflejan la experiencia típica y el peor caso. Un promedio bajo
+    con un p99 alto = la mayoría va bien pero hay picos puntuales. Fuente:
+    <code>GET /api/ops/http-metrics</code> → <span class="file">api/httpmetrics.py</span> (histograma en memoria);
+    el scheduler los archiva periódicamente en <code>http_metrics_snapshots</code> (O-6, §13).</div>
+  </div>
+
   <div class="note">⚙️ Todo esto lo coordina un <b>scheduler</b> interno que corre cada 30 s. Con varias
   réplicas del servidor, un <b>candado en la base de datos</b> asegura que solo una haga el trabajo.</div>
 
@@ -1454,6 +1474,100 @@ return "\\n\\n".join(d.page_content for d in docs[:final_k])</pre>
     El MCP es una <b>fachada = subconjunto</b> de la API: <b>capacidad, no autoridad nueva</b> — no duplica
     lógica ni abre superficie de ataque extra. Es un <b>canal aditivo</b> (para orquestadores/asistentes de
     IA externos), no parte del camino crítico del candidato (que sigue siendo Telegram + dashboard).</div></div>
+
+  <div class="card"><h4>💬 Qué preguntarle al MCP — ejemplos</h4>
+    <p>Una vez conectado (p.ej. desde Claude Code), le hablas en <b>lenguaje natural</b>: el asistente
+    elige la herramienta y arma los parámetros. Estos son ejemplos por herramienta.</p>
+
+    <h4 style="color:var(--accent)">📋 Consultas (solo lectura, inmediatas)</h4>
+    <table>
+      <tr><th>Herramienta</th><th>Qué obtienes</th><th>Ejemplos de preguntas</th></tr>
+      <tr>
+        <td class="mono">list_vacancies</td>
+        <td>Vacantes de tu empresa con su embudo (importados/aptos/etc.) y reclutador.</td>
+        <td><ul class="tight">
+          <li>«¿Qué vacantes están abiertas?»</li>
+          <li>«Muéstrame las vacantes activas y cuántos candidatos tiene cada una.»</li>
+        </ul></td>
+      </tr>
+      <tr>
+        <td class="mono">list_candidates</td>
+        <td>Candidatos con semáforo y estado; por vacante o el pipeline global. Acepta <code>q</code> (búsqueda por nombre) y paginación.</td>
+        <td><ul class="tight">
+          <li>«Lista los candidatos de la vacante de Analista IA.»</li>
+          <li>«Muéstrame todo el pipeline de candidatos.»</li>
+          <li>«Busca candidatos cuyo nombre contenga <i>dan</i>.»</li>
+          <li>«¿Qué candidatos están en semáforo verde?»</li>
+        </ul></td>
+      </tr>
+      <tr>
+        <td class="mono">get_candidate_detail</td>
+        <td>Scorecard por criterio (scores + justificación), reuniones, feedback por etapa, transiciones y exámenes. <b>Sin PII.</b></td>
+        <td><ul class="tight">
+          <li>«Dame el detalle del candidato #3a60fcff.»</li>
+          <li>«¿En qué fase está el candidato #3a60fcff y cuál fue su puntaje?»</li>
+        </ul></td>
+      </tr>
+      <tr>
+        <td class="mono">get_metrics</td>
+        <td>Embudo de selección, tokens/costo del LLM y latencia (del turno y por etapa).</td>
+        <td><ul class="tight">
+          <li>«¿Cómo va el embudo de selección?»</li>
+          <li>«¿Cuántos tokens y cuánto costo lleva la operación?»</li>
+          <li>«Muéstrame la latencia del turno y por etapa.»</li>
+        </ul></td>
+      </tr>
+      <tr>
+        <td class="mono">get_ops_alerts <span class="badge b-violet">admin</span></td>
+        <td>Alertas operativas: dead-letters del outbox, reuniones sin enlace, coordinaciones estancadas, presupuesto excedido.</td>
+        <td><ul class="tight">
+          <li>«¿Hay alertas operativas pendientes?»</li>
+        </ul></td>
+      </tr>
+    </table>
+
+    <h4 style="color:var(--accent)">⚙️ Acciones (mutación · confirmación en dos pasos)</h4>
+    <p style="font-size:.9rem;color:var(--muted);margin:2px 0 8px">Requieren rol <b>reclutador</b>. La
+    primera llamada NO cambia nada: devuelve un <b>preview</b> de los efectos + un <code>confirm_token</code>
+    (120 s). El asistente te muestra el preview y, solo si apruebas, repite la llamada con el token.</p>
+    <table>
+      <tr><th>Herramienta</th><th>Qué hace</th><th>Ejemplos de preguntas</th></tr>
+      <tr>
+        <td class="mono">contact_candidate</td>
+        <td>Contacta al candidato por Telegram (solo si está en <code>prescreen_passed</code>).</td>
+        <td><ul class="tight"><li>«Contacta al candidato #3a60fcff por Telegram.»</li></ul></td>
+      </tr>
+      <tr>
+        <td class="mono">decide_candidate</td>
+        <td>Avanza a la siguiente etapa o rechaza (con notificación).</td>
+        <td><ul class="tight">
+          <li>«Avanza al candidato #3a60fcff a la siguiente etapa.»</li>
+          <li>«Rechaza al candidato #3a60fcff.»</li>
+        </ul></td>
+      </tr>
+    </table>
+
+    <div class="note">🔒 <b>Privacidad (Ley 29733).</b> Las respuestas de candidatos vienen
+    <b>enmascaradas</b>: el nombre aparece como seudónimo <code>Candidato #&lt;id&gt;</code> y el CV,
+    teléfono, correo y la transcripción <b>no se exponen</b> (solo el conteo de mensajes y un flag
+    <code>cv_profile_present</code>). Se conserva el valor operativo (semáforo, scores, verdict, estado,
+    métricas). Trabaja siempre por <b>candidate_id</b>. Todo queda acotado a tu empresa y a tu rol.</div>
+
+    <details class="deep"><summary>Conectar el MCP en 3 pasos (scripts/run_mcp.sh + scripts/mcp_register.sh)</summary><div class="body">
+      <p>El MCP viene <b>apagado por defecto</b> (convención "config-gated, default off"). Para usarlo:</p>
+      <pre class="snippet"><span class="c"># 1) Arranca el backend con el MCP encendido SOLO para esta corrida (no toca el .env)</span>
+scripts/run_mcp.sh              <span class="c"># → backend + MCP en http://localhost:8000/mcp/</span>
+
+<span class="c"># 2) En otra terminal: login admin + JWT fresco + registro idempotente en Claude Code</span>
+scripts/mcp_register.sh leia    <span class="c"># re-correr cuando el token expire (~12 h)</span>
+
+<span class="c"># 3) Verifica</span>
+claude mcp list                 <span class="c"># → leia … ✔ Connected</span></pre>
+      <p>Registro manual equivalente:
+      <code>claude mcp add --transport http leia http://localhost:8000/mcp/ --header "Authorization: Bearer &lt;token&gt;"</code>.
+      El token es el <b>mismo JWT del dashboard</b>: al expirar, re-corre <code>mcp_register.sh</code>.</p>
+    </div></details>
+  </div>
 
   <details class="deep"><summary>El flujo de dos pasos, con el JSON real (adaptadores_mcp/mcp.py)</summary><div class="body">
     <p><b>Paso 1 — preview (no muta nada).</b> El asistente llama la herramienta SIN token:</p>
