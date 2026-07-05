@@ -29,6 +29,9 @@ frontend/.next/
 frontend/next-env.d.ts
 frontend/*.tsbuildinfo
 
+# Prototipo de diseño (mockup HTML + screenshots; no forma parte de la app)
+prototipo/
+
 # Sistema
 .DS_Store
 uvicorn.log
