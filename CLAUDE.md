@@ -1153,6 +1153,28 @@ de abajo se dejaron tal cual — mapear mentalmente a la carpeta nueva.)
   a main en commits temáticos (médico+onboarding, costos, dedupe bot, evaluación, acuse terminal,
   dashboard, docs).
 
+- **2026-07-05 — Auditoría v4 (framework enterprise A–E) + 4 quick wins del roadmap**: informe
+  `audit/auditoria_v4.md` con el framework de `audit/analisis.md` (5 dimensiones, madurez 1–5, gap
+  analysis, roadmap 3 plazos): **≈85/100 · 3.9/5 — Nivel 4 "Gestionado"** (72→81→85). Verificado al
+  auditar: el roadmap v2 quedó 1–3+5 cerrados sin registrar en bitácora (overlay prod enciende
+  trace/caché/router + Phoenix in-cluster; lock distribuido por thread_id en `agente/service.py`;
+  relevancia de contexto en `evaluation/quality.py`); `deploy/`→`despliegue/` (+launchd/Caddyfile =
+  despliegue real local). Ancla: dimensión E 3.5 (PII cruda a Groq, secretos planos, KB manual).
+  **Implementado el corto plazo** (commits temáticos): (1) **hired_email** — `build_hired_email` +
+  `deliver_hired` (outbox) en los 2 sitios que contratan (médico apto + gerencia sin médico);
+  (2) **kb_reindex (R4)** — `retrieval/company_kb.py` (compose+`reindex_vacancy` que PURGA chunks
+  previos, `source` por id de vacante) + kind `kb_reindex` en outbox (encolado SIN intento en línea:
+  torch nunca en el request; gotcha: `next_attempt_at` debe ser timestamp, NULL no matchea el `lte`
+  del drain) + hook en create/update vacante gated por `INTERVIEW_RAG_ENABLED`; el seed delega en el
+  módulo; (3) **minimización PII (R1, 1er paso)** — `profile_for_llm` en `evaluation/prescreen.py`
+  quita name/email/phone/external_id y enmascara contactos del texto libre (umbral 9 dígitos, no
+  come rangos de años); (4) **enum de estados (R5)** — `core/estados.py` (22 estados) + guard
+  ValueError en `repositories.update_candidate` + test de paridad contra `stages.ts`.
+  **445/446 tests verde** (el rojo es el conocido `test_mcp_disabled_by_default` por el `.env` local
+  con MCP_ENABLED=true — no regresión). Pendiente del corto plazo v4: cargar secretos al gestor
+  (acción externa). Mediano plazo v4: fallback de proveedor LLM, golden retrieval 20+, dashboards de
+  series, e2e webhook.
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.
