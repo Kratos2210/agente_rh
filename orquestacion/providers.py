@@ -92,6 +92,30 @@ PROVIDERS: dict[str, dict[str, Any]] = {
             {"id": "Qwen/Qwen2.5-72B-Instruct-Turbo", "input_per_1m": 1.20, "output_per_1m": 1.20},
         ],
     },
+    "ollama": {
+        "label": "Ollama (local)",
+        "base_url": "http://localhost:11434/v1",
+        # Modelos locales: no facturan por token → precio 0. Editable si Ollama corre en otro host.
+        "models": [
+            {"id": "llama3.1", "input_per_1m": 0.0, "output_per_1m": 0.0},
+            {"id": "llama3.2", "input_per_1m": 0.0, "output_per_1m": 0.0},
+            {"id": "qwen2.5", "input_per_1m": 0.0, "output_per_1m": 0.0},
+            {"id": "mistral", "input_per_1m": 0.0, "output_per_1m": 0.0},
+            {"id": "gemma2", "input_per_1m": 0.0, "output_per_1m": 0.0},
+        ],
+    },
+    "huggingface": {
+        "label": "Hugging Face",
+        "base_url": "https://router.huggingface.co/v1",
+        # El costo depende del proveedor al que enrute HF (Inference Providers) → 0 por defecto;
+        # edítalo en Costos según el provider real que uses.
+        "models": [
+            {"id": "meta-llama/Llama-3.3-70B-Instruct", "input_per_1m": 0.0, "output_per_1m": 0.0},
+            {"id": "meta-llama/Llama-3.1-8B-Instruct", "input_per_1m": 0.0, "output_per_1m": 0.0},
+            {"id": "Qwen/Qwen2.5-72B-Instruct", "input_per_1m": 0.0, "output_per_1m": 0.0},
+            {"id": "mistralai/Mistral-7B-Instruct-v0.3", "input_per_1m": 0.0, "output_per_1m": 0.0},
+        ],
+    },
     "custom": {
         "label": "Personalizado (compatible OpenAI)",
         "base_url": "",

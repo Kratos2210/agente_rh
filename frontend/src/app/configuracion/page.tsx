@@ -285,6 +285,9 @@ export default function ConfiguracionPage() {
     color: "var(--foreground)",
   };
 
+  // Base URL editable solo en proveedores sin endpoint fijo: custom (a definir) y ollama (host local variable).
+  const baseUrlEditable = !!prov && (prov.provider === "custom" || prov.provider === "ollama");
+
   return (
     <Shell>
       <BackLink href="/" label="Vacantes" />
@@ -552,6 +555,14 @@ export default function ConfiguracionPage() {
             <span className="text-sm font-medium">Usar este proveedor (en vez del .env)</span>
           </label>
 
+          <p className="text-sm mb-4 px-3 py-2 rounded-lg" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
+            {prov.enabled ? (
+              <>Activo: <strong style={{ color: "var(--foreground)" }}>{prov.model || "(sin modelo)"}</strong> @ {provCatalog[prov.provider]?.label ?? prov.provider}. El consumo se registra bajo este modelo en Costos.</>
+            ) : (
+              <>Este proveedor está <strong>apagado</strong>: las entrevistas usan el proveedor del servidor (.env) y el costo se registra bajo ese modelo. Marca la casilla y guarda para activar {prov.model || "el modelo elegido"}.</>
+            )}
+          </p>
+
           <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 2fr", maxWidth: 560 }}>
             <div>
               <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>Proveedor</label>
@@ -568,15 +579,15 @@ export default function ConfiguracionPage() {
             </div>
             <div>
               <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>
-                Base URL {prov.provider !== "custom" && "(del proveedor)"}
+                Base URL {!baseUrlEditable && "(del proveedor)"}
               </label>
               <input
                 value={prov.base_url}
-                readOnly={prov.provider !== "custom"}
+                readOnly={!baseUrlEditable}
                 onChange={(e) => setProv({ ...prov, base_url: e.target.value })}
                 placeholder="https://mi-endpoint.com/v1 (compatible OpenAI)"
                 className="px-3 py-2 rounded-lg w-full"
-                style={{ ...inputStyle, opacity: prov.provider !== "custom" ? 0.7 : 1 }}
+                style={{ ...inputStyle, opacity: baseUrlEditable ? 1 : 0.7 }}
               />
             </div>
             <div>
