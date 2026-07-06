@@ -1223,6 +1223,7 @@ def _funnel(candidates: list[dict[str, Any]]) -> dict[str, int]:
         "interviewing": 0,
         "finished": 0,
         "advanced": 0,
+        "hired": 0,
         "rejected": 0,
     }
     for c in candidates:
@@ -1241,8 +1242,10 @@ def _funnel(candidates: list[dict[str, Any]]) -> dict[str, int]:
             funnel["interviewing"] += 1
         elif status == "finished":
             funnel["finished"] += 1
-        elif status == "advanced":
+        elif status in ADVANCED_STATUSES:
             funnel["advanced"] += 1
+            if status == "hired":
+                funnel["hired"] += 1
         elif status == "rejected":
             funnel["rejected"] += 1
     return funnel

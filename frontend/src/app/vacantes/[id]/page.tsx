@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { Shell, BackLink } from "@/components/Shell";
 import { KanbanBoard } from "@/components/ui";
 import { api, errorMessage, CandidateRow, Metrics, Vacancy } from "@/lib/api";
-import { ACCENT, avatarColor, buildColumns, cvChip, fmtCost, initials, stageMeta } from "@/lib/stages";
+import { ACCENT, CONTACTED_STATUSES, SCHEDULED_STATUSES, avatarColor, buildColumns, cvChip, fmtCost, initials, stageMeta } from "@/lib/stages";
 
 const MONO = "var(--font-jetbrains), monospace";
 const PAGE_SIZE = 100;
@@ -111,14 +111,13 @@ export default function VacancyPage() {
   if (!vacancy) return <Shell><p style={{ color: "var(--muted)" }}>Cargando…</p></Shell>;
 
   const cnt = (pred: (c: CandidateRow) => boolean) => candidates.filter(pred).length;
-  const contactedSet = ["invited", "consented", "interviewing", "finished", "scheduling", "scheduled", "advanced"];
   const stats = [
     { value: total, label: "Importados", color: "#e8edf6" },
     { value: cnt((c) => c.prescreen_verdict === "pass"), label: "Aptos (CV)", color: "#34d399" },
     { value: cnt((c) => c.status === "prescreen_rejected"), label: "Descartados", color: "#f87171" },
-    { value: cnt((c) => contactedSet.includes(c.status)), label: "Contactados", color: "#fbbf24" },
+    { value: cnt((c) => CONTACTED_STATUSES.has(c.status)), label: "Contactados", color: "#fbbf24" },
     { value: cnt((c) => c.total_score != null), label: "Evaluados", color: "#a78bfa" },
-    { value: cnt((c) => c.status === "scheduled"), label: "Agendados", color: ACCENT.c },
+    { value: cnt((c) => SCHEDULED_STATUSES.has(c.status)), label: "Agendados", color: ACCENT.c },
   ];
   const columns = buildColumns(candidates);
   const r = vacancy.recruiter;

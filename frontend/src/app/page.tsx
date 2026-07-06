@@ -31,9 +31,9 @@ export default function Home() {
     // Refresco automático: el estado avanza server-side (bot Telegram, scheduler) sin que
     // el usuario toque nada; sin polling el panel mostraba métricas/embudo congelados al montar.
     const load = () => {
-      api.listVacancies().then(setVacancies).catch((e) => setError(errorMessage(e)));
-      api.getMetrics().then(setMetrics).catch(() => {});
-      api.listRecruiters().then(setRecruiters).catch(() => {});
+      api.listVacancies().then((v) => { setVacancies(v); setError(""); }).catch((e) => setError(errorMessage(e)));
+      api.getMetrics().then(setMetrics).catch((e) => setError(errorMessage(e)));
+      api.listRecruiters().then(setRecruiters).catch((e) => setError(errorMessage(e)));
     };
     load();
     const timer = setInterval(load, 5000);
@@ -63,6 +63,7 @@ export default function Home() {
     ["En entrevista", f.interviewing ?? 0, ACCENT.c],
     ["Evaluados", f.finished ?? 0, "#a78bfa"],
     ["Avanzados", f.advanced ?? 0, "#34d399"],
+    ["Contratados", f.hired ?? 0, "#2dd4bf"],
   ];
 
   return (
@@ -143,9 +144,13 @@ export default function Home() {
         {vacancies.map((v) => {
           const sc = VAC_STATUS[v.status] || VAC_STATUS.closed;
           const sct = v.stage_counts || {};
-          const ok = (sct.prescreen_passed || 0) + (sct.finished || 0) + (sct.scheduled || 0) + (sct.advanced || 0);
+          // Verde = pasó el filtro o avanzó (incluye etapas líder/gerencia/médico y contratados;
+          // antes una vacante con gente contratada se veía casi toda gris).
+          const ok = (sct.prescreen_passed || 0) + (sct.finished || 0) + (sct.scheduled || 0) + (sct.advanced || 0)
+            + (sct.lead_scheduling || 0) + (sct.lead_scheduled || 0) + (sct.mgr_scheduling || 0) + (sct.mgr_scheduled || 0)
+            + (sct.medical_pending || 0) + (sct.medical_scheduled || 0) + (sct.hired || 0);
           const warn = (sct.invited || 0) + (sct.consented || 0) + (sct.interviewing || 0) + (sct.scheduling || 0);
-          const bad = (sct.prescreen_rejected || 0) + (sct.rejected || 0) + (sct.declined || 0) + (sct.no_response || 0);
+          const bad = (sct.prescreen_rejected || 0) + (sct.rejected || 0) + (sct.declined || 0) + (sct.no_response || 0) + (sct.no_show || 0);
           const rest = (v.candidate_count || 0) - ok - warn - bad;
           const bars = [
             { v: ok, c: "#34d399" }, { v: warn, c: "#fbbf24" }, { v: bad, c: "#f87171" },

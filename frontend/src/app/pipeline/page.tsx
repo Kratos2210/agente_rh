@@ -1,23 +1,31 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { KanbanBoard } from "@/components/ui";
-import { api, CandidateRow, Vacancy } from "@/lib/api";
+import { api, errorMessage, CandidateRow, Vacancy } from "@/lib/api";
 import { ACCENT, buildColumns } from "@/lib/stages";
 
 const MONO = "var(--font-jetbrains), monospace";
 const PAGE_SIZE = 100;
 
-export default function PipelinePage() {
+function PipelineInner() {
+  // El buscador del header navega a /pipeline?q=… — useSearchParams (y no window.location)
+  // para reaccionar también cuando la página ya está montada. Exige el Suspense del default.
+  const urlQ = useSearchParams().get("q") ?? "";
   const [candidates, setCandidates] = useState<CandidateRow[]>([]);
   const [vacancies, setVacancies] = useState<Vacancy[]>([]);
   const [filter, setFilter] = useState<string>("all");
   // Búsqueda por nombre (server-side, con debounce) + paginación (U1).
-  const [qInput, setQInput] = useState("");
-  const [q, setQ] = useState("");
+  const [qInput, setQInput] = useState(urlQ);
+  const [q, setQ] = useState(urlQ);
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => { setQInput(urlQ); setQ(urlQ); setOffset(0); }, [urlQ]);
 
   useEffect(() => {
     const t = setTimeout(() => { setQ(qInput.trim()); setOffset(0); }, 300);
@@ -25,12 +33,14 @@ export default function PipelinePage() {
   }, [qInput]);
 
   useEffect(() => {
+    setLoading(true);
     api.listAllCandidates({ q, limit: PAGE_SIZE, offset })
-      .then((page) => { setCandidates(page.items); setTotal(page.total); })
-      .catch(() => {});
+      .then((page) => { setCandidates(page.items); setTotal(page.total); setError(""); })
+      .catch((e) => setError(errorMessage(e)))
+      .finally(() => setLoading(false));
   }, [q, offset]);
   useEffect(() => {
-    api.listVacancies().then(setVacancies).catch(() => {});
+    api.listVacancies().then(setVacancies).catch((e) => setError(errorMessage(e)));
   }, []);
 
   const filtered = useMemo(
@@ -46,6 +56,8 @@ export default function PipelinePage() {
       <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ac)", marginBottom: 6 }}>Proceso global</div>
       <h1 style={{ margin: 0, fontSize: 30, fontWeight: 800, letterSpacing: "-.03em", color: "var(--heading)" }}>Pipeline</h1>
       <p style={{ margin: "8px 0 20px", color: "var(--muted)", fontSize: 14 }}>Todos los candidatos en proceso, ordenados por etapa del embudo.</p>
+
+      {error && <p style={{ color: "#f87171", marginBottom: 14 }}>Error: {error}</p>}
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", flex: 1 }}>
@@ -69,7 +81,8 @@ export default function PipelinePage() {
       </div>
 
       <KanbanBoard columns={columns} showVacancy={filter === "all"} />
-      {filtered.length === 0 && (
+      {loading && candidates.length === 0 && <p style={{ color: "var(--muted)", marginTop: 12 }}>Cargando…</p>}
+      {!loading && filtered.length === 0 && (
         <p style={{ color: "var(--muted)", marginTop: 12 }}>
           {q ? `Sin resultados para “${q}”.` : "No hay candidatos en proceso."}
         </p>
@@ -83,5 +96,13 @@ export default function PipelinePage() {
         </div>
       )}
     </Shell>
+  );
+}
+
+export default function PipelinePage() {
+  return (
+    <Suspense fallback={<Shell><p style={{ color: "var(--muted)" }}>Cargando…</p></Shell>}>
+      <PipelineInner />
+    </Suspense>
   );
 }
