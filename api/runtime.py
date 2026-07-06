@@ -191,5 +191,10 @@ _DEFAULT_SLA_ALERTS = {"enabled": False, "notify_email": "", "ops_alerts": True,
 # del tenant, las juzga (fundamentación + relevancia) y alerta si la tasa de fundamentadas
 # cae bajo `min_rate`. Default OFF: consume LLM y necesita LLM_TRACE_ENABLED para tener trazas.
 _DEFAULT_QUALITY_ALERTS = {"enabled": False, "sample": 20, "min_rate": 0.9, "notify_email": ""}
+
+# Examen médico pre-contratación (auditoría v3): con enabled, aprobar gerencia pasa a
+# `medical_pending` (RR.HH. programa fecha+clínica; el resultado apto contrata). Default
+# OFF = aprobar gerencia contrata directo, como siempre (retrocompat).
+_DEFAULT_MEDICAL = {"enabled": False}
 # Estados terminales-descartados cuya PII se anonimiza tras el período de retención.
 _RETENTION_STATUSES = ["rejected", "declined", "no_response", "prescreen_rejected", "no_show"]

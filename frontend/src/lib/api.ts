@@ -46,6 +46,7 @@ export interface Vacancy {
   benefits?: string[];
   portals?: string[];
   auto_agent?: boolean;
+  onboarding_kit?: OnboardingKit | null;
 }
 
 export interface Recruiter {
@@ -100,6 +101,43 @@ export interface PsychExam {
   sent_by: string;
 }
 
+// Examen médico pre-contratación (auditoría v3). El resultado es dato sensible de
+// salud: para viewer llega enmascarado ("•••").
+export interface MedicalExam {
+  clinic: string;
+  address: string;
+  scheduled_at: string;
+  instructions: string;
+  sent_at: string;
+  sent_by: string;
+  result?: "apto" | "no_apto" | string;
+  result_notes?: string;
+  result_at?: string;
+  result_by?: string;
+}
+
+export interface OnboardingKitMaterial {
+  title: string;
+  url?: string;
+  note?: string;
+}
+
+// Kit de onboarding de la vacante: materiales/guías del primer día.
+export interface OnboardingKit {
+  welcome?: string;
+  materials?: OnboardingKitMaterial[];
+}
+
+// Sello del envío del kit al candidato (guard de idempotencia).
+export interface Onboarding {
+  sent_at: string;
+  sent_by: string;
+}
+
+export interface MedicalExamConfig {
+  enabled: boolean;
+}
+
 export interface SchedulingConfig {
   enabled: boolean;
   provider: string;
@@ -137,6 +175,32 @@ export interface CandidatePage {
   total: number;
   limit: number;
   offset: number;
+}
+
+// Fila del "cierre" (vista Onboarding): CandidateRow + los campos del onboarding/médico que la
+// vista necesita para agrupar por sub-estado (fecha fijada / kit enviado) y actuar inline.
+export interface ClosingCandidate extends CandidateRow {
+  start_date?: string | null;
+  onboarding?: Onboarding | null;
+  medical_exam?: MedicalExam | null;
+  kit_configured: boolean;
+}
+
+// KPIs del cierre (calculados sobre todo el conjunto del tenant, no la página).
+export interface OnboardingSummary {
+  proximos_ingresos: number;
+  kit_pendiente: number;
+  sin_fecha: number;
+  en_medico: number;
+}
+
+export interface OnboardingPage {
+  items: ClosingCandidate[];
+  total: number;
+  limit: number;
+  offset: number;
+  summary: OnboardingSummary;
+  vacancies_without_kit: { id: string; title: string }[];
 }
 
 export interface ListOpts {
@@ -236,6 +300,45 @@ export interface LlmBudgetConfig {
   notify_email: string;
 }
 
+// Página Costos: trazabilidad del consumo LLM por vacante, día y candidato.
+export interface CostsDaily {
+  day: string; // YYYY-MM-DD en la zona del tenant
+  tokens: number;
+  cost: number;
+}
+
+export interface CostsCandidate {
+  candidate_id: string | null; // null = etapas sin candidato (p. ej. sourcing batch)
+  name: string;
+  tokens: number;
+  cost: number;
+  last_at: string;
+}
+
+export interface CostsVacancy {
+  vacancy_id: string;
+  title: string;
+  status: string;
+  tokens: { total: number; input: number; output: number };
+  cost: number;
+  cost_by_model: Record<string, number>;
+  candidates: CostsCandidate[];
+}
+
+export interface CostsReport {
+  days: number;
+  since: string;
+  timezone: string;
+  totals: {
+    tokens: { total: number; input: number; output: number };
+    calls: number;
+    cost: number;
+    cost_by_model: Record<string, number>;
+  };
+  daily: CostsDaily[];
+  vacancies: CostsVacancy[];
+}
+
 // SLAs push (O-4): correo al incumplirse una condición, una vez por condición/día.
 export interface SlaAlertsConfig {
   enabled: boolean;
@@ -295,6 +398,9 @@ export interface CandidateDetail {
   meetings?: Meeting[];
   stage_feedback?: StageFeedback[];
   psych_exam?: PsychExam | null;
+  medical_exam?: MedicalExam | null;
+  start_date?: string | null;
+  onboarding?: Onboarding | null;
 }
 
 // Mensajes humanos por código HTTP (U2): se usan cuando el backend no manda un `detail`.
@@ -377,6 +483,7 @@ export const api = {
   listCandidates: (vacancyId: string, opts?: ListOpts) =>
     req<CandidatePage>(`/api/vacancies/${vacancyId}/candidates${listQuery(opts)}`),
   listAllCandidates: (opts?: ListOpts) => req<CandidatePage>(`/api/candidates${listQuery(opts)}`),
+  listClosing: (opts?: ListOpts) => req<OnboardingPage>(`/api/onboarding${listQuery(opts)}`),
   getCandidate: (id: string) => req<CandidateDetail>(`/api/candidates/${id}`),
   decide: (id: string, decision: "advance" | "reject") =>
     req<{
@@ -395,6 +502,34 @@ export const api = {
     req<{ sent: boolean; psych_exam: PsychExam }>(`/api/candidates/${id}/psych-exam`, {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+  sendMedicalExam: (
+    id: string,
+    body: { clinic: string; scheduled_at: string; address?: string; instructions?: string },
+  ) =>
+    req<{ email_sent: boolean; telegram_sent: boolean; medical_exam: MedicalExam; status: string }>(
+      `/api/candidates/${id}/medical-exam`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  recordMedicalResult: (id: string, body: { result: "apto" | "no_apto"; notes?: string }) =>
+    req<{ status: string; notified: boolean }>(`/api/candidates/${id}/medical-result`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  setStartDate: (id: string, startDate: string) =>
+    req<{ start_date: string }>(`/api/candidates/${id}/start-date`, {
+      method: "POST",
+      body: JSON.stringify({ start_date: startDate }),
+    }),
+  sendOnboarding: (id: string) =>
+    req<{ email_sent: boolean; telegram_sent: boolean; onboarding: Onboarding }>(
+      `/api/candidates/${id}/onboarding`,
+      { method: "POST" },
+    ),
+  setOnboardingKit: (vacancyId: string, kit: OnboardingKit) =>
+    req<{ onboarding_kit: OnboardingKit }>(`/api/vacancies/${vacancyId}/onboarding-kit`, {
+      method: "PUT",
+      body: JSON.stringify(kit),
     }),
   markAttendance: (
     id: string,
@@ -432,6 +567,7 @@ export const api = {
     req<SyncReport>(`/api/vacancies/${vacancyId}/sync-applicants`, { method: "POST" }),
   getVacancyMetrics: (vacancyId: string) => req<Metrics>(`/api/vacancies/${vacancyId}/metrics`),
   getMetrics: () => req<Metrics>("/api/metrics"),
+  getCosts: (days: number) => req<CostsReport>(`/api/costs?days=${days}`),
   documentUrl: (candidateId: string, type: string) =>
     `${BASE}/api/candidates/${candidateId}/documents/${type}`,
   getAutoContact: () => req<AutoContactConfig>("/api/settings/auto-contact"),
@@ -452,6 +588,9 @@ export const api = {
   getQualityAlerts: () => req<QualityAlertsConfig>("/api/settings/quality-alerts"),
   setQualityAlerts: (body: QualityAlertsConfig) =>
     req<QualityAlertsConfig>("/api/settings/quality-alerts", { method: "PUT", body: JSON.stringify(body) }),
+  getMedicalExamSettings: () => req<MedicalExamConfig>("/api/settings/medical-exam"),
+  setMedicalExamSettings: (body: MedicalExamConfig) =>
+    req<MedicalExamConfig>("/api/settings/medical-exam", { method: "PUT", body: JSON.stringify(body) }),
   // Observabilidad (solo admin).
   getOpsAlerts: () => req<{ alerts: OpsAlert[] }>("/api/ops/alerts"),
   getAudit: () => req<AuditEntry[]>("/api/audit"),
@@ -555,29 +694,6 @@ export const semaphoreMeta: Record<Semaphore, { emoji: string; label: string; co
   red: { emoji: "🔴", label: "No avanza", color: "#dc2626" },
 };
 
-export const statusLabel: Record<string, string> = {
-  pending: "Pendiente",
-  sourced: "Importado",
-  prescreen_passed: "Apto · por contactar",
-  prescreen_rejected: "Descartado en CV",
-  invited: "Contactado",
-  consented: "Aceptó",
-  interviewing: "En entrevista",
-  finished: "Entrevista completa",
-  scheduling: "Coordinando con RR.HH.",
-  scheduled: "Entrevista RR.HH. agendada",
-  lead_scheduling: "Coordinando con líder",
-  lead_scheduled: "Entrevista con líder agendada",
-  mgr_scheduling: "Coordinando con gerencia",
-  mgr_scheduled: "Entrevista con gerencia agendada",
-  hired: "Contratado",
-  advanced: "Avanzado",
-  rejected: "Rechazado",
-  no_show: "No asistió",
-  declined: "Declinó",
-  no_response: "No respondió",
-};
-
 export const verdictMeta: Record<Verdict, { label: string; color: string }> = {
   pass: { label: "Apto", color: "#16a34a" },
   borderline: { label: "Dudoso", color: "#d97706" },
@@ -600,7 +716,9 @@ export const phaseMeta: Record<string, { label: string; color: string; step: num
   lead_scheduled: { label: "Entrevista con líder agendada", color: "#16a34a", step: 6 },
   mgr_scheduling: { label: "Coordinando con gerencia", color: "#d97706", step: 7 },
   mgr_scheduled: { label: "Entrevista con gerencia agendada", color: "#16a34a", step: 7 },
-  hired: { label: "Contratado", color: "#16a34a", step: 8 },
+  medical_pending: { label: "Examen médico · por programar", color: "#d97706", step: 8 },
+  medical_scheduled: { label: "Examen médico agendado", color: "#16a34a", step: 8 },
+  hired: { label: "Contratado", color: "#16a34a", step: 9 },
   rejected: { label: "Rechazado", color: "#dc2626", step: -1 },
   no_show: { label: "No asistió", color: "#dc2626", step: -1 },
   prescreen_rejected: { label: "Descartado en CV", color: "#dc2626", step: -1 },
@@ -619,5 +737,6 @@ export const PHASE_STEPS: { key: string; label: string }[] = [
   { key: "scheduled", label: "RR.HH." },
   { key: "lead_scheduled", label: "Líder" },
   { key: "mgr_scheduled", label: "Gerencia" },
+  { key: "medical_scheduled", label: "Ex. médico" },
   { key: "hired", label: "Decisión" },
 ];

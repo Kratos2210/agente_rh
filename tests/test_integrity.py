@@ -61,6 +61,29 @@ def test_evaluate_confident_on_success():
     assert r.low_confidence is False and r.score == 80.0
 
 
+# ── No repreguntar a una respuesta ya fuerte (techo de score) ─────────────────
+
+class _FollowUpLLM:
+    """Siempre pide follow-up; el score es parametrizable (simula un modelo que repregunta de más)."""
+    def __init__(self, score: int):
+        self._score = score
+
+    def complete(self, prompt: str) -> str:
+        return json.dumps({"score": self._score, "justification": "ok", "needs_follow_up": True,
+                           "follow_up_question": "¿Podrías dar un ejemplo?", "ack": "gracias"})
+
+
+def test_no_followup_when_answer_already_strong():
+    # Respuesta fuerte (≥80): aunque el modelo pida follow-up, se suprime.
+    r = evaluate_answer(_FollowUpLLM(88), question="q", criterion="c", answer="algo", can_follow_up=True)
+    assert r.needs_follow_up is False and r.follow_up_question == ""
+    # Borde: exactamente 80 ya es "buena" → sin repregunta.
+    assert evaluate_answer(_FollowUpLLM(80), question="q", criterion="c", answer="a", can_follow_up=True).needs_follow_up is False
+    # Respuesta media (<80): el follow-up sí procede.
+    r2 = evaluate_answer(_FollowUpLLM(55), question="q", criterion="c", answer="algo", can_follow_up=True)
+    assert r2.needs_follow_up is True and r2.follow_up_question
+
+
 # ── Defensa en profundidad contra inyección de eco (red teaming · paso 5) ─────
 
 def test_is_echo_injection_detects_and_ignores_genuine():
@@ -105,6 +128,19 @@ def test_scorecard_review_required():
     ok = [{"score": 80, "weight": 1.0}, {"score": 70, "weight": 1.0}]
     sc2 = build_scorecard(ok, vacancy_title="V", green_min=75, yellow_min=50)
     assert sc2["review_required"] is False
+
+
+def test_scorecard_review_required_on_red_band_criterion():
+    # Inconsistencia interna: una respuesta en banda roja (< yellow_min) aunque el total pase
+    # → alerta a RR.HH. (un "no tengo un caso" no debe colarse en verde por el peso de las demás).
+    answers = [
+        {"score": 95, "weight": 3.0},   # respuestas fuertes arrastran el total a verde
+        {"score": 92, "weight": 3.0},
+        {"score": 15, "weight": 1.0},   # no-respuesta / criterio no cumplido
+    ]
+    sc = build_scorecard(answers, vacancy_title="V", green_min=75, yellow_min=50)
+    assert sc["semaphore"] == "green"          # el total pasa…
+    assert sc["review_required"] is True       # …pero se marca para revisión por la banda roja
 
 
 # ── Integración: respuesta vacía repregunta sin avanzar ───────────────────────

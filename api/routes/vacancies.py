@@ -57,6 +57,9 @@ class VacancyIn(BaseModel):
     benefits: list[str] = []
     portals: list[str] = []                     # ej. ["bumeran", "linkedin"]
     auto_agent: bool = True
+    # Kit de onboarding (auditoría v3): {welcome, materials: [{title, url?, note?}]} —
+    # materiales/guías del primer día que el scheduler envía en la fecha de ingreso.
+    onboarding_kit: dict[str, Any] = {}
     questions: list[QuestionIn] = []
 
 
@@ -128,6 +131,35 @@ def update_vacancy(
     repo.replace_vacancy_questions(vacancy_id, questions)
     _audit(user, "vacancy.update", entity_type="vacancy", entity_id=vacancy_id, summary=vacancy.get("title", ""))
     return {**vacancy, "questions": repo.get_vacancy_questions(vacancy_id)}
+
+
+class OnboardingMaterialIn(BaseModel):
+    """Un material/guía del kit de onboarding."""
+    title: str
+    url: str = ""
+    note: str = ""
+
+
+class OnboardingKitIn(BaseModel):
+    """Kit de onboarding de la vacante (auditoría v3): bienvenida + materiales del primer día."""
+    welcome: str = ""
+    materials: list[OnboardingMaterialIn] = []
+
+
+@router.put("/api/vacancies/{vacancy_id}/onboarding-kit")
+def put_onboarding_kit(
+    vacancy_id: str,
+    payload: OnboardingKitIn,
+    user: dict[str, Any] = Depends(require_role("recruiter")),
+) -> dict[str, Any]:
+    """Actualiza SOLO el kit de onboarding (endpoint dedicado: el PUT completo de la
+    vacante reemplaza también las preguntas — demasiado radio para editar el kit)."""
+    _require_vacancy_in_tenant(vacancy_id, user)
+    kit = payload.model_dump()
+    repo.update_vacancy(vacancy_id, {"onboarding_kit": kit})
+    _audit(user, "vacancy.onboarding_kit", entity_type="vacancy", entity_id=vacancy_id,
+           summary=f"{len(kit['materials'])} material(es)")
+    return {"onboarding_kit": kit}
 
 
 @router.get("/api/vacancies/{vacancy_id}/candidates")

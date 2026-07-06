@@ -56,6 +56,8 @@ export default function CandidatePage() {
   const [feedback, setFeedback] = useState("");
   const [nextModality, setNextModality] = useState<"virtual" | "onsite">("onsite");
   const [exam, setExam] = useState({ link: "", code: "", key: "" });
+  const [medical, setMedical] = useState({ clinic: "", scheduled_at: "", address: "", instructions: "" });
+  const [startDateInput, setStartDateInput] = useState("");
 
   const load = () => {
     if (!id) return;
@@ -127,6 +129,41 @@ export default function CandidatePage() {
       load();
     } catch (e) { flash("Error: " + errorMessage(e)); } finally { setActing(false); }
   };
+  const sendMedical = async () => {
+    if (!medical.clinic.trim() || !medical.scheduled_at.trim()) { flash("Faltan la clínica y la fecha"); return; }
+    setActing(true);
+    try {
+      const r = await api.sendMedicalExam(id, medical);
+      flash(r.email_sent || r.telegram_sent ? "Cita del examen médico enviada ✅" : "Cita registrada · envíos encolados (revisa SMTP/Telegram)");
+      setMedical({ clinic: "", scheduled_at: "", address: "", instructions: "" });
+      load();
+    } catch (e) { flash("Error: " + errorMessage(e)); } finally { setActing(false); }
+  };
+  const recordResult = async (result: "apto" | "no_apto") => {
+    setActing(true);
+    try {
+      const r = await api.recordMedicalResult(id, { result });
+      flash(r.status === "hired" ? "¡Apto! Contratado 🎉 · candidato notificado." : "No apto · proceso cerrado y candidato notificado.");
+      load();
+    } catch (e) { flash("Error: " + errorMessage(e)); } finally { setActing(false); }
+  };
+  const saveStartDate = async () => {
+    if (!startDateInput.trim()) { flash("Elige la fecha de ingreso"); return; }
+    setActing(true);
+    try {
+      await api.setStartDate(id, startDateInput.trim());
+      flash("Fecha de ingreso guardada ✅ · el kit se enviará ese día.");
+      load();
+    } catch (e) { flash("Error: " + errorMessage(e)); } finally { setActing(false); }
+  };
+  const sendKit = async () => {
+    setActing(true);
+    try {
+      const r = await api.sendOnboarding(id);
+      flash(r.email_sent || r.telegram_sent ? "Kit de onboarding enviado ✅" : "Kit registrado · envíos encolados (revisa SMTP/Telegram)");
+      load();
+    } catch (e) { flash("Error: " + errorMessage(e)); } finally { setActing(false); }
+  };
   const doAttendance = async (stage: MeetingStage, attended: "attended" | "no_show", reschedule = false) => {
     setActing(true);
     try {
@@ -142,6 +179,7 @@ export default function CandidatePage() {
       flash(
         decision === "rejected" ? "Candidatura rechazada · candidato notificado."
           : r.status === "hired" ? "¡Contratado! 🎉 Candidato notificado."
+          : r.status === "medical_pending" ? "Aprobado · sigue el examen médico 🩺 (programa la cita)"
           : "Aprobado · coordinando la siguiente entrevista por Telegram 📅",
       );
       setFeedback("");
@@ -169,6 +207,10 @@ export default function CandidatePage() {
   // Fase 1 (RR.HH.): el examen psicológico se comparte mientras el candidato esté evaluado o coordinando/agendado con RR.HH.
   const inPhase1 = ["finished", "scheduling", "scheduled"].includes(candidate.status);
   const isHired = candidate.status === "hired";
+  const inMedical = ["medical_pending", "medical_scheduled"].includes(candidate.status);
+  const medicalExam = data.medical_exam ?? null;
+  const onboardingSent = data.onboarding ?? null;
+  const startDate = data.start_date ?? null;
   const canContact = candidate.status === "prescreen_passed";
   const waiting = ["invited", "consented", "interviewing"].includes(candidate.status) && !scorecard;
   const green = thresholds?.green_min ?? 75;
@@ -211,6 +253,71 @@ export default function CandidatePage() {
                 <input value={exam.key} onChange={(e) => setExam({ ...exam, key: e.target.value })} placeholder="Clave de acceso" style={inputStyle} />
               </div>
               <button onClick={sendExam} disabled={acting} style={{ marginTop: 12, padding: "10px 18px", borderRadius: 10, background: "var(--ac)", color: "var(--ac-ink)", fontWeight: 700, border: "none", cursor: "pointer", opacity: acting ? 0.6 : 1 }}>Enviar examen por correo</button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Examen médico pre-contratación (auditoría v3): RR.HH. programa fecha + clínica */}
+      {(inMedical || (isHired && medicalExam)) && (
+        <div style={{ ...panel, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontWeight: 700, color: "#eef2f9", marginBottom: 4 }}>🩺 Examen médico ocupacional</div>
+          {medicalExam ? (
+            <div style={{ fontSize: 13, color: "#aeb8cc", marginTop: 8 }}>
+              ✅ Cita enviada el {formatWhen(medicalExam.sent_at)} {medicalExam.sent_by ? `por ${medicalExam.sent_by}` : ""}.
+              <div style={{ marginTop: 6, fontSize: 12.5, color: "var(--muted)" }}>
+                🏥 {medicalExam.clinic || "—"} · 📍 {medicalExam.address || "—"} · 🗓 {medicalExam.scheduled_at || "—"}
+                {medicalExam.instructions ? ` · ℹ️ ${medicalExam.instructions}` : ""}
+              </div>
+              {medicalExam.result ? (
+                <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: medicalExam.result === "apto" ? "#34d399" : medicalExam.result === "no_apto" ? "#f87171" : "#94a3b8" }}>
+                  Resultado: {medicalExam.result === "apto" ? "Apto ✅" : medicalExam.result === "no_apto" ? "No apto ✕" : medicalExam.result}
+                  {medicalExam.result_by ? <span style={{ color: "var(--muted)", fontWeight: 500 }}> · registrado por {medicalExam.result_by}</span> : null}
+                </div>
+              ) : inMedical ? (
+                <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center" }}>
+                  <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Registrar resultado:</span>
+                  <button onClick={() => recordResult("apto")} disabled={acting} style={{ ...btnPrimary, opacity: acting ? 0.6 : 1 }}>Apto → Contratar</button>
+                  <button onClick={() => recordResult("no_apto")} disabled={acting} style={{ ...btnDanger, opacity: acting ? 0.6 : 1 }}>No apto → Cerrar</button>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: 12.5, color: "var(--muted)", margin: "4px 0 12px" }}>Programa la cita (fecha + clínica): se notificará al candidato por correo y Telegram. Con el resultado apto se concreta la contratación.</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <input value={medical.clinic} onChange={(e) => setMedical({ ...medical, clinic: e.target.value })} placeholder="Clínica (p. ej. Clínica Internacional)" style={inputStyle} />
+                <input value={medical.scheduled_at} onChange={(e) => setMedical({ ...medical, scheduled_at: e.target.value })} placeholder="Fecha y hora (p. ej. lunes 13/07, 9:00 am)" style={inputStyle} />
+                <input value={medical.address} onChange={(e) => setMedical({ ...medical, address: e.target.value })} placeholder="Dirección de la clínica" style={inputStyle} />
+                <input value={medical.instructions} onChange={(e) => setMedical({ ...medical, instructions: e.target.value })} placeholder="Indicaciones (ayuno, documentos…)" style={inputStyle} />
+              </div>
+              <button onClick={sendMedical} disabled={acting} style={{ marginTop: 12, padding: "10px 18px", borderRadius: 10, background: "var(--ac)", color: "var(--ac-ink)", fontWeight: 700, border: "none", cursor: "pointer", opacity: acting ? 0.6 : 1 }}>Enviar cita por correo y Telegram</button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Onboarding (auditoría v3): fecha de ingreso + kit de materiales del primer día */}
+      {isHired && (
+        <div style={{ ...panel, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontWeight: 700, color: "#eef2f9", marginBottom: 4 }}>🚀 Onboarding</div>
+          {onboardingSent?.sent_at ? (
+            <div style={{ fontSize: 13, color: "#aeb8cc", marginTop: 8 }}>
+              ✅ Kit enviado el {formatWhen(onboardingSent.sent_at)} {onboardingSent.sent_by ? `por ${onboardingSent.sent_by}` : ""}.
+              {startDate && <div style={{ marginTop: 4, fontSize: 12.5, color: "var(--muted)" }}>Fecha de ingreso: {startDate}</div>}
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: 12.5, color: "var(--muted)", margin: "4px 0 12px" }}>
+                {startDate
+                  ? `Fecha de ingreso: ${startDate} — el kit de la vacante se enviará automáticamente ese día (correo + Telegram).`
+                  : "Fija la fecha de ingreso: el kit de onboarding de la vacante se enviará automáticamente ese día."}
+              </div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <input type="date" value={startDateInput} onChange={(e) => setStartDateInput(e.target.value)} style={inputStyle} />
+                <button onClick={saveStartDate} disabled={acting} style={{ ...btnGhost, opacity: acting ? 0.6 : 1 }}>{startDate ? "Cambiar fecha" : "Guardar fecha de ingreso"}</button>
+                <button onClick={sendKit} disabled={acting} style={{ ...btnPrimary, opacity: acting ? 0.6 : 1 }}>Enviar kit ahora</button>
+              </div>
             </>
           )}
         </div>

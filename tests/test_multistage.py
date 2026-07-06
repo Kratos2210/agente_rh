@@ -207,6 +207,8 @@ def test_advance_stage_lead_approve_forces_manager_onsite(monkeypatch):
 def test_advance_stage_manager_approve_hires(monkeypatch):
     _patch_candidate(monkeypatch, status="mgr_scheduled")
     monkeypatch.setattr(main.repo, "save_stage_feedback", lambda row: row)
+    # Examen médico apagado (default): aprobar gerencia contrata directo (retrocompat).
+    monkeypatch.setattr(main.repo, "get_app_setting", lambda *a, **k: {"enabled": False})
     updated = {}
     monkeypatch.setattr(main.repo, "update_candidate", lambda cid, p: updated.update(p) or p)
     notified = {}

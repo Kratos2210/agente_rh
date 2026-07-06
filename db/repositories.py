@@ -327,6 +327,51 @@ def list_candidate_rows(
     return (res.data or [], res.count or 0)
 
 
+# Estados del "cierre" del proceso (post-gerencia): examen médico → contratado. La vista
+# Onboarding los agrupa por sub-estado (fecha de ingreso / kit enviado) usando los campos extra.
+CLOSING_STATUSES = ("medical_pending", "medical_scheduled", "hired")
+
+# Columnas del cierre: las livianas + los jsonb que la vista necesita (start_date/onboarding/
+# medical_exam) + el score embebido (paridad con las tarjetas). NO se añaden a la ruta caliente
+# del pipeline (`_CANDIDATE_ROW_COLS`) para no encarecer ese listado.
+_CLOSING_ROW_COLS = (
+    "id,name,status,channel,source,created_at,vacancy_id,start_date,onboarding,medical_exam,prescreen,"
+    "conversations(id,created_at,scorecards(semaphore,total_score))"
+)
+
+
+def list_closing_candidates(
+    vacancy_ids: list[str],
+    *,
+    search: str = "",
+    limit: Optional[int] = None,
+    offset: int = 0,
+) -> tuple[list[dict[str, Any]], int]:
+    """Candidatos en el cierre del proceso (médico/contratado) de las vacantes dadas + total.
+
+    Espejo de `list_candidate_rows` pero con las columnas del onboarding y filtrado a
+    `CLOSING_STATUSES`. `vacancy_ids` debe incluir vacantes cerradas (una vacante se cierra al
+    llenarse; su contratado sigue en onboarding) — por eso el endpoint usa `list_vacancies`
+    sin el filtro `status="open"`."""
+    if not vacancy_ids:
+        return ([], 0)
+    q = (
+        get_supabase()
+        .table("candidates")
+        .select(_CLOSING_ROW_COLS, count="exact")
+        .in_("vacancy_id", vacancy_ids)
+        .in_("status", list(CLOSING_STATUSES))
+        .order("created_at", desc=True)
+    )
+    if search:
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        q = q.ilike("name", f"%{escaped}%")
+    if limit is not None:
+        q = q.range(offset, offset + limit - 1)
+    res = q.execute()
+    return (res.data or [], res.count or 0)
+
+
 def count_candidates_by_status(vacancy_ids: list[str]) -> dict[str, dict[str, int]]:
     """{vacancy_id: {status: n}} en UNA consulta liviana de 2 columnas (sin N+1)."""
     if not vacancy_ids:
@@ -1332,16 +1377,26 @@ def delete_candidate(candidate_id: str) -> None:
 
 
 def anonymize_candidate(candidate_id: str) -> dict[str, Any]:
-    """Borra la PII del candidato conservando la fila (para métricas agregadas)."""
-    return update_candidate(
-        candidate_id,
-        {
-            "name": "",
-            "channel_user_id": f"anon-{candidate_id[:8]}",
-            "cv_profile": {},
-            "documents": [],
-        },
-    )
+    """Borra la PII del candidato conservando la fila (para métricas agregadas).
+
+    Incluye los exámenes (auditoría v3): las credenciales del psicológico y la cita +
+    RESULTADO del médico (dato sensible de salud, Ley 29733) no deben sobrevivir a la
+    retención."""
+    payload = {
+        "name": "",
+        "channel_user_id": f"anon-{candidate_id[:8]}",
+        "cv_profile": {},
+        "documents": [],
+        "psych_exam": None,
+        "medical_exam": None,
+        "onboarding": None,
+        "start_date": None,
+    }
+    try:
+        return update_candidate(candidate_id, payload)
+    except Exception:  # noqa: BLE001 — retro-compat: entorno sin la migración 0027
+        legacy = {k: v for k, v in payload.items() if k not in ("medical_exam", "onboarding", "start_date")}
+        return update_candidate(candidate_id, legacy)
 
 
 def list_candidates_by_statuses(statuses: list[str]) -> list[dict[str, Any]]:

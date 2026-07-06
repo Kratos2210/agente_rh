@@ -70,6 +70,12 @@ _HANDLERS: dict[str, Callable[[Settings, dict[str, Any]], None]] = {
     "psych_exam_email": _handle_email,
     # Correo operativo genérico (O-2 presupuesto, O-4 SLAs): payload = recipients/subject/text/html.
     "ops_email": _handle_email,
+    # Cierre del proceso (auditoría v3): cita del examen médico + kit de onboarding.
+    "medical_exam_email": _handle_email,
+    "onboarding_email": _handle_email,
+    # Texto arbitrario al candidato por Telegram (médico/onboarding): kind propio para
+    # trazabilidad en /observabilidad (candidate_notify queda solo para decisiones).
+    "candidate_text": _handle_telegram,
 }
 
 
@@ -264,6 +270,67 @@ def deliver_candidate_notify(
         "candidate_notify",
         {"chat_id": str(chat), "text": render_message(decision, candidate.get("name") or "")},
         tenant_id=tenant_id,
+        candidate_id=candidate.get("id"),
+        conversation_id=conversation_id,
+    )
+
+
+def deliver_candidate_text(
+    settings: Settings, candidate: dict, text: str, *, conversation_id: Optional[str] = None, tenant_id: Optional[str] = None
+) -> bool:
+    """Entrega/encola un texto arbitrario al candidato por Telegram (cita médica, onboarding).
+
+    Mismo gate que deliver_candidate_notify; kind propio `candidate_text` para trazabilidad."""
+    from notifications.candidate import can_send_telegram
+
+    chat = candidate.get("channel_user_id")
+    if candidate.get("channel") != CHANNEL_TELEGRAM or not can_send_telegram(settings, chat):
+        return False
+    return deliver(
+        settings,
+        "candidate_text",
+        {"chat_id": str(chat), "text": text},
+        tenant_id=tenant_id,
+        candidate_id=candidate.get("id"),
+        conversation_id=conversation_id,
+    )
+
+
+def deliver_medical_exam(
+    settings: Settings, vacancy: dict, candidate: dict, exam: dict, *, conversation_id: Optional[str] = None
+) -> bool:
+    """Entrega/encola el correo de la cita del examen médico. False si SMTP/email sin configurar."""
+    from notifications.email import build_medical_exam_email
+
+    built = build_medical_exam_email(settings, vacancy, candidate, exam)
+    if built is None:
+        return False
+    recipients, subject, text, html = built
+    return deliver(
+        settings,
+        "medical_exam_email",
+        {"recipients": recipients, "subject": subject, "text": text, "html": html},
+        tenant_id=vacancy.get("tenant_id"),
+        candidate_id=candidate.get("id"),
+        conversation_id=conversation_id,
+    )
+
+
+def deliver_onboarding(
+    settings: Settings, vacancy: dict, candidate: dict, kit: dict, *, conversation_id: Optional[str] = None
+) -> bool:
+    """Entrega/encola el correo del kit de onboarding. False si SMTP/email sin configurar."""
+    from notifications.email import build_onboarding_email
+
+    built = build_onboarding_email(settings, vacancy, candidate, kit)
+    if built is None:
+        return False
+    recipients, subject, text, html = built
+    return deliver(
+        settings,
+        "onboarding_email",
+        {"recipients": recipients, "subject": subject, "text": text, "html": html},
+        tenant_id=vacancy.get("tenant_id"),
         candidate_id=candidate.get("id"),
         conversation_id=conversation_id,
     )

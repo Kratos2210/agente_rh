@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Shell, Card, BackLink } from "@/components/Shell";
-import { api, errorMessage, AutoContactConfig, InactivityConfig, LlmBudgetConfig, LlmPricingConfig, QualityAlertsConfig, SchedulingConfig, SlaAlertsConfig } from "@/lib/api";
+import { api, errorMessage, AutoContactConfig, InactivityConfig, LlmBudgetConfig, LlmPricingConfig, MedicalExamConfig, QualityAlertsConfig, SchedulingConfig, SlaAlertsConfig } from "@/lib/api";
 
 // Fila editable del precio de un modelo (los montos se editan como texto y se parsean al guardar).
 type PriceRow = { model: string; input: string; output: string };
@@ -34,6 +34,9 @@ export default function ConfiguracionPage() {
   const [quality, setQuality] = useState<QualityAlertsConfig | null>(null);
   const [savingQuality, setSavingQuality] = useState(false);
   const [msgQuality, setMsgQuality] = useState("");
+  const [medical, setMedical] = useState<MedicalExamConfig | null>(null);
+  const [savingMedical, setSavingMedical] = useState(false);
+  const [msgMedical, setMsgMedical] = useState("");
 
   useEffect(() => {
     api
@@ -59,7 +62,23 @@ export default function ConfiguracionPage() {
     api.getLlmBudget().then(setBudget).catch((e) => setError(errorMessage(e)));
     api.getSlaAlerts().then(setSla).catch((e) => setError(errorMessage(e)));
     api.getQualityAlerts().then(setQuality).catch((e) => setError(errorMessage(e)));
+    api.getMedicalExamSettings().then(setMedical).catch((e) => setError(errorMessage(e)));
   }, []);
+
+  const saveMedical = async () => {
+    if (!medical) return;
+    setSavingMedical(true);
+    setMsgMedical("");
+    try {
+      const saved = await api.setMedicalExamSettings(medical);
+      setMedical(saved);
+      setMsgMedical("Configuración guardada ✅");
+    } catch (e) {
+      setMsgMedical("Error: " + errorMessage(e));
+    } finally {
+      setSavingMedical(false);
+    }
+  };
 
   const saveSla = async () => {
     if (!sla) return;
@@ -421,6 +440,31 @@ export default function ConfiguracionPage() {
               {savingSched ? "Guardando…" : "Guardar"}
             </button>
             {msgSched && <span className="text-sm" style={{ color: "var(--accent)" }}>{msgSched}</span>}
+          </div>
+        </Card>
+      )}
+
+      {medical && (
+        <Card style={{ marginTop: 16 }}>
+          <h2 className="font-semibold mb-1">Examen médico pre-contratación</h2>
+          <p className="text-sm mb-4" style={{ color: "var(--muted)" }}>
+            Cuando está activo, aprobar la entrevista con gerencia NO contrata directo: el candidato
+            pasa a “Examen médico”, RR.HH. programa la cita (fecha + clínica, notificada por correo y
+            Telegram) y con el resultado apto se concreta la contratación. Apagado, el proceso cierra
+            en gerencia como siempre.
+          </p>
+          <label className="flex items-center gap-3 mb-4 cursor-pointer">
+            <input type="checkbox" checked={medical.enabled}
+              onChange={(e) => setMedical({ ...medical, enabled: e.target.checked })}
+              style={{ width: 18, height: 18, accentColor: "var(--accent)" }} />
+            <span className="text-sm font-medium">Exigir examen médico antes de contratar</span>
+          </label>
+          <div className="mt-2 flex items-center gap-3">
+            <button onClick={saveMedical} disabled={savingMedical} className="px-4 py-2 rounded-lg font-medium"
+              style={{ background: "var(--accent)", color: "var(--accent-ink)", opacity: savingMedical ? 0.6 : 1 }}>
+              {savingMedical ? "Guardando…" : "Guardar"}
+            </button>
+            {msgMedical && <span className="text-sm" style={{ color: "var(--accent)" }}>{msgMedical}</span>}
           </div>
         </Card>
       )}
