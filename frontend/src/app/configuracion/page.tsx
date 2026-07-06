@@ -45,6 +45,7 @@ export default function ConfiguracionPage() {
   const [msgProv, setMsgProv] = useState("");
   const [testingProv, setTestingProv] = useState(false);
   const [testMsg, setTestMsg] = useState("");
+  const [modelCustom, setModelCustom] = useState(false); // "Otro modelo…" forzado desde el select
 
   useEffect(() => {
     api
@@ -89,6 +90,7 @@ export default function ConfiguracionPage() {
     if (!prov) return;
     const preset = provCatalog?.[id];
     // Al cambiar de proveedor, autocompleta la base URL del preset (editable solo en custom).
+    setModelCustom(false); // el nuevo proveedor trae su propia lista de modelos
     setProv({ ...prov, provider: id, base_url: preset?.base_url ?? "" });
   };
 
@@ -579,19 +581,47 @@ export default function ConfiguracionPage() {
             </div>
             <div>
               <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>Modelo</label>
-              <input
-                value={prov.model}
-                list="llm-provider-models"
-                onChange={(e) => setProv({ ...prov, model: e.target.value })}
-                placeholder="qwen/qwen3-32b"
-                className="px-3 py-2 rounded-lg w-full"
-                style={inputStyle}
-              />
-              <datalist id="llm-provider-models">
-                {(provCatalog[prov.provider]?.models || []).map((m) => (
-                  <option key={m.id} value={m.id} />
-                ))}
-              </datalist>
+              {(() => {
+                const models = provCatalog[prov.provider]?.models || [];
+                // Modo "otro modelo": forzado por el select, o modelo cargado que no está en la lista,
+                // o proveedor sin sugerencias (custom) — en todos esos casos se muestra el input libre.
+                const inList = models.some((m) => m.id === prov.model);
+                const showCustom = modelCustom || models.length === 0 || (prov.model !== "" && !inList);
+                return (
+                  <>
+                    {models.length > 0 && (
+                      <select
+                        value={showCustom ? "__custom__" : prov.model}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "__custom__") {
+                            setModelCustom(true);
+                          } else {
+                            setModelCustom(false);
+                            setProv({ ...prov, model: v });
+                          }
+                        }}
+                        className="px-3 py-2 rounded-lg w-full"
+                        style={inputStyle}
+                      >
+                        {models.map((m) => (
+                          <option key={m.id} value={m.id}>{m.id}</option>
+                        ))}
+                        <option value="__custom__">Otro modelo…</option>
+                      </select>
+                    )}
+                    {showCustom && (
+                      <input
+                        value={prov.model}
+                        onChange={(e) => setProv({ ...prov, model: e.target.value })}
+                        placeholder="qwen/qwen3-32b"
+                        className="px-3 py-2 rounded-lg w-full"
+                        style={{ ...inputStyle, marginTop: models.length > 0 ? 8 : 0 }}
+                      />
+                    )}
+                  </>
+                );
+              })()}
             </div>
             <div>
               <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>
@@ -619,6 +649,11 @@ export default function ConfiguracionPage() {
                 className="px-3 py-2 rounded-lg w-full"
                 style={inputStyle}
               />
+              <datalist id="llm-provider-models">
+                {(provCatalog[prov.provider]?.models || []).map((m) => (
+                  <option key={m.id} value={m.id} />
+                ))}
+              </datalist>
             </div>
             <div>
               <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>
