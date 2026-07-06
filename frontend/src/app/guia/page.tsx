@@ -34,7 +34,7 @@ const GUIA_CSS = "#guia-doc{--bg:#0a0e16; --surface:#0f1524; --surface2:#141b2d;
 const GUIA_HTML = `
 <header class="hero">
   <div class="wrap">
-    <div class="tag">hira · Guía end-to-end · v9 · para todo público (edición de estudio · documento vivo)</div>
+    <div class="tag">hira · Guía end-to-end · v9.1 · para todo público (edición de estudio · documento vivo)</div>
     <h1>Agente de Selección de Talento — Guía completa</h1>
     <p>Un asistente con inteligencia artificial que <b>entrevista candidatos por Telegram</b>, los
     <b>evalúa</b> contra los requisitos del puesto, le entrega a Recursos Humanos un <b>informe con
@@ -80,6 +80,7 @@ const GUIA_HTML = `
   <a href="#troubleshooting">17.5 · Troubleshooting</a>
   <a href="#glosario">18 · Glosario</a>
   <a href="#vivo">19 · Documento vivo</a>
+  <a href="#sdd">20 · Specs (SDD)</a>
 </div></nav>
 
 <main class="wrap">
@@ -491,6 +492,8 @@ const GUIA_HTML = `
       <tr><td class="file">tests/</td><td>Pruebas automáticas (468 casos).</td></tr>
       <tr><td class="file">scripts/</td><td>Herramientas de línea de comandos: demo sin infra, verificación end-to-end multi-etapa, suite golden, juez de fundamentación, siembra de la base de conocimiento (RAG) y cliente MCP de ejemplo.</td></tr>
       <tr><td class="file">docs/</td><td>Auditorías (seguridad, e2e), runbook de secretos, decisiones de arquitectura (<span class="file">arquitectura.md</span>), guía de despliegue (<span class="file">despliegue.md</span>) y el mapa de conformidad con la rúbrica (<span class="file">mapa_rubrica.md</span>).</td></tr>
+      <tr><td class="file">spec/</td><td>Biblioteca de dominio: 22 especificaciones (una por dominio) con decisiones, implementación, patrones reutilizables, pendientes y trazabilidad. El "porqué" del sistema — ver <a href="#sdd">sección 20</a>.</td></tr>
+      <tr><td class="file">openspec/</td><td>Capa normativa + workflow de cambios (marco <b>OpenSpec</b>): 13 capability specs con requisitos verificables y las propuestas de cambio en <span class="file">changes/</span>. El "qué debe cumplir" — ver <a href="#sdd">sección 20</a>.</td></tr>
     </tbody>
   </table>
 
@@ -2446,6 +2449,8 @@ uv run python scripts/demo.py --alberto</pre>
     <li><b>Para cuestionar:</b> cada afirmación técnica cita su archivo (<code>archivo:función</code>).
     Si dudas de algo, abre ese archivo y compara — la guía se escribió verificando contra el código, y
     ese es también el método para auditarla.</li>
+    <li><b>Para cambiar el sistema:</b> las mejoras entran por el workflow spec-driven de la
+    <a href="#sdd">sección 20</a> (propuesta en <span class="file">openspec/</span> antes que código).</li>
   </ul>
 
   <h3>El contrato de mantenimiento (checklist al agregar un feature)</h3>
@@ -2462,6 +2467,7 @@ uv run python scripts/demo.py --alberto</pre>
   <table>
     <thead><tr><th>Versión</th><th>Fecha</th><th>Qué cambió</th></tr></thead>
     <tbody>
+      <tr><td class="mono">v9.1</td><td class="mono">2026-07-06</td><td>Sección 20: Spec-Driven Development — las dos capas (spec/ 22 docs de dominio + openspec/ 13 capability specs), ciclo /opsx de un cambio, ejemplo vivo y reglas de uso; filas spec/ y openspec/ en el mapa del código.</td></tr>
       <tr><td class="mono">v9</td><td class="mono">2026-07-06</td><td>Edición de estudio: sección Fundamentos (analogías + LangChain vs LangGraph), ruta de estudio, bloques "Errores comunes", esta sección. Contenido: BYOK + endurecimiento, examen médico + onboarding, quick wins v4. Números: 468 tests · 64 endpoints · 27 migraciones · 98 parámetros.</td></tr>
       <tr><td class="mono">v8</td><td class="mono">2026-07-04</td><td>Review end-to-end: deep-dives (LangSmith sin PII, intuición del RAG, MCP, seguridad con código) + pasada de exactitud de todos los números. Marca "hira".</td></tr>
       <tr><td class="mono">v7</td><td class="mono">2026-07-03</td><td>Roadmap v2: few-shot, red teaming como proceso, gestión de usuarios. Referencia completa de endpoints + diagrama ER + troubleshooting 17.5.</td></tr>
@@ -2476,10 +2482,89 @@ uv run python scripts/demo.py --alberto</pre>
   <code>PROMPT_VERSION</code> en CI: si cambias la cosa, versionas la descripción de la cosa.</div>
 </section>
 
+<!-- 20 -->
+<section id="sdd">
+  <h2><span class="num">20</span>Spec-Driven Development — las especificaciones (spec/ y openspec/)</h2>
+  <div class="simple">🟢 <b>En simple:</b> además de esta guía, el repositorio tiene dos "manuales"
+  complementarios que gobiernan los cambios futuros: <span class="file">openspec/</span> dice <b>qué debe
+  cumplir</b> el sistema (requisitos verificables) y cómo se propone un cambio; <span class="file">spec/</span>
+  dice <b>por qué es así</b> (decisiones, patrones, gotchas). La regla de oro: antes de tocar un dominio,
+  léelos; una mejora entra <b>como propuesta</b> en openspec/, nunca editando la especificación directo.</div>
+
+  <h3>Las dos capas (adoptado 2026-07-06, auditoría en <span class="file">audit/auditoria_openspec.md</span>)</h3>
+  <table>
+    <thead><tr><th>Capa</th><th>Qué contiene</th><th>Cuándo se toca</th></tr></thead>
+    <tbody>
+      <tr><td class="file">openspec/specs/</td>
+        <td><b>13 capability specs normativos</b> — la verdad actual del comportamiento, por capacidad,
+        con requisitos <code>DEBE (SHALL)</code> y escenarios <code>GIVEN/WHEN/THEN</code> para los críticos.</td>
+        <td><b>Nunca a mano.</b> Se actualizan solos al archivar un change (los deltas se fusionan).</td></tr>
+      <tr><td class="file">openspec/changes/</td>
+        <td><b>Propuestas de cambio</b>: <code>proposal.md</code> (por qué/qué) + <code>design.md</code> (cómo)
+        + <code>tasks.md</code> (checklist) + delta specs (<code>## ADDED/MODIFIED/REMOVED Requirements</code>).
+        Al terminar pasan a <span class="file">changes/archive/</span> (historial).</td>
+        <td>Al proponer una mejora (<code>/opsx:propose</code> desde Claude Code).</td></tr>
+      <tr><td class="file">spec/</td>
+        <td><b>Biblioteca de dominio</b> (22 docs): plantilla de 7 secciones — propósito, decisiones
+        (estilo ADR), implementación, contratos, patrones reutilizables, pendientes, trazabilidad.
+        Lo que OpenSpec no cubre: los porqués y los gotchas.</td>
+        <td>Al tomar una decisión de diseño o descubrir un patrón/gotcha (edición directa).</td></tr>
+    </tbody>
+  </table>
+  <div class="chip-row">
+    <span class="pill">sourcing-prescreen</span><span class="pill">contacto</span><span class="pill">entrevista</span>
+    <span class="pill">evaluacion-scorecard</span><span class="pill">documentos</span><span class="pill">agendamiento-multietapa</span>
+    <span class="pill">examenes-contratacion</span><span class="pill">auth-tenancy</span><span class="pill">privacidad-retencion</span>
+    <span class="pill">notificaciones-outbox</span><span class="pill">canal-telegram</span><span class="pill">llm-operacion</span>
+    <span class="pill">mcp</span>
+  </div>
+  <p class="lead">Las 13 capacidades normativas. El dashboard no lleva spec propio: sus reglas viven en las
+  capacidades que consume. Los docs de <span class="file">spec/</span> que mapean a una capacidad llevan el
+  puntero <code>&gt; Spec normativo: openspec/specs/&lt;capacidad&gt;/spec.md</code> bajo el encabezado.</p>
+
+  <h3>El ciclo de un cambio (cómo entra una mejora desde ahora)</h3>
+  <div class="flow">
+    <div class="step"><b>1 · Explorar</b><code>/opsx:explore</code> — pensar el problema con el agente ANTES de proponer (opcional). Leer primero el doc del dominio en <span class="file">spec/</span>.</div>
+    <div class="arr">→</div>
+    <div class="step"><b>2 · Proponer</b><code>/opsx:propose</code> — genera proposal + design + tasks + delta specs en <span class="file">openspec/changes/&lt;nombre&gt;/</span>. Revisión humana aquí.</div>
+    <div class="arr">→</div>
+    <div class="step"><b>3 · Validar</b><code>openspec validate --strict</code> — estructura y formato normativo en verde antes de escribir código.</div>
+    <div class="arr">→</div>
+    <div class="step"><b>4 · Implementar</b><code>/opsx:apply</code> — ejecuta el checklist de <code>tasks.md</code> (código + tests + smoke), marcando cada tarea.</div>
+    <div class="arr">→</div>
+    <div class="step"><b>5 · Archivar</b><code>/opsx:archive</code> — fusiona los deltas al spec principal y mueve el change a <span class="file">archive/</span>. La verdad normativa queda al día.</div>
+  </div>
+
+  <div class="card"><h4>Ejemplo vivo incluido en el repo</h4>
+    <p><span class="file">openspec/changes/inactividad-estados-medicos/</span> es una propuesta REAL pendiente
+    (recordatorios de inactividad para candidatos en fase de examen médico, con alerta
+    <code>medical_unresponsive</code>) dejada <b>sin implementar a propósito</b>: sirve de plantilla de facto
+    del ciclo completo. Implementarla = <code>/opsx:apply inactividad-estados-medicos</code>.</p></div>
+
+  <h3>Reglas de uso</h3>
+  <ul class="tight">
+    <li><b>¿Cambia el comportamiento?</b> → change en <span class="file">openspec/</span> (paso 2 del ciclo). Jamás editar un spec normativo directo.</li>
+    <li><b>¿Es una decisión, patrón o gotcha?</b> → actualizar el doc del dominio en <span class="file">spec/</span> (y esta guía, por el contrato de la <a href="#vivo">sección 19</a>).</li>
+    <li><b>Convención de idioma:</b> el texto de los specs corre en español con el verbo normativo <code>DEBE (SHALL)</code> — la keyword inglesa entre paréntesis es la que exige el validador (registrado en <span class="file">openspec/config.yaml</span>, que también es el contexto que lee el agente).</li>
+    <li><b>Proyecto desde cero:</b> clonar la estructura de <span class="file">spec/</span> (conservando "Decisiones" y "Patrones reutilizables" como semilla) + <code>openspec init</code> para la capa normativa.</li>
+  </ul>
+
+  <pre class="snippet"><span class="c"># Comandos útiles (CLI @fission-ai/openspec, sin instalar nada: npx)</span>
+npx @fission-ai/openspec@latest validate --all --strict   <span class="c"># hoy: 14/14 en verde (13 specs + 1 change)</span>
+npx @fission-ai/openspec@latest list                      <span class="c"># specs y changes existentes</span>
+npx @fission-ai/openspec@latest show &lt;capacidad&gt;          <span class="c"># ver un spec normativo</span></pre>
+
+  <div class="note">🧭 <b>Por qué dos capas y no una:</b> OpenSpec gobierna el <b>qué</b> y su evolución
+  (requisitos + workflow de cambios validable por CLI), pero su contexto de proyecto es una página — no tiene
+  dónde vivir el <b>porqué</b> (decisiones con alternativas descartadas, patrones, gotchas verificados en vivo).
+  Esa mitad la cubre <span class="file">spec/</span>. Las dos capas se referencian entre sí, y esta guía queda
+  como la capa narrativa/didáctica de todo el sistema.</div>
+</section>
+
 </main>
 
 <footer>
-  hira · Agente de Selección de Talento · Guía v9 (2026-07-06) · documento vivo de solo lectura · un producto de Datawith.AI.
+  hira · Agente de Selección de Talento · Guía v9.1 (2026-07-06) · documento vivo de solo lectura · un producto de Datawith.AI.
 </footer>
 `;
 
