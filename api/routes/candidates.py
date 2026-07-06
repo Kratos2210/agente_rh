@@ -519,6 +519,8 @@ def record_medical_result(
         settings, candidate, DECISION_HIRED if payload.result == "apto" else DECISION_REJECT,
         conversation_id=conv["id"] if conv else None, tenant_id=user["tenant_id"],
     )
+    if status == "hired":
+        outbox.deliver_hired(settings, vacancy, candidate, conversation_id=conv["id"] if conv else None)
     # Summary sin el resultado: es dato de salud y la bitácora la leen todos los admin.
     _audit(user, "candidate.medical_result", entity_type="candidate", entity_id=candidate_id,
            summary=f"resultado registrado · {candidate.get('name', '')}")
@@ -658,6 +660,7 @@ def advance_stage(
             settings, candidate, DECISION_HIRED,
             conversation_id=conv["id"] if conv else None, tenant_id=user["tenant_id"],
         )
+        outbox.deliver_hired(settings, vacancy, candidate, conversation_id=conv["id"] if conv else None)
         return {"status": "hired", "notified": notified}
 
     # Agenda la etapa siguiente (lead: modalidad elegida por RR.HH.; manager: forzado presencial).

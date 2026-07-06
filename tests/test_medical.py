@@ -142,6 +142,8 @@ def test_medical_result_apto_hires_and_notifies(monkeypatch):
     monkeypatch.setattr(main.repo, "update_candidate", lambda cid, p: updated.update(p) or p)
     monkeypatch.setattr(main.outbox, "deliver_candidate_notify",
                         lambda s, c, decision, **k: notified.setdefault("decision", decision) or True)
+    monkeypatch.setattr(main.outbox, "deliver_hired",
+                        lambda s, v, c, **k: notified.setdefault("hired_email", True) or True)
 
     r = client.post("/api/candidates/cand1/medical-result",
                     json={"result": "apto"}, headers=_auth())
@@ -150,6 +152,8 @@ def test_medical_result_apto_hires_and_notifies(monkeypatch):
     assert updated["medical_exam"]["result"] == "apto"
     assert updated["medical_exam"]["result_by"] == "a@b.com"
     assert notified["decision"] == "hired"
+    # Auditoría v4 (corto plazo #4): la contratación también va por correo, no solo Telegram.
+    assert notified["hired_email"] is True
 
 
 def test_medical_result_no_apto_rejects(monkeypatch):
@@ -242,3 +246,28 @@ def test_medical_settings_get_put(monkeypatch):
     # Aislado por tenant: otro tenant sigue en default.
     r = client.get("/api/settings/medical-exam", headers=_auth("viewer", "OTRO"))
     assert r.json() == {"enabled": False}
+
+
+# ── Correo de contratación (auditoría v4, corto plazo #4) ──────────────────────────
+
+class _MailSettings:
+    smtp_host = "smtp.test"; smtp_from = "rrhh@x.com"; smtp_port = 587
+    smtp_user = ""; smtp_password = ""; recruiter_email = "rec@x.com"
+
+
+def test_hired_email_builder():
+    from notifications.email import build_hired_email
+
+    cand = {"name": "Luis", "cv_profile": {"email": "luis@x.com"}}
+    built = build_hired_email(_MailSettings(), {"title": "Analista"}, cand)
+    assert built is not None
+    recipients, subject, text, html = built
+    assert recipients == ["luis@x.com"] and "Analista" in subject
+    assert "Felicitaciones" in text and "incorporación" in text
+    assert "Analista" in html and "Luis" in html
+
+
+def test_hired_email_none_without_candidate_email():
+    from notifications.email import build_hired_email
+
+    assert build_hired_email(_MailSettings(), {"title": "A"}, {"name": "X", "cv_profile": {}}) is None
