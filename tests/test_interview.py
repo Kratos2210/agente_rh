@@ -183,6 +183,20 @@ def test_documents_can_be_skipped():
     assert s["phase"] == PHASE_FINISHED
 
 
+def test_message_while_awaiting_decision_gets_holding_ack():
+    # Score bajo → 'finished' (no califica; espera decisión de RR.HH.). Un mensaje del candidato
+    # ("¿cómo va el proceso?") recibe un acuse cordial en vez de silencio, sin cambiar de fase.
+    runner = make_memory_runner(FakeLLM(score=40))
+    tid = "test:holding"
+    runner.start(tid, _vacancy(), _questions(n=1, max_follow_ups=0))
+    runner.send(tid, button="accept")
+    s_fin = runner.send(tid, text="Respuesta breve.")
+    assert s_fin["phase"] == PHASE_FINISHED
+    s_msg = runner.send(tid, text="¿cómo va el proceso?")
+    assert s_msg["phase"] == PHASE_FINISHED                       # no reabre el flujo
+    assert any("revisión" in m.lower() for m in s_msg["outbound"])  # acuse "en revisión"
+
+
 def test_timeout_in_interview_closes_as_no_response():
     runner = make_memory_runner(FakeLLM(score=90))
     tid = "test:timeout"
