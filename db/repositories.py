@@ -1146,7 +1146,72 @@ def usage_rows_since(since_iso: str) -> list[dict[str, Any]]:
     )
 
 
+def usage_rows_detailed_since(since_iso: str) -> list[dict[str, Any]]:
+    """Como `usage_rows_since` pero con `created_at` + `candidate_id` (página Costos):
+    permite agregar por día y hacer drill-down por candidato. Usa idx_llm_usage_created.
+
+    Paginado con `.range()`: PostgREST aplica su tope de filas por respuesta y un rango de
+    días amplio en un tenant activo lo supera — sin el bucle el reporte se truncaba en
+    silencio (costos incompletos sin error visible)."""
+    page = 1000
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        batch = (
+            get_supabase().table("llm_usage")
+            .select("vacancy_id,candidate_id,model,stage,calls,input_tokens,output_tokens,total_tokens,created_at")
+            .gte("created_at", since_iso)
+            .order("created_at")
+            .range(offset, offset + page - 1)
+            .execute()
+            .data
+            or []
+        )
+        rows.extend(batch)
+        if len(batch) < page:
+            return rows
+        offset += page
+
+
+def candidate_names(ids: list[str]) -> dict[str, str]:
+    """{candidate_id → name} para los ids dados (drill-down de la página Costos).
+
+    Consulta en chunks para no desbordar el querystring de PostgREST. Ids borrados no
+    aparecen (sus filas de usage tampoco: FK cascade); anonimizados devuelven ""."""
+    out: dict[str, str] = {}
+    unique = [i for i in dict.fromkeys(ids) if i]
+    for start in range(0, len(unique), 100):
+        chunk = unique[start : start + 100]
+        rows = (
+            get_supabase().table("candidates")
+            .select("id,name")
+            .in_("id", chunk)
+            .execute()
+            .data
+            or []
+        )
+        out.update({r["id"]: r.get("name", "") for r in rows})
+    return out
+
+
 # ── Métricas: embudo de candidatos ──────────────────────────────────────────────
+
+# Todo estado posterior a la decisión favorable del scorecard cuenta como "avanzado": con el
+# agendamiento activo el status literal "advanced" casi nunca se asigna (pasa directo a
+# scheduling → etapas lead/mgr → médico → hired) y el embudo mostraba 0 perpetuo.
+ADVANCED_STATUSES = {
+    "advanced",
+    "scheduling",
+    "scheduled",
+    "lead_scheduling",
+    "lead_scheduled",
+    "mgr_scheduling",
+    "mgr_scheduled",
+    "medical_pending",
+    "medical_scheduled",
+    "hired",
+}
+
 
 def _funnel(candidates: list[dict[str, Any]]) -> dict[str, int]:
     """Cuenta candidatos por etapa del embudo de postulación."""
