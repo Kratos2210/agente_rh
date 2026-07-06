@@ -1,6 +1,7 @@
 # Agente — Cerebro conversacional (LangGraph)
 
 > Parte de [spec/](README.md) · Última revisión: 2026-07-06 · Código: `agente/`
+> Spec normativo: `openspec/specs/entrevista/spec.md`
 
 ## 1. Propósito y alcance
 

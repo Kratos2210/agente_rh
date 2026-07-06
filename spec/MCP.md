@@ -1,6 +1,7 @@
 # MCP — Servidor Model Context Protocol
 
 > Parte de [spec/](README.md) · Última revisión: 2026-07-06 · Código: `adaptadores_mcp/mcp.py`
+> Spec normativo: `openspec/specs/mcp/spec.md`
 
 ## 1. Propósito y alcance
 

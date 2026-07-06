@@ -1,6 +1,7 @@
 # Canales — Telegram (polling/webhook), documentos y gobierno de turnos
 
 > Parte de [spec/](README.md) · Última revisión: 2026-07-06 · Código: `channels/`, `api/telegram_bot.py`
+> Specs normativos: `openspec/specs/canal-telegram/spec.md` · `openspec/specs/documentos/spec.md`
 
 ## 1. Propósito y alcance
 

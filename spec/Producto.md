@@ -1,6 +1,7 @@
 # Producto — Flujo funcional end-to-end
 
 > Parte de [spec/](README.md) · Última revisión: 2026-07-06
+> Specs normativos del flujo: `openspec/specs/contacto/spec.md` · `openspec/specs/entrevista/spec.md` · `openspec/specs/examenes-contratacion/spec.md`
 
 ## 1. Propósito y alcance
 

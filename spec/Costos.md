@@ -1,6 +1,7 @@
 # Costos — Metering, pricing, presupuesto y optimización LLM
 
 > Parte de [spec/](README.md) · Última revisión: 2026-07-06 · Código: `orquestacion/llm.py`, `api/deps.py`, `api/scheduler.py`
+> Spec normativo: `openspec/specs/llm-operacion/spec.md`
 
 ## 1. Propósito y alcance
 

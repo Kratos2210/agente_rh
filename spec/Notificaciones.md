@@ -1,6 +1,7 @@
 # Notificaciones — Outbox durable, correos y avisos al candidato
 
 > Parte de [spec/](README.md) · Última revisión: 2026-07-06 · Código: `notifications/`
+> Spec normativo: `openspec/specs/notificaciones-outbox/spec.md`
 
 ## 1. Propósito y alcance
 

@@ -1204,6 +1204,20 @@ de abajo se dejaron tal cual — mapear mentalmente a la carpeta nueva.)
   (el rojo es el conocido test_mcp del `.env` local); tsc OK.** Pendiente: verificación en vivo
   (Groq→Gemini sin reiniciar + tokens de Gemini vía endpoint OpenAI-compat).
 
+- **2026-07-06 — Carpeta `spec/` (22 docs) + adopción OpenSpec (SDD)**: (1) `spec/` — especificaciones
+  por dominio con plantilla de 7 secciones (propósito/decisiones/implementación/contratos/patrones
+  reutilizables/pendientes/trazabilidad), commit `66b07eb`. (2) Auditoría de `spec/` contra el marco
+  **OpenSpec** (`audit/auditoria_openspec.md`): cubría la mitad "documentación" pero no la operativa
+  (formato normativo + ciclo de cambios) → **adoptado el CLI oficial** (`@fission-ai/openspec` 1.5.0,
+  `openspec init --tools claude`): `openspec/config.yaml` (contexto), **13 capability specs** en
+  `openspec/specs/` (requisitos "DEBE (SHALL)" + escenarios GIVEN/WHEN/THEN, derivados de los
+  Contratos de `spec/`; el validador exige la keyword literal — por eso va entre paréntesis),
+  change de ejemplo REAL `openspec/changes/inactividad-estados-medicos/` (pendiente de auditoría v3,
+  4 artefactos, sin implementar a propósito), comandos `/opsx:*` + skills en `.claude/`, cross-links
+  spec/↔openspec/. **`openspec validate --all --strict` = 14/14 verde.** Arquitectura de dos capas:
+  openspec/ = QUÉ + evolución (changes); spec/ = POR QUÉ + patrones. Mejoras futuras entran por
+  `/opsx:propose`; specs normativos nunca se editan directo.
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.

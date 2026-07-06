@@ -1,6 +1,7 @@
 # Integraciones — Sourcing de postulantes y agendamiento (Google)
 
 > Parte de [spec/](README.md) · Última revisión: 2026-07-06 · Código: `integrations/`
+> Specs normativos: `openspec/specs/sourcing-prescreen/spec.md` · `openspec/specs/agendamiento-multietapa/spec.md`
 
 ## 1. Propósito y alcance
 

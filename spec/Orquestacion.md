@@ -1,6 +1,7 @@
 # Orquestación — Capa LLM: metering, BYOK, routing y prompts
 
 > Parte de [spec/](README.md) · Última revisión: 2026-07-06 · Código: `orquestacion/`, `agente/prompts.py`
+> Spec normativo: `openspec/specs/llm-operacion/spec.md`
 
 ## 1. Propósito y alcance
 

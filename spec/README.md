@@ -15,10 +15,32 @@ las migraciones, los tests, la infraestructura y las auditorías del proyecto.
 2. **Base para proyectos nuevos**: cada spec destila los patrones probados aquí (sección
    "Patrones reutilizables") para arrancar un proyecto desde cero con metodología spec-driven.
 
+## OpenSpec (SDD operativo) — las dos capas
+
+Desde 2026-07-06 el repo adopta el marco [OpenSpec](https://github.com/Fission-AI/openspec)
+(CLI oficial; auditoría de alineación en `audit/auditoria_openspec.md`). La documentación
+funciona en **dos capas complementarias**:
+
+| Capa | Dónde | Rol |
+|---|---|---|
+| **Normativa** | `openspec/specs/<capacidad>/spec.md` (13) | QUÉ debe cumplir el sistema: requirements "DEBE (SHALL)" + escenarios GIVEN/WHEN/THEN, validados con `openspec validate --all --strict` |
+| **Dominio** | `spec/` (esta carpeta, 22 docs) | POR QUÉ es así y CÓMO está hecho: decisiones, implementación, patrones reutilizables, deuda, trazabilidad |
+
+**Ciclo de una mejora**: `/opsx:propose "idea"` (crea `openspec/changes/<nombre>/` con
+proposal/design/tasks + deltas ADDED/MODIFIED/REMOVED) → revisar → `/opsx:apply` (implementa
+tareas) → suite verde → `/opsx:archive` (fusiona los deltas al spec principal). Nunca se edita
+un spec normativo directo: toda evolución pasa por un change. Hay un change de ejemplo real en
+`openspec/changes/inactividad-estados-medicos/`. Los "Pendientes conocidos" (sección 6 de cada
+doc) son la cantera natural de propuestas.
+
+**Cuándo tocar cuál**: una mejora de comportamiento = change en `openspec/`; un cambio de
+decisión/patrón/implementación de fondo = actualizar el doc de dominio aquí (y ambos si aplica).
+
 ## Metodología spec-driven (cómo usar esta carpeta)
 
-- **El spec es el contrato**: antes de implementar o cambiar un dominio, se actualiza su spec
-  (secciones 1–4); la implementación debe converger al spec, no al revés.
+- **El spec es el contrato**: antes de implementar o cambiar un dominio, se actualiza su spec —
+  el comportamiento en la capa normativa (vía change de OpenSpec), el diseño aquí (secciones
+  1–4); la implementación debe converger al spec, no al revés.
 - **Trazabilidad en tres capas**: spec → código (punteros `ruta/archivo.py`) → tests
   (sección 7 de cada spec). Un cambio sin las tres capas está incompleto.
 - **Decisiones con porqués**: la sección 2 registra alternativas descartadas. Si una decisión
@@ -64,6 +86,7 @@ Todos los specs siguen la misma estructura:
 
 ## Relación con el resto de la documentación
 
+- `openspec/` — capa normativa + workflow de cambios (ver sección OpenSpec arriba).
 - `CLAUDE.md` — bitácora cronológica de desarrollo (el "cómo llegamos aquí").
 - `docs/` — runbooks y ADRs operativos (`gestion_secretos.md`, `despliegue.md`,
   `adr-seleccion-modelo.md`, `arquitectura.md`).

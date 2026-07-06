@@ -1,6 +1,7 @@
 # Seguridad — Auth, tenancy, secretos, anti-inyección y PII
 
 > Parte de [spec/](README.md) · Última revisión: 2026-07-06 · Código: `api/auth.py`, `api/deps.py`, `orquestacion/providers.py`
+> Specs normativos: `openspec/specs/auth-tenancy/spec.md` · `openspec/specs/privacidad-retencion/spec.md`
 
 ## 1. Propósito y alcance
 

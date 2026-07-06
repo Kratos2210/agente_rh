@@ -1,6 +1,7 @@
 # Evaluación — Prescreen, scoring, scorecard y juez de calidad
 
 > Parte de [spec/](README.md) · Última revisión: 2026-07-06 · Código: `evaluation/`
+> Specs normativos: `openspec/specs/evaluacion-scorecard/spec.md` · `openspec/specs/sourcing-prescreen/spec.md`
 
 ## 1. Propósito y alcance
 
