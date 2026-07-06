@@ -14,6 +14,8 @@ alerta. Pendiente declarado en `audit/auditoria_v3.md` (Parte D) y en `spec/Prod
   (`reminder_minutes`, `max_reminders`).
 - Al agotar recordatorios NO se auto-cierra (decisión humana): se emite alerta operativa
   `medical_unresponsive` para que RR.HH. decida (patrón de la coordinación de agenda).
+  Complementa a la existente `medical_stuck` (reconciliación por antigüedad, > N días): esta
+  nueva mide silencio del candidato tras recordatorios activos, no solo el paso del tiempo.
 - Prompt nuevo `REMINDER_MEDICAL` en `agente/prompts.py` (con bump de `PROMPT_VERSION`).
 
 ## Non-goals (fuera de alcance)
