@@ -8,11 +8,40 @@ Degrada con gracia: sin LLM o JSON inválido usa una heurística determinista.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from orquestacion.llm import LLM, complete_staged, parse_json_object
 from agente.prompts import PRESCREEN_CV_PROMPT
+
+# ── Minimización de PII antes de salir al proveedor LLM (auditoría v4, R1 · Ley 29733) ──
+# El gate evalúa FIT contra la vacante, no identidad: los identificadores de contacto no
+# aportan señal y no deben viajar al proveedor. Se quitan las claves directas y se
+# enmascaran correos/teléfonos incrustados en el texto libre del CV. Limitación declarada:
+# el nombre dentro de raw_cv_text no se detecta (NER quedaría para una iteración futura).
+_PII_DIRECT_KEYS = frozenset({"name", "full_name", "email", "phone", "external_id", "telegram", "chat_id"})
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+# Solo secuencias con ≥9 dígitos (celular peruano): no confundir con rangos de años (8).
+_PHONE_CANDIDATE_RE = re.compile(r"\+?[\d(][\d\s().-]{6,}\d")
+
+
+def _mask_contact_text(text: str) -> str:
+    text = _EMAIL_RE.sub("[correo]", text)
+
+    def _maybe_phone(m: re.Match[str]) -> str:
+        return "[teléfono]" if sum(c.isdigit() for c in m.group(0)) >= 9 else m.group(0)
+
+    return _PHONE_CANDIDATE_RE.sub(_maybe_phone, text)
+
+
+def profile_for_llm(cv_profile: dict[str, Any]) -> dict[str, Any]:
+    """Copia del cv_profile SIN identificadores de contacto, apta para el prompt."""
+    clean = {k: v for k, v in cv_profile.items() if k not in _PII_DIRECT_KEYS}
+    for key, value in clean.items():
+        if isinstance(value, str):
+            clean[key] = _mask_contact_text(value)
+    return clean
 
 # Carreras/áreas afines (heurística de respaldo).
 _TECH_CAREERS = (
@@ -113,7 +142,7 @@ def prescreen_cv(
                 vacancy_title=vacancy.get("title", ""),
                 requirements=vacancy.get("requirements", "") or "(no especificados)",
                 criteria=crit_text,
-                cv_profile=json.dumps(cv_profile, ensure_ascii=False, indent=2),
+                cv_profile=json.dumps(profile_for_llm(cv_profile), ensure_ascii=False, indent=2),
             ),
             "prescreen",
         )
