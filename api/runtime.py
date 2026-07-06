@@ -182,6 +182,14 @@ _DEFAULT_LLM_PRICING = {
 # tenant/mes (ops alert en el dashboard + correo vía outbox si hay `notify_email`).
 _DEFAULT_LLM_BUDGET = {"enabled": False, "monthly_usd": 0.0, "alert_pct": 80, "notify_email": ""}
 
+# Proveedor LLM por-tenant (BYOK): apagado = todo sale del `.env` (retrocompat total).
+# La key se persiste cifrada (`api_key_encrypted`, Fernet ← jwt_secret); el GET solo
+# expone `api_key_masked`. Catálogo de proveedores en orquestacion/providers.py.
+_DEFAULT_LLM_PROVIDER = {
+    "enabled": False, "provider": "groq", "base_url": "", "model": "",
+    "cheap_model": "", "cheap_stages": "schedule", "api_key_masked": "",
+}
+
 # SLAs push (O-4): correo al incumplirse una condición, UNA vez por condición/día.
 # `ops_alerts` empuja las alertas operativas (dead-letter, reuniones sin link, etc.);
 # `turn_p95_ms` es el umbral de latencia p95 del turno del candidato (últimas 24 h, 0 = off).

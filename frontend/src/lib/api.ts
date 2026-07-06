@@ -300,6 +300,40 @@ export interface LlmBudgetConfig {
   notify_email: string;
 }
 
+// Proveedor LLM por-tenant (BYOK): la key nunca viaja de vuelta (solo enmascarada).
+export interface LlmProviderConfig {
+  enabled: boolean;
+  provider: string;
+  base_url: string;
+  model: string;
+  cheap_model: string;
+  cheap_stages: string;
+  api_key_masked: string;
+}
+
+// Payload del PUT/test: `api_key` vacía = conservar la almacenada.
+export interface LlmProviderSave extends Omit<LlmProviderConfig, "api_key_masked"> {
+  api_key: string;
+}
+
+export interface LlmProviderTestResult {
+  ok: boolean;
+  latency_ms: number;
+  model: string;
+  sample?: string;
+  error?: string;
+}
+
+export interface LlmProviderCatalogModel {
+  id: string;
+  input_per_1m: number;
+  output_per_1m: number;
+}
+
+export interface LlmProviderCatalog {
+  providers: Record<string, { label: string; base_url: string; models: LlmProviderCatalogModel[] }>;
+}
+
 // Página Costos: trazabilidad del consumo LLM por vacante, día y candidato.
 export interface CostsDaily {
   day: string; // YYYY-MM-DD en la zona del tenant
@@ -582,6 +616,12 @@ export const api = {
   getLlmBudget: () => req<LlmBudgetConfig>("/api/settings/llm-budget"),
   setLlmBudget: (body: LlmBudgetConfig) =>
     req<LlmBudgetConfig>("/api/settings/llm-budget", { method: "PUT", body: JSON.stringify(body) }),
+  getLlmProvider: () => req<LlmProviderConfig>("/api/settings/llm-provider"),
+  setLlmProvider: (body: LlmProviderSave) =>
+    req<LlmProviderConfig>("/api/settings/llm-provider", { method: "PUT", body: JSON.stringify(body) }),
+  testLlmProvider: (body: LlmProviderSave) =>
+    req<LlmProviderTestResult>("/api/settings/llm-provider/test", { method: "POST", body: JSON.stringify(body) }),
+  getLlmProviderCatalog: () => req<LlmProviderCatalog>("/api/settings/llm-provider/catalog"),
   getSlaAlerts: () => req<SlaAlertsConfig>("/api/settings/sla-alerts"),
   setSlaAlerts: (body: SlaAlertsConfig) =>
     req<SlaAlertsConfig>("/api/settings/sla-alerts", { method: "PUT", body: JSON.stringify(body) }),

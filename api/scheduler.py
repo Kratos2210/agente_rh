@@ -865,14 +865,24 @@ def _sla_sweep(settings: Settings) -> dict[str, int]:
 _QUALITY_SWEEP_INTERVAL_SECONDS = 60 * 60
 
 
-def _quality_judge_llm():
-    """LLM juez, construido perezosamente una vez por proceso (cacheado en _state)."""
-    llm = _state.get("quality_llm")
-    if llm is None:
+def _quality_judge_llm(tenant_id: str | None = None):
+    """LLM juez del tenant (BYOK): usa su proveedor configurado (o el .env) y se cachea
+    por fingerprint — si el tenant cambia de proveedor, el juez se reconstruye solo."""
+    from orquestacion.providers import build_llm_from_config, config_fingerprint, resolve_llm_config
+
+    cfg = resolve_llm_config(tenant_id)
+    fingerprint = config_fingerprint(cfg)
+    cache: dict = _state.setdefault("quality_llm", {})
+    hit = cache.get(tenant_id)
+    if hit and hit[0] == fingerprint:
+        return hit[1]
+    if cfg is None:
         from orquestacion.llm import build_default_llm
 
         llm = build_default_llm()
-        _state["quality_llm"] = llm
+    else:
+        llm = build_llm_from_config(cfg)
+    cache[tenant_id] = (fingerprint, llm)
     return llm
 
 
@@ -967,7 +977,7 @@ def _quality_sweep(settings: Settings) -> dict[str, int]:
         swept.add(f"{today}|{tid}")
         report["tenants"] += 1
         min_rate = float(cfg.get("min_rate", 0.9) or 0.9)
-        grounded, relevant, context = _judge_traces(_quality_judge_llm(), sample)
+        grounded, relevant, context = _judge_traces(_quality_judge_llm(tid), sample)
         g_rate, r_rate, c_rate = rate(grounded), rate(relevant), rate(context)
         repo.save_quality_metric(tid, METRIC_GROUNDED, today, g_rate, len(sample), min_rate)
         repo.save_quality_metric(tid, METRIC_ANSWER_RELEVANCE, today, r_rate, len(sample), min_rate)

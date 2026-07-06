@@ -85,7 +85,7 @@ def _patch_quality_env(monkeypatch, *, cfgs, traces, grounded, relevant, tenant_
         scheduler, "_judge_traces",
         lambda llm, sample: (grounded[: len(sample)], relevant[: len(sample)], context[: len(sample)]),
     )
-    monkeypatch.setattr(scheduler, "_quality_judge_llm", lambda: object())
+    monkeypatch.setattr(scheduler, "_quality_judge_llm", lambda tenant_id=None: object())
     saved: list = []
     monkeypatch.setattr(scheduler.repo, "save_quality_metric",
                         lambda tid, metric, day, rate, n, thr: saved.append((tid, metric, rate, n, thr)))

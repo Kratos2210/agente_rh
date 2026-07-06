@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Shell, Card, BackLink } from "@/components/Shell";
-import { api, errorMessage, AutoContactConfig, InactivityConfig, LlmBudgetConfig, LlmPricingConfig, MedicalExamConfig, QualityAlertsConfig, SchedulingConfig, SlaAlertsConfig } from "@/lib/api";
+import { api, errorMessage, AutoContactConfig, InactivityConfig, LlmBudgetConfig, LlmPricingConfig, LlmProviderCatalog, LlmProviderConfig, MedicalExamConfig, QualityAlertsConfig, SchedulingConfig, SlaAlertsConfig } from "@/lib/api";
 
 // Fila editable del precio de un modelo (los montos se editan como texto y se parsean al guardar).
 type PriceRow = { model: string; input: string; output: string };
@@ -38,6 +38,14 @@ export default function ConfiguracionPage() {
   const [savingMedical, setSavingMedical] = useState(false);
   const [msgMedical, setMsgMedical] = useState("");
 
+  const [prov, setProv] = useState<LlmProviderConfig | null>(null);
+  const [provKey, setProvKey] = useState(""); // key nueva; vacía = conservar la almacenada
+  const [provCatalog, setProvCatalog] = useState<LlmProviderCatalog["providers"] | null>(null);
+  const [savingProv, setSavingProv] = useState(false);
+  const [msgProv, setMsgProv] = useState("");
+  const [testingProv, setTestingProv] = useState(false);
+  const [testMsg, setTestMsg] = useState("");
+
   useEffect(() => {
     api
       .getAutoContact()
@@ -63,7 +71,60 @@ export default function ConfiguracionPage() {
     api.getSlaAlerts().then(setSla).catch((e) => setError(errorMessage(e)));
     api.getQualityAlerts().then(setQuality).catch((e) => setError(errorMessage(e)));
     api.getMedicalExamSettings().then(setMedical).catch((e) => setError(errorMessage(e)));
+    api.getLlmProvider().then(setProv).catch((e) => setError(errorMessage(e)));
+    api.getLlmProviderCatalog().then((c) => setProvCatalog(c.providers)).catch((e) => setError(errorMessage(e)));
   }, []);
+
+  const provBody = (p: LlmProviderConfig) => ({
+    enabled: p.enabled,
+    provider: p.provider,
+    base_url: p.base_url,
+    model: p.model,
+    cheap_model: p.cheap_model,
+    cheap_stages: p.cheap_stages,
+    api_key: provKey.trim(),
+  });
+
+  const onProviderChange = (id: string) => {
+    if (!prov) return;
+    const preset = provCatalog?.[id];
+    // Al cambiar de proveedor, autocompleta la base URL del preset (editable solo en custom).
+    setProv({ ...prov, provider: id, base_url: preset?.base_url ?? "" });
+  };
+
+  const saveProv = async () => {
+    if (!prov) return;
+    setSavingProv(true);
+    setMsgProv("");
+    try {
+      const saved = await api.setLlmProvider(provBody(prov));
+      setProv(saved);
+      setProvKey("");
+      setMsgProv("Configuración guardada ✅");
+    } catch (e) {
+      setMsgProv("Error: " + errorMessage(e));
+    } finally {
+      setSavingProv(false);
+    }
+  };
+
+  const testProv = async () => {
+    if (!prov) return;
+    setTestingProv(true);
+    setTestMsg("");
+    try {
+      const r = await api.testLlmProvider(provBody(prov));
+      setTestMsg(
+        r.ok
+          ? `✓ Conexión OK · ${r.latency_ms} ms · ${r.model}`
+          : `✗ ${r.error || "Falló la conexión"}`,
+      );
+    } catch (e) {
+      setTestMsg("✗ " + errorMessage(e));
+    } finally {
+      setTestingProv(false);
+    }
+  };
 
   const saveMedical = async () => {
     if (!medical) return;
@@ -465,6 +526,137 @@ export default function ConfiguracionPage() {
               {savingMedical ? "Guardando…" : "Guardar"}
             </button>
             {msgMedical && <span className="text-sm" style={{ color: "var(--accent)" }}>{msgMedical}</span>}
+          </div>
+        </Card>
+      )}
+
+      {prov && provCatalog && (
+        <Card style={{ marginTop: 16 }}>
+          <h2 className="font-semibold mb-1">Proveedor LLM</h2>
+          <p className="text-sm mb-4" style={{ color: "var(--muted)" }}>
+            Elige el proveedor de IA, el modelo y tu API key. El cambio aplica en caliente (≤1 minuto,
+            sin reiniciar) y al guardar se agregan los precios sugeridos del modelo en Costos (sin pisar
+            los existentes), así el consumo queda mapeado al cambiar. Apagado, se usa el proveedor del
+            servidor (.env).
+          </p>
+
+          <label className="flex items-center gap-3 mb-4 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={prov.enabled}
+              onChange={(e) => setProv({ ...prov, enabled: e.target.checked })}
+              style={{ width: 18, height: 18, accentColor: "var(--accent)" }}
+            />
+            <span className="text-sm font-medium">Usar este proveedor (en vez del .env)</span>
+          </label>
+
+          <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 2fr", maxWidth: 560 }}>
+            <div>
+              <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>Proveedor</label>
+              <select
+                value={prov.provider}
+                onChange={(e) => onProviderChange(e.target.value)}
+                className="px-3 py-2 rounded-lg w-full"
+                style={inputStyle}
+              >
+                {Object.entries(provCatalog).map(([id, p]) => (
+                  <option key={id} value={id}>{p.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>
+                Base URL {prov.provider !== "custom" && "(del proveedor)"}
+              </label>
+              <input
+                value={prov.base_url}
+                readOnly={prov.provider !== "custom"}
+                onChange={(e) => setProv({ ...prov, base_url: e.target.value })}
+                placeholder="https://mi-endpoint.com/v1 (compatible OpenAI)"
+                className="px-3 py-2 rounded-lg w-full"
+                style={{ ...inputStyle, opacity: prov.provider !== "custom" ? 0.7 : 1 }}
+              />
+            </div>
+            <div>
+              <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>Modelo</label>
+              <input
+                value={prov.model}
+                list="llm-provider-models"
+                onChange={(e) => setProv({ ...prov, model: e.target.value })}
+                placeholder="qwen/qwen3-32b"
+                className="px-3 py-2 rounded-lg w-full"
+                style={inputStyle}
+              />
+              <datalist id="llm-provider-models">
+                {(provCatalog[prov.provider]?.models || []).map((m) => (
+                  <option key={m.id} value={m.id} />
+                ))}
+              </datalist>
+            </div>
+            <div>
+              <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>
+                API key {prov.api_key_masked && `(guardada: ${prov.api_key_masked})`}
+              </label>
+              <input
+                type="password"
+                value={provKey}
+                onChange={(e) => setProvKey(e.target.value)}
+                placeholder={prov.api_key_masked ? "Dejar vacío para mantener la actual" : "API key del proveedor"}
+                autoComplete="off"
+                className="px-3 py-2 rounded-lg w-full"
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>
+                Modelo barato (opcional)
+              </label>
+              <input
+                value={prov.cheap_model}
+                list="llm-provider-models"
+                onChange={(e) => setProv({ ...prov, cheap_model: e.target.value })}
+                placeholder="llama-3.1-8b-instant"
+                className="px-3 py-2 rounded-lg w-full"
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label className="text-sm block mb-1" style={{ color: "var(--muted)" }}>
+                Etapas del modelo barato (CSV)
+              </label>
+              <input
+                value={prov.cheap_stages}
+                onChange={(e) => setProv({ ...prov, cheap_stages: e.target.value })}
+                placeholder="classify,schedule"
+                className="px-3 py-2 rounded-lg w-full"
+                style={inputStyle}
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-center gap-3 flex-wrap">
+            <button
+              onClick={saveProv}
+              disabled={savingProv}
+              className="px-4 py-2 rounded-lg font-medium"
+              style={{ background: "var(--accent)", color: "var(--accent-ink)", opacity: savingProv ? 0.6 : 1 }}
+            >
+              {savingProv ? "Guardando…" : "Guardar"}
+            </button>
+            <button
+              onClick={testProv}
+              disabled={testingProv}
+              className="px-4 py-2 rounded-lg font-medium"
+              style={{ ...inputStyle, cursor: "pointer", opacity: testingProv ? 0.6 : 1 }}
+            >
+              {testingProv ? "Probando…" : "Probar conexión"}
+            </button>
+            {msgProv && <span className="text-sm" style={{ color: "var(--accent)" }}>{msgProv}</span>}
+            {testMsg && (
+              <span className="text-sm" style={{ color: testMsg.startsWith("✓") ? "var(--accent)" : "#dc2626" }}>
+                {testMsg}
+              </span>
+            )}
           </div>
         </Card>
       )}

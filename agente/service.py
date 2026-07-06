@@ -265,6 +265,16 @@ class InterviewService:
             repositories.add_message(conv["id"], "assistant", ack)
             return TurnResult(messages=[ack])
 
+        # Hot-swap del proveedor LLM (BYOK): si el tenant cambió proveedor/modelo/key en
+        # /configuracion, reconstruye el LLM del runner sin reiniciar. Fail-safe: un
+        # problema de config jamás tumba el turno (se sigue con el LLM vigente).
+        try:
+            from orquestacion.providers import refresh_metered_llm
+
+            refresh_metered_llm(self.runner.llm, vacancy.get("tenant_id"))
+        except Exception:  # noqa: BLE001
+            logger.warning("No se pudo refrescar el proveedor LLM; se sigue con el actual", exc_info=True)
+
         # Contexto para el tracing LangSmith (no-op si el LLM no lo soporta): así los
         # runs dejan de ser invocaciones sueltas y se agrupan por conversación.
         set_ctx = getattr(self.runner.llm, "set_context", None)

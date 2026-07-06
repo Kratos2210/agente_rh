@@ -75,6 +75,9 @@ class MeteredLLM:
         self.trace_max_chars = trace_max_chars
         # Routing de costos (paso 5): etapa→LLM alternativo (modelo barato). El resto usa `inner`.
         self._overrides = overrides or {}
+        # Identidad del proveedor configurado (BYOK): "env" = LLM del .env. Lo compara
+        # `orquestacion.providers.refresh_metered_llm` para el hot-swap por-tenant.
+        self.config_fingerprint = "env"
         # acumulado por stage: {stage: {input/output/total_tokens, calls, errors, duration_ms}}
         self._acc: dict[str, dict[str, int]] = {}
         # modelo REALMENTE usado por etapa (con routing puede diferir de `inner`).
@@ -98,6 +101,14 @@ class MeteredLLM:
         return self._acc.setdefault(
             self.stage, {**_ZERO_USAGE, "calls": 0, "errors": 0, "duration_ms": 0}
         )
+
+    def reconfigure(self, inner: LLM, overrides: dict[str, LLM], fingerprint: str) -> None:
+        """Hot-swap del proveedor (BYOK): reemplaza inner+overrides sin tocar el acumulado
+        del turno en curso (`_acc`/`_models`/`_traces` se preservan — el drain los atribuye
+        al modelo que realmente atendió cada llamada)."""
+        self._inner = inner
+        self._overrides = overrides or {}
+        self.config_fingerprint = fingerprint
 
     def set_context(self, **ctx) -> None:
         """Metadata de tracing (LangSmith): se propaga al LLM principal y a los overrides
@@ -179,7 +190,12 @@ def complete_staged(llm: LLM, prompt: str, stage: str) -> str:
     return llm.complete(prompt)
 
 
-def build_default_llm(model: str | None = None) -> LangChainLLM:
+def build_default_llm(
+    model: str | None = None,
+    *,
+    base_url: str | None = None,
+    api_key: str | None = None,
+) -> LangChainLLM:
     """LLM del runtime (temperatura baja, sin <think> en Qwen3).
 
     Construye el ChatOpenAI directamente (sin pasar por orquestacion.qa_chain) para no
@@ -188,6 +204,8 @@ def build_default_llm(model: str | None = None) -> LangChainLLM:
 
     `model` permite construir un LLM con OTRO modelo del MISMO proveedor (misma base_url/
     api_key) — lo usa el routing de costos para el modelo barato de las etapas simples.
+    `base_url`/`api_key` permiten OTRO proveedor compatible-OpenAI (BYOK por-tenant,
+    ver orquestacion.providers); sin ellos se usa el del `.env`, como siempre.
     """
     from langchain_openai import ChatOpenAI
 
@@ -197,8 +215,8 @@ def build_default_llm(model: str | None = None) -> LangChainLLM:
     model_name = model or settings.openai_model
     kwargs = dict(
         model=model_name,
-        base_url=settings.openai_api_base,
-        api_key=settings.openai_api_key,
+        base_url=base_url or settings.openai_api_base,
+        api_key=api_key or settings.openai_api_key,
         timeout=settings.llm_timeout_seconds,
         max_retries=settings.llm_max_retries,
         temperature=0.2,
