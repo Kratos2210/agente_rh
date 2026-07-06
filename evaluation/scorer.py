@@ -23,6 +23,14 @@ from core.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+# Techo de puntaje para repreguntar: una respuesta que ya cae en la banda alta (≥80: concreta,
+# con evidencia de dominio) NO se repregunta aunque el modelo lo pida. Hace determinista la propia
+# regla del prompt ("si ya es buena, needs_follow_up=false"): un modelo chico a veces la ignora y
+# repregunta de más a un candidato que respondió completo. El número coincide con la banda 80-100
+# de EVALUATE_ANSWER_PROMPT.
+FOLLOW_UP_MAX_SCORE = 80.0
+
+
 @dataclass
 class EvalResult:
     score: float
@@ -226,7 +234,9 @@ def evaluate_answer(
         )
         score = _clamp_score(data.get("score"))
         justification = str(data.get("justification", "")).strip()[:500]
-        needs = bool(data.get("needs_follow_up", False)) and can_follow_up
+        # Repregunta solo si el modelo lo pide, hay presupuesto Y la respuesta no es ya fuerte
+        # (≥80): no re-preguntar a quien respondió completo (hace cumplir la regla del prompt).
+        needs = bool(data.get("needs_follow_up", False)) and can_follow_up and score < FOLLOW_UP_MAX_SCORE
         follow_up = str(data.get("follow_up_question", "")).strip()[:400]
         ack = str(data.get("ack", "")).strip()[:280]
         if needs and not follow_up:

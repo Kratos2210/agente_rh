@@ -42,10 +42,13 @@ class FakeLLM:
             # La respuesta va entre delimitadores anti-inyección (<<<respuesta>>> … <<<fin>>>).
             m = re.search(r"<<<respuesta>>>\n(.*?)\n<<<fin>>>", prompt, re.S)
             answer = m.group(1) if m else ""
-            needs = any(s in answer for s in self.follow_up_on)
+            # El follow-up solo procede en una respuesta AÚN escueta; una vez ampliada (texto
+            # acumulado largo) ya no. Y como "escueta" implica score medio, se emite bajo el
+            # techo que suprime la repregunta (el turno completo usa self.score → verde).
+            needs = any(s in answer for s in self.follow_up_on) and len(answer.strip()) < 20
             return json.dumps(
                 {
-                    "score": self.score,
+                    "score": 60 if needs else self.score,
                     "justification": "ok",
                     "needs_follow_up": needs,
                     "follow_up_question": "¿Podrías ampliar con ejemplos?" if needs else "",
