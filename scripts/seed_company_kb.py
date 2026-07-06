@@ -25,36 +25,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.config import get_settings  # noqa: E402
 from core.logging_config import get_logger  # noqa: E402
+from retrieval.company_kb import compose_vacancy_text, vacancy_source  # noqa: E402,F401
 
 logger = get_logger("scripts.seed_company_kb")
-
-
-def compose_vacancy_text(vacancy: dict, questions: list[dict]) -> str:
-    """Arma el documento de conocimiento de una vacante (formato legible para RAG)."""
-    parts: list[str] = [f"# Vacante: {vacancy.get('title', '')}"]
-    for label, key in (
-        ("Área", "area"),
-        ("Modalidad", "modality"),
-        ("Ubicación", "location"),
-        ("Descripción del puesto", "description"),
-        ("Información para el candidato", "company_info"),
-        ("Detalle del puesto", "details_message"),
-        ("Requisitos", "requirements"),
-        ("Beneficios", "benefits"),
-    ):
-        value = vacancy.get(key)
-        if isinstance(value, list):
-            value = "\n".join(f"- {v}" for v in value)
-        if value:
-            parts.append(f"## {label}\n{value}")
-    if vacancy.get("salary_min") or vacancy.get("salary_max"):
-        lo, hi = vacancy.get("salary_min"), vacancy.get("salary_max")
-        rango = f"{lo} a {hi}" if lo and hi else (lo or hi)
-        parts.append(f"## Rango salarial referencial\n{rango}")
-    if questions:
-        temas = ", ".join(q.get("label") or q.get("question", "")[:40] for q in questions)
-        parts.append(f"## Temas que cubre la entrevista\n{temas}")
-    return "\n\n".join(parts).strip()
 
 
 def seed(vacancy_id: str | None = None, rebuild: bool = False) -> int:
@@ -94,8 +67,9 @@ def seed(vacancy_id: str | None = None, rebuild: bool = False) -> int:
             fh.write(text)
             tmp = Path(fh.name)
         try:
+            # `source` por id (como el kb_reindex del outbox): estable ante cambios de título.
             _, chunks = index_document(
-                tmp, collection, settings, source_name=f"vacante:{vacancy['title']}"
+                tmp, collection, settings, source_name=vacancy_source(vacancy)
             )
         finally:
             tmp.unlink(missing_ok=True)

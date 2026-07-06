@@ -19,8 +19,17 @@ from api.deps import (
 from api.runtime import current_settings
 from api.scheduler import _contact_candidate
 from db import repositories as repo
+from retrieval.company_kb import enqueue_reindex
 
 router = APIRouter()
+
+
+def _schedule_kb_reindex(vacancy_id: str, tenant_id: str) -> None:
+    """Auditoría v4 (R4, linaje de la KB): editar/crear la vacante encola el reindex RAG
+    para que el bot no responda dudas con condiciones desactualizadas. Best-effort y
+    gated por el flag del RAG (apagado = la KB no se usa, no hay nada que refrescar)."""
+    if current_settings().interview_rag_enabled:
+        enqueue_reindex(vacancy_id, tenant_id)
 
 # R4 (auditoría): el sync importa postulantes y corre el gate de CV con LLM por cada
 # uno — sin freno, un doble click (o un tenant abusivo) multiplica el costo. 2/min por
@@ -93,6 +102,7 @@ def create_vacancy(
     if questions:
         repo.replace_vacancy_questions(vacancy["id"], questions)
     _audit(user, "vacancy.create", entity_type="vacancy", entity_id=vacancy["id"], summary=vacancy.get("title", ""))
+    _schedule_kb_reindex(vacancy["id"], user["tenant_id"])
     return {**vacancy, "questions": repo.get_vacancy_questions(vacancy["id"])}
 
 
@@ -130,6 +140,7 @@ def update_vacancy(
     vacancy = repo.update_vacancy(vacancy_id, data)
     repo.replace_vacancy_questions(vacancy_id, questions)
     _audit(user, "vacancy.update", entity_type="vacancy", entity_id=vacancy_id, summary=vacancy.get("title", ""))
+    _schedule_kb_reindex(vacancy_id, user["tenant_id"])
     return {**vacancy, "questions": repo.get_vacancy_questions(vacancy_id)}
 
 
