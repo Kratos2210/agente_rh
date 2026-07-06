@@ -355,6 +355,47 @@ def build_medical_exam_email(
     return ([cand_email], subject, text, html)
 
 
+# ── Contratación (auditoría v4, corto plazo #4: hired ganaba solo Telegram) ────────
+
+def build_hired_email(
+    settings: Settings, vacancy: dict, candidate: dict
+) -> tuple[list[str], str, str, str] | None:
+    """(recipients, subject, text, html) del correo de contratación, o None si no aplica."""
+    cand_email = str((candidate.get("cv_profile") or {}).get("email", "")).strip()
+    if not (settings.smtp_host and settings.smtp_from and cand_email):
+        return None
+    name = candidate.get("name") or "Candidato"
+    title = vacancy.get("title", "")
+    subject = f"¡Felicitaciones! Fuiste seleccionad@ · {title}".strip(" ·")
+
+    text = "\n".join([
+        f"Estimad@ {name},",
+        "",
+        f"¡Felicitaciones! Completaste con éxito el proceso de selección para el puesto de {title}.",
+        "",
+        "El equipo de Recursos Humanos se pondrá en contacto contigo para coordinar los detalles",
+        "de tu incorporación (fecha de ingreso, documentación y materiales de bienvenida).",
+        "",
+        "¡Bienvenid@ al equipo!",
+    ])
+    h_name, h_title = _esc(str(name)), _esc(str(title))
+    html = f"""<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;color:#111;background:#f6f7f9;padding:24px">
+      <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
+        <div style="background:#4f46e5;color:#fff;padding:20px 24px">
+          <div style="font-size:13px;opacity:.9">Proceso de selección completado</div>
+          <div style="font-size:22px;font-weight:700">{h_title}</div>
+        </div>
+        <div style="padding:24px;line-height:1.6;color:#333">
+          <p style="margin:0 0 12px">Estimad@ <b>{h_name}</b>,</p>
+          <p style="margin:0 0 12px">¡Felicitaciones! Completaste con éxito el proceso de selección para el puesto de <b>{h_title}</b>.</p>
+          <p style="margin:0 0 12px">El equipo de Recursos Humanos se pondrá en contacto contigo para coordinar los detalles de tu incorporación (fecha de ingreso, documentación y materiales de bienvenida).</p>
+          <p style="margin:12px 0 0;color:#4f46e5;font-weight:700">¡Bienvenid@ al equipo! 🎉</p>
+        </div>
+      </div>
+    </body></html>"""
+    return ([cand_email], subject, text, html)
+
+
 # ── Kit de onboarding (materiales y guías del primer día de trabajo) ───────────────
 
 def render_kit_materials_text(kit: dict) -> str:
