@@ -204,6 +204,11 @@ def _patch_store(monkeypatch) -> dict:
         lambda key, value, tenant_id=None: store.__setitem__((tenant_id, key), value),
     )
     monkeypatch.setattr(main.repo, "add_audit_log", lambda row: row)
+    # Limiter fresco por test: el módulo-level de /test acumularía llamadas entre tests.
+    monkeypatch.setattr(
+        settings_routes, "_llm_test_limiter",
+        settings_routes.SlidingWindowLimiter(max_calls=5, per_seconds=60),
+    )
     providers.invalidate_config_cache()
     return store
 
@@ -214,7 +219,9 @@ def test_provider_endpoints_rbac_and_masked_default(monkeypatch):
     body = {"enabled": False, "provider": "groq", "base_url": "", "api_key": "",
             "model": "", "cheap_model": "", "cheap_stages": "schedule"}
     assert client.put("/api/settings/llm-provider", json=body, headers=_auth("recruiter")).status_code == 403
-    r = client.get("/api/settings/llm-provider", headers=_auth("viewer"))
+    # El GET también es admin-only: expone base_url/modelo/key enmascarada.
+    assert client.get("/api/settings/llm-provider", headers=_auth("viewer")).status_code == 403
+    r = client.get("/api/settings/llm-provider", headers=_auth("admin"))
     assert r.status_code == 200
     data = r.json()
     assert data["enabled"] is False and data["api_key_masked"] == ""
@@ -258,12 +265,32 @@ def test_provider_put_empty_key_keeps_previous(monkeypatch):
     store = _patch_store(monkeypatch)
     enc = providers.encrypt_api_key("gsk_secret_key_123456")
     store[("t1", "llm_provider")] = _stored(api_key_encrypted=enc)
-    body = {"enabled": True, "provider": "gemini", "base_url": "", "api_key": "",
-            "model": "gemini-2.5-flash", "cheap_model": "", "cheap_stages": ""}
+    # Mismo proveedor/endpoint (base_url "" resuelve a la del catálogo) → conserva la key.
+    body = {"enabled": True, "provider": "groq", "base_url": "", "api_key": "",
+            "model": "llama-3.3-70b-versatile", "cheap_model": "", "cheap_stages": ""}
     r = client.put("/api/settings/llm-provider", json=body, headers=_auth("admin"))
     assert r.status_code == 200
     assert store[("t1", "llm_provider")]["api_key_encrypted"] == enc
     assert r.json()["api_key_masked"] == "gsk_...3456"
+
+
+def test_provider_put_endpoint_change_requires_new_key(monkeypatch):
+    """Anti-exfiltración: cambiar proveedor o base_url conservando la key (api_key:"")
+    mandaría el Bearer almacenado a un destino nuevo → 422 exige re-ingresarla."""
+    store = _patch_store(monkeypatch)
+    enc = providers.encrypt_api_key("gsk_secret_key_123456")
+    store[("t1", "llm_provider")] = _stored(api_key_encrypted=enc)
+    other_provider = {"enabled": True, "provider": "gemini", "base_url": "", "api_key": "",
+                      "model": "gemini-2.5-flash", "cheap_model": "", "cheap_stages": ""}
+    r = client.put("/api/settings/llm-provider", json=other_provider, headers=_auth("admin"))
+    assert r.status_code == 422
+    other_url = {"enabled": True, "provider": "groq", "base_url": "https://atacante.example/v1",
+                 "api_key": "", "model": "qwen/qwen3-32b", "cheap_model": "", "cheap_stages": ""}
+    assert client.put("/api/settings/llm-provider", json=other_url, headers=_auth("admin")).status_code == 422
+    assert store[("t1", "llm_provider")]["api_key_encrypted"] == enc  # nada cambió
+    # Con key nueva el cambio de proveedor procede normalmente.
+    with_key = {**other_provider, "api_key": "AIza_nueva_key_9876"}
+    assert client.put("/api/settings/llm-provider", json=with_key, headers=_auth("admin")).status_code == 200
 
 
 def test_provider_put_validations(monkeypatch):
@@ -314,3 +341,63 @@ def test_provider_test_endpoint_ok_and_error(monkeypatch):
     # Sin key (ni nueva ni almacenada) → 422.
     no_key = {**body, "api_key": ""}
     assert client.post("/api/settings/llm-provider/test", json=no_key, headers=_auth("admin")).status_code == 422
+
+
+def test_provider_test_stored_key_only_against_same_endpoint(monkeypatch):
+    """Anti-exfiltración en /test: la key almacenada no viaja a un endpoint distinto."""
+    store = _patch_store(monkeypatch)
+    monkeypatch.setattr(settings_routes, "_build_test_llm", lambda cfg: _FakeInner(cfg["model"]))
+    store[("t1", "llm_provider")] = _stored()
+    same = {"enabled": True, "provider": "groq", "base_url": "", "api_key": "",
+            "model": "qwen/qwen3-32b", "cheap_model": "", "cheap_stages": ""}
+    assert client.post("/api/settings/llm-provider/test", json=same, headers=_auth("admin")).status_code == 200
+    other_url = {**same, "base_url": "https://atacante.example/v1"}
+    assert client.post("/api/settings/llm-provider/test", json=other_url, headers=_auth("admin")).status_code == 422
+    other_provider = {**same, "provider": "gemini", "model": "gemini-2.5-flash"}
+    assert client.post("/api/settings/llm-provider/test", json=other_provider, headers=_auth("admin")).status_code == 422
+
+
+def test_provider_test_rate_limited_per_tenant(monkeypatch):
+    _patch_store(monkeypatch)
+    monkeypatch.setattr(settings_routes, "_build_test_llm", lambda cfg: _FakeInner(cfg["model"]))
+    body = {"enabled": True, "provider": "groq", "base_url": "", "api_key": "gsk_k_123456789",
+            "model": "qwen/qwen3-32b", "cheap_model": "", "cheap_stages": ""}
+    for _ in range(5):
+        assert client.post("/api/settings/llm-provider/test", json=body, headers=_auth("admin")).status_code == 200
+    assert client.post("/api/settings/llm-provider/test", json=body, headers=_auth("admin")).status_code == 429
+    # Otro tenant tiene su propia ventana.
+    assert client.post("/api/settings/llm-provider/test", json=body,
+                       headers=_auth("admin", "t2")).status_code == 200
+
+
+# ── Anti-SSRF: endpoint público en producción ─────────────────────────────────
+
+class _FakeSettings:
+    def __init__(self, production: bool, allow_private: bool = False):
+        self.is_production = production
+        self.allow_private_llm_endpoints = allow_private
+
+
+def test_is_private_host():
+    assert providers.is_private_host("127.0.0.1") is True
+    assert providers.is_private_host("localhost") is True
+    assert providers.is_private_host("10.0.0.5") is True
+    assert providers.is_private_host("169.254.169.254") is True  # metadata cloud
+    assert providers.is_private_host("8.8.8.8") is False
+    assert providers.is_private_host("host-inexistente-xyz.invalid") is True  # no resoluble = conservador
+
+
+def test_assert_public_llm_endpoint_gates_only_production():
+    # Dev: todo pasa (Ollama local).
+    providers.assert_public_llm_endpoint("http://localhost:11434/v1", _FakeSettings(False))
+    # Producción: privado/loopback → ValueError; público pasa; flag lo abre.
+    import pytest
+
+    with pytest.raises(ValueError):
+        providers.assert_public_llm_endpoint("http://localhost:11434/v1", _FakeSettings(True))
+    with pytest.raises(ValueError):
+        providers.assert_public_llm_endpoint("http://169.254.169.254/latest", _FakeSettings(True))
+    with pytest.raises(ValueError):
+        providers.assert_public_llm_endpoint("", _FakeSettings(True))
+    providers.assert_public_llm_endpoint("https://8.8.8.8/v1", _FakeSettings(True))
+    providers.assert_public_llm_endpoint("http://localhost:11434/v1", _FakeSettings(True, allow_private=True))

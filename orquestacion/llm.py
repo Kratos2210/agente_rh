@@ -195,6 +195,8 @@ def build_default_llm(
     *,
     base_url: str | None = None,
     api_key: str | None = None,
+    timeout_seconds: int | None = None,
+    max_retries: int | None = None,
 ) -> LangChainLLM:
     """LLM del runtime (temperatura baja, sin <think> en Qwen3).
 
@@ -206,6 +208,8 @@ def build_default_llm(
     api_key) — lo usa el routing de costos para el modelo barato de las etapas simples.
     `base_url`/`api_key` permiten OTRO proveedor compatible-OpenAI (BYOK por-tenant,
     ver orquestacion.providers); sin ellos se usa el del `.env`, como siempre.
+    `timeout_seconds`/`max_retries` acotan usos efímeros (p. ej. /test de conexión);
+    sin ellos aplican los del `.env`.
     """
     from langchain_openai import ChatOpenAI
 
@@ -217,8 +221,8 @@ def build_default_llm(
         model=model_name,
         base_url=base_url or settings.openai_api_base,
         api_key=api_key or settings.openai_api_key,
-        timeout=settings.llm_timeout_seconds,
-        max_retries=settings.llm_max_retries,
+        timeout=timeout_seconds if timeout_seconds is not None else settings.llm_timeout_seconds,
+        max_retries=max_retries if max_retries is not None else settings.llm_max_retries,
         temperature=0.2,
     )
     if "qwen3" in model_name.lower():

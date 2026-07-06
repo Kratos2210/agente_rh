@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     # Etapas ruteadas al modelo barato (CSV). Por defecto la más simple y frecuente.
     llm_cheap_stages: str = "schedule"
 
+    # BYOK por-tenant: en producción el base_url del proveedor debe ser público (anti-SSRF,
+    # ver orquestacion.providers.assert_public_llm_endpoint). Activar SOLO en instalaciones
+    # self-hosted donde el LLM corre en la red propia (p. ej. Ollama).
+    allow_private_llm_endpoints: bool = False
+
     # Caché semántica de las dudas del candidato (paso 5): si una pregunta MUY parecida ya
     # fue respondida para la MISMA vacante (coseno >= semantic_cache_threshold), se devuelve
     # la respuesta cacheada sin llamar al LLM (0 tokens). Las respuestas por vacante son

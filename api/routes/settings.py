@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from api.auth import get_current_user, require_role
 from api.deps import _audit
+from api.ratelimit import SlidingWindowLimiter
+from core.config import get_settings
 from api.runtime import (
     _DEFAULT_AUTO_CONTACT,
     _DEFAULT_INACTIVITY,
@@ -264,6 +266,14 @@ class LlmProviderIn(BaseModel):
         return v
 
 
+def _prev_base_url(prev: dict[str, Any]) -> str:
+    """Base URL efectiva del registro almacenado (una fila con base_url vacía usa la del
+    catálogo de su provider, como `providers._load_config`)."""
+    from orquestacion.providers import provider_base_url
+
+    return (prev.get("base_url") or "").strip() or provider_base_url(str(prev.get("provider") or ""))
+
+
 def _llm_provider_masked(stored: dict[str, Any]) -> dict[str, Any]:
     """Vista del setting para el GET/PUT: sin `api_key_encrypted`, con `api_key_masked`."""
     from orquestacion.providers import decrypt_api_key, mask_api_key
@@ -291,7 +301,8 @@ def _seed_llm_pricing(tenant_id: str, provider: str, models: list[str]) -> None:
 
 
 @router.get("/api/settings/llm-provider")
-def get_llm_provider(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+def get_llm_provider(user: dict[str, Any] = Depends(require_role("admin"))) -> dict[str, Any]:
+    """Solo admin: expone base_url/modelo/key enmascarada (config secret-adyacente)."""
     stored = repo.get_app_setting("llm_provider", None, user["tenant_id"]) or {}
     return _llm_provider_masked(stored)
 
@@ -314,8 +325,21 @@ def put_llm_provider(
     base_url = payload.base_url.strip() or providers.provider_base_url(payload.provider)
     if payload.enabled and not base_url:
         raise HTTPException(422, "Proveedor personalizado: indica la base URL (compatible OpenAI)")
+    if payload.enabled:
+        try:
+            # Anti-SSRF (solo producción): el endpoint del proveedor debe ser público.
+            providers.assert_public_llm_endpoint(base_url, get_settings())
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
     new_key = payload.api_key.strip()
-    encrypted = providers.encrypt_api_key(new_key) if new_key else (prev.get("api_key_encrypted") or "")
+    prev_encrypted = prev.get("api_key_encrypted") or ""
+    # Anti-exfiltración: la key almacenada solo viaja al endpoint con el que se guardó.
+    # Cambiar proveedor/base_url conservando la key (api_key:"") mandaría el Bearer previo
+    # a un destino nuevo (potencialmente del atacante) → exigir re-ingreso.
+    endpoint_changed = payload.provider != prev.get("provider") or base_url != _prev_base_url(prev)
+    if not new_key and prev_encrypted and endpoint_changed:
+        raise HTTPException(422, "Cambiaste el proveedor o la base URL: re-ingresa la API key")
+    encrypted = providers.encrypt_api_key(new_key) if new_key else prev_encrypted
     if payload.enabled and not encrypted:
         raise HTTPException(422, "Ingresa la API key del proveedor")
     model = payload.model.strip()
@@ -338,14 +362,23 @@ def put_llm_provider(
 
 
 def _build_test_llm(cfg: dict[str, Any]):
-    """Builder del LLM efímero de /test (nombre propio para monkeypatch en tests)."""
-    from orquestacion.providers import build_llm_from_config
+    """Builder del LLM efímero de /test (nombre propio para monkeypatch en tests).
+    Timeout corto y sin reintentos: un endpoint que no responde no retiene al worker."""
+    from orquestacion.llm import build_default_llm
 
-    return build_llm_from_config(cfg)
+    return build_default_llm(
+        cfg["model"], base_url=cfg["base_url"], api_key=cfg["api_key"],
+        timeout_seconds=15, max_retries=0,
+    )
 
 
 def _scrub_secret(text: str, secret: str) -> str:
     return text.replace(secret, "•••") if secret else text
+
+
+# 5/min por tenant: /test es una sonda activa hacia una URL elegida por el admin —
+# acotar el abuso (patrón `_sync_limiter` de vacancies.py).
+_llm_test_limiter = SlidingWindowLimiter(max_calls=5, per_seconds=60)
 
 
 @router.post("/api/settings/llm-provider/test")
@@ -353,15 +386,32 @@ def test_llm_provider(
     payload: LlmProviderIn, user: dict[str, Any] = Depends(require_role("admin"))
 ) -> dict[str, Any]:
     """Prueba de conexión SIN persistir: completion mínima con el proveedor del body
-    (key vacía = usa la almacenada). Nunca devuelve la key (ni en errores)."""
+    (key vacía = usa la almacenada, SOLO contra su mismo endpoint). Nunca devuelve la
+    key (ni en errores)."""
     import time
 
     from orquestacion import providers
 
+    if not _llm_test_limiter.allow(f"llm-test:{user['tenant_id']}"):
+        raise HTTPException(429, "Demasiadas pruebas de conexión; intenta en un minuto")
     base_url = payload.base_url.strip() or providers.provider_base_url(payload.provider)
+    try:
+        # Anti-SSRF (solo producción): no sondear red interna/metadata vía base_url.
+        providers.assert_public_llm_endpoint(base_url, get_settings())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     api_key = payload.api_key.strip()
     if not api_key:
         prev = repo.get_app_setting("llm_provider", None, user["tenant_id"]) or {}
+        # Anti-exfiltración (como el PUT): la key almacenada solo viaja al endpoint
+        # con el que se guardó; contra otro destino se exige ingresarla.
+        same_endpoint = (
+            payload.provider == prev.get("provider") and base_url == _prev_base_url(prev)
+        )
+        if prev.get("api_key_encrypted") and not same_endpoint:
+            raise HTTPException(
+                422, "Cambiaste el proveedor o la base URL: ingresa la API key para probar"
+            )
         api_key = providers.decrypt_api_key(prev.get("api_key_encrypted") or "") or ""
     model = payload.model.strip()
     if not (base_url and api_key and model):

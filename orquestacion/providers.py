@@ -134,6 +134,43 @@ def provider_base_url(provider: str) -> str:
     return str(PROVIDERS.get(provider, {}).get("base_url", "") or "")
 
 
+def is_private_host(hostname: str) -> bool:
+    """True si el host resuelve a alguna IP privada/loopback/link-local/reservada
+    (o no resuelve — conservador). IPs literales no requieren red."""
+    import ipaddress
+    import socket
+
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+    except OSError:
+        return True
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            return True
+    return False
+
+
+def assert_public_llm_endpoint(base_url: str, settings) -> None:
+    """Anti-SSRF: en producción el endpoint del proveedor debe ser público — un admin de
+    tenant no debe poder sondear la red interna/metadata (169.254.169.254) vía base_url.
+    En dev no aplica (Ollama local); en prod self-hosted se abre con
+    ALLOW_PRIVATE_LLM_ENDPOINTS=true."""
+    if not getattr(settings, "is_production", False):
+        return
+    if getattr(settings, "allow_private_llm_endpoints", False):
+        return
+    from urllib.parse import urlparse
+
+    host = (urlparse(base_url).hostname or "").strip()
+    if not host or is_private_host(host):
+        raise ValueError(
+            "El endpoint del proveedor apunta a una red privada o no resoluble; en "
+            "producción solo se permiten endpoints públicos "
+            "(ALLOW_PRIVATE_LLM_ENDPOINTS=true para self-hosted)."
+        )
+
+
 def suggested_prices_for(provider: str, models: list[str]) -> dict[str, dict[str, float]]:
     """Filas de precio del catálogo para los modelos dados (siembra de `llm_pricing`)."""
     catalog = {m["id"]: m for m in PROVIDERS.get(provider, {}).get("models", [])}

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Shell, Card, BackLink } from "@/components/Shell";
 import { api, errorMessage, AutoContactConfig, InactivityConfig, LlmBudgetConfig, LlmPricingConfig, LlmProviderCatalog, LlmProviderConfig, MedicalExamConfig, QualityAlertsConfig, SchedulingConfig, SlaAlertsConfig } from "@/lib/api";
+import { isAdmin } from "@/lib/auth";
 
 // Fila editable del precio de un modelo (los montos se editan como texto y se parsean al guardar).
 type PriceRow = { model: string; input: string; output: string };
@@ -72,8 +73,12 @@ export default function ConfiguracionPage() {
     api.getSlaAlerts().then(setSla).catch((e) => setError(errorMessage(e)));
     api.getQualityAlerts().then(setQuality).catch((e) => setError(errorMessage(e)));
     api.getMedicalExamSettings().then(setMedical).catch((e) => setError(errorMessage(e)));
-    api.getLlmProvider().then(setProv).catch((e) => setError(errorMessage(e)));
-    api.getLlmProviderCatalog().then((c) => setProvCatalog(c.providers)).catch((e) => setError(errorMessage(e)));
+    if (isAdmin()) {
+      // El GET del proveedor LLM es admin-only (config secret-adyacente); para otros
+      // roles la tarjeta simplemente no se muestra (prov queda null).
+      api.getLlmProvider().then(setProv).catch((e) => setError(errorMessage(e)));
+      api.getLlmProviderCatalog().then((c) => setProvCatalog(c.providers)).catch((e) => setError(errorMessage(e)));
+    }
   }, []);
 
   const provBody = (p: LlmProviderConfig) => ({
