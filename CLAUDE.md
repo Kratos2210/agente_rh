@@ -21,33 +21,39 @@ embeddings) para responder dudas del candidato sobre el puesto.
 ## Stack
 - **Python 3.12 + uv** (gestor — usar `uv`, nunca pip directo). `uv sync --extra dev`.
 - **Cerebro**: LangGraph (máquina de estados de la entrevista, checkpointer durable en Postgres).
-- **LLM**: compatible-OpenAI vía `src.qa_chain.build_llm` (Groq/Qwen3 o AI Gateway). `.env` OPENAI_*.
+- **LLM**: compatible-OpenAI vía `orquestacion.qa_chain.build_llm` (Groq/Qwen3 o AI Gateway). `.env` OPENAI_*.
 - **Persistencia de negocio**: **Supabase (Postgres)** — vacantes, candidatos, respuestas, scorecards.
 - **RAG (base de conocimiento de la empresa)**: Chroma local + embeddings `intfloat/multilingual-e5-base`
-  + hybrid search (BM25 + vectorial) + cross-encoder liviano. Heredado de agente_pro (`src/`).
+  + hybrid search (BM25 + vectorial) + cross-encoder liviano. Heredado de agente_pro (hoy en
+  `retrieval/` + `ranking/`).
 - **Canal**: Telegram (modo polling en el lifespan de FastAPI; cero infra). WhatsApp Cloud API después.
 - **API**: FastAPI (`api/main.py`). **Dashboard**: Next.js 16 (`frontend/`).
 - **Reporte**: email SMTP al reclutador (patrón de `../qrs`).
 
 ## Estructura
-- `api/main.py` — FastAPI: lifespan (arranca bot Telegram), CORS, health; endpoints reclutador (Fase 5).
-- `api/telegram_bot.py` — bot Telegram (se reescribe en Fase 3: turno de entrevista + botones inline).
-- `agent/` — **NUEVO** cerebro LangGraph: `state.py`, `graph.py`, `nodes.py`, `prompts.py`.
-- `evaluation/` — **NUEVO** `scorer.py` (respuesta vs criterio) + `scorecard.py` (semáforo + recomendación).
-- `channels/` — **NUEVO** `base.py` (interfaz Channel), `telegram.py`, `whatsapp.py` (stub Fase 6).
-- `db/` — **NUEVO** `client.py` (Supabase) + `repositories.py` (CRUD).
-- `notifications/email.py` — **NUEVO** reporte SMTP al reclutador.
-- `supabase/migrations/` — **NUEVO** esquema SQL + seed de la vacante demo.
-- `src/` — reutilizado de agente_pro: `config.py`, `qa_chain.py` (`build_llm`, RAG), `classifier.py`
-  (`suggest_questions`), `vectorstore.py`, `reranker.py`, `embeddings.py`, `semantic_cache.py`,
-  `registry.py`, `logging_config.py`, `observability.py`.
-- `frontend/` — base Next.js de agente_pro (se adapta a dashboard reclutador en Fase 5).
+(Reorganizada 2026-07-04 por la rúbrica del curso: el viejo `src/` se repartió en carpetas
+temáticas; los imports `src.*` ya no existen. Las menciones a `src/` en la bitácora histórica
+de abajo se dejaron tal cual — mapear mentalmente a la carpeta nueva.)
+- `api/` — FastAPI: `main.py` (lifespan, login, ensamblaje), `routes/` (endpoints por dominio),
+  `telegram_bot.py` (bot polling/webhook), `scheduler.py` (barridos), `auth.py`, `runtime.py`.
+- `agente/` — cerebro LangGraph: `state.py`, `graph.py`, `nodes.py`, `prompts.py`, `service.py`.
+- `evaluation/` — `scorer.py` (respuesta vs criterio) + `scorecard.py` (semáforo + recomendación)
+  + `prescreen.py` (gate CV) + `quality.py` (juez de calidad).
+- `channels/` — `base.py` (interfaz Channel), `telegram.py`, `whatsapp.py` (stub), `documents.py`.
+- `db/` — `client.py` (Supabase) + `repositories.py` (CRUD).
+- `notifications/` — `email.py`, `candidate.py`, `outbox.py`.
+- `core/` — `config.py` (settings pydantic-settings), `logging_config.py`, `registry.py`.
+- `retrieval/` — `rag.py`, `vectorstore.py`, `embeddings.py`, `semantic_cache.py`, `answer_cache.py`.
+- `ranking/` — `reranker.py`. `orquestacion/` — `llm.py`, `qa_chain.py`, `classifier.py`.
+- `observabilidad/` — `observability.py`, `httpmetrics.py`. `adaptadores_mcp/` — `mcp.py` (server MCP).
+- `integrations/` — `sourcing.py`, `scheduling.py`. `supabase/migrations/` — esquema SQL + seeds.
+- `frontend/` — dashboard Next.js 16.
 
 ## Config (`.env`) — ver `.env.example`
 - `OPENAI_*` (LLM), `SUPABASE_URL/SERVICE_KEY`, `DATABASE_URL` (checkpointer LangGraph),
   `TELEGRAM_BOT_TOKEN`, `SMTP_*` + `RECRUITER_EMAIL`, `INTERVIEW_MAX_FOLLOW_UPS`,
   `SEMAPHORE_GREEN_MIN`/`SEMAPHORE_YELLOW_MIN`, y bloque RAG (`PERSIST_DIRECTORY`, `EMBEDDING_MODEL`,
-  `CROSS_ENCODER_MODEL`, chunking). Settings en `src/config.py` (pydantic-settings).
+  `CROSS_ENCODER_MODEL`, chunking). Settings en `core/config.py` (pydantic-settings).
 
 ## Gotchas (Mac Intel)
 - **torch fijado a 2.2.2** y **onnxruntime <1.21** en `pyproject.toml`: las versiones nuevas dejaron
@@ -1086,6 +1092,66 @@ embeddings) para responder dudas del candidato sobre el puesto.
   (acción externa tuya)**: cargar secretos en un gestor real + aplicar el ExternalSecret; alta+onboarding del
   2.º humano; correr el script de branch protection tras pasar a Pro. Sin cambios de frontend (API+script;
   la UI de usuarios queda como mejora futura). `audit/auditoria_v2.md` paso 4 marcado 🟡.
+
+- **2026-07-05 — Auditoría v3 + examen médico pre-contratación y onboarding (Partes B y C)**: la
+  auditoría `audit/auditoria_v3.md` (madurez rúbrica `audit/chekeo.md` 13/13 + LLMOps v2 81/100)
+  destapó una **brecha funcional**: el proceso moría en `hired` (solo Telegram, sin email, y
+  `NOTIFY_HIRED` prometía "coordinar tu incorporación" sin nada después). Implementadas las dos
+  mejoras, config-gated (comportamiento actual intacto con el flag off, patrón líder/gerencia
+  opcionales). Migración **`0027_medical_onboarding.sql`** (aplicada en vivo por docker psql +
+  `NOTIFY pgrst`, patrón conocido): `candidates.medical_exam jsonb` (espejo de `psych_exam`),
+  `candidates.start_date date`, `candidates.onboarding jsonb`, `vacancies.onboarding_kit jsonb`.
+  **(B) Examen médico** (patrón psych-exam, sin tocar el motor): aprobar gerencia ya NO contrata
+  directo — si el app_setting por-tenant **`medical_exam`** (`_DEFAULT_MEDICAL={enabled:False}` en
+  `api/runtime.py`, endpoints `GET/PUT /api/settings/medical-exam`) está activo, pasa a
+  `medical_pending`; RR.HH. programa cita (`POST /api/candidates/{id}/medical-exam`, idempotente
+  409 si mismos datos) → `medical_scheduled` → registra resultado (`POST …/medical-result`,
+  `apto`→`hired`+`NOTIFY_HIRED` / `no_apto`→`rejected`+notif). Notificaciones **correo + Telegram**
+  vía outbox: kind `medical_exam_email` + `deliver_medical_exam`/`build_medical_exam_email`
+  (destinatario = `cv_profile.email`), Telegram con prompts nuevos `NOTIFY_MEDICAL_PENDING`/
+  `NOTIFY_MEDICAL_EXAM`. Reconciliación: alerta `medical_stuck` si `medical_*` estancado > N días.
+  **(C) Onboarding automático**: RR.HH. fija `start_date`; **`_onboarding_sweep`** en
+  `api/scheduler.py` (patrón budget/SLA: por-tenant, dedupe una-vez, respeta horario laboral) el
+  día de ingreso envía el kit de la vacante (`onboarding_kit`) por correo (`onboarding_email` +
+  `deliver_onboarding`/`build_onboarding_email`) + Telegram (`NOTIFY_ONBOARDING`) y sella
+  `onboarding.sent_at`; respaldo manual `POST /api/candidates/{id}/onboarding` (idempotente).
+  `hired` sigue terminal (badge "Onboarding enviado ✓", sin estado nuevo). **(D0)** fix de
+  anonimización: `anonymize_candidate` ahora purga `psych_exam`/`medical_exam`/`onboarding`/
+  `start_date` (las credenciales del examen psicológico sobrevivían a la retención). Frontend:
+  paneles "🩺 Examen médico" y onboarding en el detalle del candidato, editor de kit en la vacante,
+  estados en `stages.ts`/`api.ts` (Examen médico entre Gerencia y Decisión). **Tests:
+  `test_medical.py` + `test_onboarding.py` (+24: idempotencia 409, RBAC, tenant, apto→hired+notifs,
+  no_apto→rejected, sweep día correcto/dedupe/tenant, endpoint manual, retrocompat flag off) →
+  **402/403 verde; tsc OK**.** **Verificado en vivo** (Supabase local + backend): `0027` aplicada
+  (3 columnas presentes), cita médica enviada por correo real + Telegram, doble-click → 409.
+  **Gotcha del cierre**: el único test rojo es `test_mcp_disabled_by_default` — NO es regresión;
+  el `.env` local tiene `MCP_ENABLED=true`/`LLM_TRACE_ENABLED=true` (dejados de verificaciones en
+  vivo previas) y ese test lee el `.env` real; con el default off pasa. **Pendiente**: commit;
+  backlog Parte D (email de contratación kind `hired_email`, inactividad post-manager para
+  `medical_*`, enum central de estados) — ver `audit/auditoria_v3.md`.
+
+- **2026-07-05 — Evaluación pre-demo (3 exploraciones) + cierre de hallazgos + commit a main**:
+  evaluación del working tree (~5 features sin commitear) con 3 exploraciones paralelas (UX del
+  dashboard, robustez backend, higiene del repo). **BLOQUEANTE cerrado**: un candidato en
+  `medical_pending`/`medical_scheduled` que escribía por Telegram reprocesaba el turno — el
+  checkpoint seguía en `PHASE_SCHEDULED` etapa manager y `_sync_business` revertía el status a
+  `mgr_scheduled` (endpoints médicos → 409). Fix: `_MEDICAL_HOLD_STATUSES` en el corto-circuito de
+  `service._process` (patrón hired) + acuse `PROCESS_MEDICAL_ACK` sin LLM + regresión en
+  `test_routing.py`. **UX medios**: embudo del home cuenta `ADVANCED_STATUSES` (antes "Avanzados: 0"
+  siempre) + fila "Contratados"; tiles de `vacantes/[id]` usan `CONTACTED_STATUSES`/
+  `SCHEDULED_STATUSES` de `stages.ts` (cuadran con el Kanban); barra de progreso incluye
+  lead/mgr/médico/hired; guards de "Cargando…" en `/pipeline` y `/onboarding` (antes flash de
+  estado vacío); los `.catch(() => {})` de pipeline/home/onboarding/equipo ahora muestran banner
+  con `errorMessage()`. **Menores**: buscador del header ahora es real (Enter → `/pipeline?q=`,
+  la página lee `useSearchParams` bajo `Suspense`); `/guia` unificada v8 + marca "hira"
+  (Datawith.AI queda como crédito); `statusLabel` muerto eliminado de `api.ts`; reporte de Costos
+  pagina con `.range()` (sin truncado silencioso); KPI "Kit pendiente" alineado a la columna;
+  carrera manual-vs-sweep del kit cerrada sellando `onboarding.sent_at` ANTES de despachar (los
+  envíos van por outbox); `.env.example` con `BOT_TURN_DEDUP_SECONDS`; CLAUDE.md al día con la
+  reorg de carpetas (el viejo `src/` → `core/ retrieval/ ranking/ orquestacion/ observabilidad/
+  adaptadores_mcp/`; las menciones `src/` de la bitácora histórica se dejan tal cual). Commiteado
+  a main en commits temáticos (médico+onboarding, costos, dedupe bot, evaluación, acuse terminal,
+  dashboard, docs).
 
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
