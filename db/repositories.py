@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from core.estados import ensure_valid_status
 from db.client import get_supabase
 
 
@@ -169,6 +170,10 @@ def add_candidate_document(candidate_id: str, doc: dict[str, Any]) -> dict[str, 
 
 
 def update_candidate(candidate_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    # Guard del catálogo (auditoría v4, R5): un status con typo falla AQUÍ, ruidoso,
+    # en vez de romper silenciosamente el kanban y los barridos del scheduler.
+    if "status" in payload:
+        ensure_valid_status(payload["status"])
     return (
         get_supabase().table("candidates").update(payload).eq("id", candidate_id).execute().data[0]
     )
