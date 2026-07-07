@@ -1046,6 +1046,62 @@ def list_quality_metrics(tenant_id: str, limit: int = 60) -> list[dict[str, Any]
     )
 
 
+def list_quality_metrics_since(tenant_id: str, since_day: str) -> list[dict[str, Any]]:
+    """Métricas de calidad de un tenant desde `since_day` (YYYY-MM-DD), ascendente por día
+    — serie de tiempo del signo vital de calidad (dashboard de tendencias)."""
+    return (
+        get_supabase().table("quality_metrics").select("metric,day,rate,sample_size,threshold")
+        .eq("tenant_id", tenant_id)
+        .gte("day", since_day)
+        .order("day", desc=False)
+        .execute()
+        .data
+        or []
+    )
+
+
+def http_snapshots_since(since_iso: str) -> list[dict[str, Any]]:
+    """Snapshots de métricas HTTP desde un instante (serie de tiempo · O-6). Ascendente por
+    `taken_at` para derivar deltas entre snapshots consecutivos del mismo proceso.
+
+    Ámbito de proceso (sin tenant): los contadores son ACUMULADOS desde el arranque, el
+    consumidor los convierte en volumen por día (reset-aware)."""
+    return (
+        get_supabase().table("http_metrics_snapshots")
+        .select("taken_at,route,count,errors,client_errors,p95_ms")
+        .gte("taken_at", since_iso)
+        .order("taken_at", desc=False)
+        .execute()
+        .data
+        or []
+    )
+
+
+def usage_timeseries_rows_since(since_iso: str) -> list[dict[str, Any]]:
+    """Filas de `llm_usage` desde un instante, con lo necesario para la serie de tiempo
+    operativa: `created_at` (bucket diario), `calls`/`errors`/`duration_ms` (throughput y
+    latencia) y tokens/modelo (costo). Paginado con `.range()` como `usage_rows_detailed_since`
+    (un tenant activo supera el tope de filas por respuesta de PostgREST)."""
+    page = 1000
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        batch = (
+            get_supabase().table("llm_usage")
+            .select("vacancy_id,model,stage,calls,errors,duration_ms,input_tokens,output_tokens,total_tokens,created_at")
+            .gte("created_at", since_iso)
+            .order("created_at")
+            .range(offset, offset + page - 1)
+            .execute()
+            .data
+            or []
+        )
+        rows.extend(batch)
+        if len(batch) < page:
+            return rows
+        offset += page
+
+
 def _usage_rows(vacancy_id: Optional[str] = None) -> list[dict[str, Any]]:
     q = get_supabase().table("llm_usage").select("*")
     if vacancy_id:

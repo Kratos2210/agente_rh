@@ -641,9 +641,43 @@ export const api = {
     req<{ deleted: boolean }>(`/api/candidates/${id}`, { method: "DELETE" }),
   getHttpMetrics: () => req<{ routes: HttpRouteMetric[] }>("/api/ops/http-metrics"),
   getQuality: () => req<{ metrics: QualityMetric[] }>("/api/ops/quality"),
+  getTimeseries: (days: number) => req<OpsTimeseries>(`/api/ops/timeseries?days=${days}`),
   getTraces: (candidateId: string) =>
     req<{ items: LlmTrace[] }>(`/api/candidates/${candidateId}/traces`),
 };
+
+// Series de tiempo de observabilidad (dimensión B): tendencia diaria de operación LLM,
+// calidad y HTTP, derivada de datos ya persistidos (`GET /api/ops/timeseries`).
+export interface LlmDayPoint {
+  day: string;
+  calls: number;
+  errors: number;
+  tokens: number;
+  cost: number;
+  avg_ms: number;
+}
+export interface QualitySeriesPoint {
+  day: string;
+  rate: number;
+  sample_size: number;
+  threshold: number;
+}
+export interface HttpDayPoint {
+  day: string;
+  requests: number;
+  errors: number;
+  client_errors: number;
+  peak_p95_ms: number;
+}
+export interface OpsTimeseries {
+  days: number;
+  since: string;
+  timezone: string;
+  day_keys: string[];
+  llm: LlmDayPoint[];
+  quality: Record<string, QualitySeriesPoint[]>;
+  http: HttpDayPoint[];
+}
 
 // Signo vital de calidad (paso 4): tasa diaria de fundamentación/relevancia del bot.
 export interface QualityMetric {
