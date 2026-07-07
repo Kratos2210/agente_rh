@@ -111,6 +111,14 @@ class FallbackLLM:
         if self.metadata and isinstance(meta, dict):
             meta.update(self.metadata)
 
+    def set_max_tokens(self, value: int | None) -> None:
+        """Propaga el tope de tokens de salida (R6) a principal y respaldo, para que el
+        cinturón aplique sin importar cuál sirva la llamada."""
+        for target in (self._primary, self._fallback):
+            setter = getattr(target, "set_max_tokens", None)
+            if callable(setter):
+                setter(value)
+
     def complete(self, prompt: str) -> str:
         if self._breaker.allow_primary():
             self._sync_meta(self._primary)

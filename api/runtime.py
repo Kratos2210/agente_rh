@@ -180,7 +180,12 @@ _DEFAULT_LLM_PRICING = {
 
 # Presupuesto LLM mensual (O-2): al alcanzar `alert_pct`% del monto, alerta una vez por
 # tenant/mes (ops alert en el dashboard + correo vía outbox si hay `notify_email`).
-_DEFAULT_LLM_BUDGET = {"enabled": False, "monthly_usd": 0.0, "alert_pct": 80, "notify_email": ""}
+# `degrade_on_exhaust` (R6): al agotar el 100% del presupuesto, pausa el AUTO-contacto de
+# candidatos nuevos (las entrevistas en curso y el contacto manual de RR.HH. siguen).
+_DEFAULT_LLM_BUDGET = {
+    "enabled": False, "monthly_usd": 0.0, "alert_pct": 80,
+    "notify_email": "", "degrade_on_exhaust": False,
+}
 
 # Proveedor LLM por-tenant (BYOK): apagado = todo sale del `.env` (retrocompat total).
 # La key se persiste cifrada (`api_key_encrypted`, Fernet ← jwt_secret); el GET solo

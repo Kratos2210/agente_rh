@@ -298,6 +298,7 @@ export interface LlmBudgetConfig {
   monthly_usd: number;
   alert_pct: number;
   notify_email: string;
+  degrade_on_exhaust?: boolean;
 }
 
 // Proveedor LLM por-tenant (BYOK): la key nunca viaja de vuelta (solo enmascarada).

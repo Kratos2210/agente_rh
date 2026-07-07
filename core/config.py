@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     # Etapas ruteadas al modelo barato (CSV). Por defecto la más simple y frecuente.
     llm_cheap_stages: str = "schedule"
 
+    # Techo de gasto (R6, auditoría v4): cinturón de tokens de SALIDA por etapa —
+    # corta generaciones desbocadas del LLM sin recortar la salida normal. Los topes por
+    # etapa viven en orquestacion/llm.STAGE_MAX_TOKENS (holgados). Off por defecto =
+    # comportamiento actual (sin `max_tokens`); activarlo aplica el tope en cada llamada.
+    llm_max_tokens_enabled: bool = False
+
     # BYOK por-tenant: en producción el base_url del proveedor debe ser público (anti-SSRF,
     # ver orquestacion.providers.assert_public_llm_endpoint). Activar SOLO en instalaciones
     # self-hosted donde el LLM corre en la red propia (p. ej. Ollama).

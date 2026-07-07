@@ -18,6 +18,35 @@ class LLM(Protocol):
 
 _ZERO_USAGE = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
+# Techo de gasto (R6): tope de tokens de SALIDA por etapa (cinturón anti-runaway del LLM).
+# Holgado a propósito — corta solo generaciones desbocadas, no la salida normal (classify
+# ~20 tok, evaluate ~150, answer ~300, prescreen ~200). Se aplica SOLO si
+# settings.llm_max_tokens_enabled (config-gated, off por defecto = comportamiento actual).
+STAGE_MAX_TOKENS: dict[str, int] = {
+    "classify": 96,
+    "schedule": 96,
+    "slot": 96,
+    "doc_check": 96,
+    "judge": 160,
+    "evaluate": 640,
+    "scorecard": 640,
+    "revalidate": 640,
+    "prescreen": 768,
+    "answer": 768,
+}
+# Tope para etapas no listadas (holgado): nunca deja una generación sin freno.
+DEFAULT_STAGE_MAX_TOKENS = 768
+
+
+def build_stage_max_tokens(settings) -> dict[str, int] | None:
+    """Mapa etapa→tope de tokens de salida (R6), o None si el cinturón está apagado.
+
+    Config-gated por `settings.llm_max_tokens_enabled` (off por defecto = sin `max_tokens`,
+    idéntico al histórico). Devuelve una copia para que el caller no mute la constante."""
+    if not getattr(settings, "llm_max_tokens_enabled", False):
+        return None
+    return dict(STAGE_MAX_TOKENS)
+
 
 class LangChainLLM:
     """Adapta un ChatOpenAI de LangChain al protocolo LLM.
@@ -33,10 +62,18 @@ class LangChainLLM:
         # Metadata de tracing (LangSmith): tenant/conversación/etapa. Si está vacía no
         # se pasa config y el invoke queda idéntico al histórico.
         self.metadata: dict[str, str] = {}
+        # Tope de tokens de salida (R6). None = sin tope (comportamiento histórico).
+        self.max_tokens: int | None = None
+
+    def set_max_tokens(self, value: int | None) -> None:
+        """Fija el tope de tokens de salida de la PRÓXIMA llamada (R6). MeteredLLM lo ajusta
+        por etapa; None lo desactiva."""
+        self.max_tokens = value
 
     def complete(self, prompt: str) -> str:
         config = {"metadata": dict(self.metadata)} if self.metadata else None
-        resp = self._chat.invoke(prompt, config=config)
+        extra = {"max_tokens": self.max_tokens} if self.max_tokens else {}
+        resp = self._chat.invoke(prompt, config=config, **extra)
         meta = getattr(resp, "usage_metadata", None) or {}
         self.last_usage = {
             "input_tokens": int(meta.get("input_tokens", 0) or 0),
@@ -68,6 +105,7 @@ class MeteredLLM:
         trace: bool = False,
         trace_max_chars: int = 8000,
         overrides: dict[str, LLM] | None = None,
+        max_tokens_by_stage: dict[str, int] | None = None,
     ) -> None:
         self._inner = inner
         self.stage = stage
@@ -75,6 +113,8 @@ class MeteredLLM:
         self.trace_max_chars = trace_max_chars
         # Routing de costos (paso 5): etapa→LLM alternativo (modelo barato). El resto usa `inner`.
         self._overrides = overrides or {}
+        # Techo de gasto (R6): etapa→tope de tokens de salida, o None si el cinturón está apagado.
+        self._max_tokens_by_stage = max_tokens_by_stage
         # Identidad del proveedor configurado (BYOK): "env" = LLM del .env. Lo compara
         # `orquestacion.providers.refresh_metered_llm` para el hot-swap por-tenant.
         self.config_fingerprint = "env"
@@ -137,6 +177,15 @@ class MeteredLLM:
             "duration_ms": ms,
         })
 
+    def _apply_max_tokens(self, inner: LLM) -> None:
+        """Fija en `inner` el tope de tokens de la etapa actual (R6). No-op si el cinturón
+        está apagado (`None`) o si el LLM no soporta `set_max_tokens` (fakes de tests)."""
+        if self._max_tokens_by_stage is None:
+            return
+        setter = getattr(inner, "set_max_tokens", None)
+        if callable(setter):
+            setter(self._max_tokens_by_stage.get(self.stage, DEFAULT_STAGE_MAX_TOKENS))
+
     def complete(self, prompt: str) -> str:
         import time
 
@@ -145,6 +194,9 @@ class MeteredLLM:
         self._models[self.stage] = model
         # Etiqueta la etapa en la metadata de tracing del LLM que atiende (LangSmith).
         self._tag_meta(inner, stage=self.stage)
+        # Techo de gasto (R6): aplica el tope de tokens de salida de esta etapa. Se propaga
+        # al LLM que atiende (y, vía FallbackLLM.set_max_tokens, a principal + respaldo).
+        self._apply_max_tokens(inner)
         t0 = time.perf_counter()
         try:
             out = inner.complete(prompt)

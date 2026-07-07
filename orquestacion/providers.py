@@ -339,7 +339,7 @@ def _build_pair(cfg: dict[str, Any] | None, settings):
 
 def build_tenant_metered_llm(tenant_id: str | None, settings):
     """MeteredLLM listo para call sites por-request (p.ej. sync-applicants)."""
-    from orquestacion.llm import MeteredLLM
+    from orquestacion.llm import MeteredLLM, build_stage_max_tokens
 
     cfg = resolve_llm_config(tenant_id)
     inner, overrides = _build_pair(cfg, settings)
@@ -348,6 +348,7 @@ def build_tenant_metered_llm(tenant_id: str | None, settings):
         trace=settings.llm_trace_enabled,
         trace_max_chars=settings.llm_trace_max_chars,
         overrides=overrides,
+        max_tokens_by_stage=build_stage_max_tokens(settings),  # techo de gasto (R6)
     )
     metered.config_fingerprint = config_fingerprint(cfg)
     return metered

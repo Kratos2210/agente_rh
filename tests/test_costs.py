@@ -206,3 +206,16 @@ def test_ops_alerts_include_budget_for_tenant(monkeypatch):
 
     alerts = scheduler._collect_ops_alerts("t1")
     assert any(a["type"] == "budget_exceeded" for a in alerts)
+
+
+# ── Modo degradado por presupuesto agotado (R6) ───────────────────────────────
+
+def test_should_degrade_decision():
+    # Apagado si el presupuesto no está activo o el modo degradado está off, aunque se pase.
+    assert scheduler._should_degrade({"enabled": False, "degrade_on_exhaust": True, "monthly_usd": 1}, 5.0) is False
+    assert scheduler._should_degrade({"enabled": True, "degrade_on_exhaust": False, "monthly_usd": 1}, 5.0) is False
+    assert scheduler._should_degrade({"enabled": True, "degrade_on_exhaust": True, "monthly_usd": 0}, 5.0) is False
+    # Activo + monto, pero el gasto no llegó al 100% → no degrada (a diferencia de la alerta 80%).
+    assert scheduler._should_degrade({"enabled": True, "degrade_on_exhaust": True, "monthly_usd": 10}, 9.99) is False
+    # Alcanzó el 100% → degrada.
+    assert scheduler._should_degrade({"enabled": True, "degrade_on_exhaust": True, "monthly_usd": 10}, 10.0) is True

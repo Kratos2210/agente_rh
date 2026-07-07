@@ -121,6 +121,9 @@ class LlmBudgetIn(BaseModel):
     monthly_usd: float = Field(default=0.0, ge=0)
     alert_pct: int = Field(default=80, ge=1, le=100)
     notify_email: str = ""
+    # R6: al agotar el presupuesto (100%), pausa el auto-contacto de candidatos nuevos
+    # (modo degradado). Nunca corta entrevistas en curso ni el contacto manual.
+    degrade_on_exhaust: bool = False
 
 
 class SlaAlertsIn(BaseModel):

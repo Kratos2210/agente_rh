@@ -783,6 +783,18 @@ export default function ConfiguracionPage() {
                   className="px-3 py-2 rounded-lg w-full" style={inputStyle} />
               </div>
             </div>
+            <label className="flex items-center gap-3 mt-4 cursor-pointer">
+              <input type="checkbox" checked={!!budget.degrade_on_exhaust}
+                onChange={(e) => setBudget({ ...budget, degrade_on_exhaust: e.target.checked })}
+                style={{ width: 18, height: 18, accentColor: "var(--accent)" }} />
+              <span className="text-sm">
+                <span className="font-medium">Modo degradado al agotar el presupuesto</span>
+                <span className="block" style={{ color: "var(--muted)" }}>
+                  Al llegar al 100% del presupuesto, pausa el auto-contacto de candidatos nuevos hasta
+                  el próximo mes. Nunca corta entrevistas en curso; RR.HH. puede contactar manualmente.
+                </span>
+              </span>
+            </label>
           </div>
 
           <div className="mt-4 flex items-center gap-3">
