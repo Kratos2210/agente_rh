@@ -33,6 +33,9 @@
 // v9.5 (2026-07-06): Parte II (1/2) del playbook — secciones 21 (marcos de decisión), 22 (madurez
 // LLMOps: rúbrica fusionada + 72→81→85 + autoevaluación) y 23 (harness de evaluación portátil);
 // nivel 5 de la ruta de estudio; fix de deriva: golden 31 casos (11+10+6+4), cheap stage=schedule.
+// v9.8 (2026-07-06): Parte II (2/2) — secciones 24 FinOps (fórmula + escalera de ahorro), 25
+// checklists portables (seguridad/observabilidad/production-readiness/despliegue), 26 plantillas
+// (ADR-lite/ADR/post-mortem/spec 7 secciones) y 27 catálogo de 13 anti-patrones reales.
 import { Shell } from "@/components/Shell";
 import { GuiaEnhancements } from "./guia-enhancements";
 
@@ -46,7 +49,7 @@ const GUIA_CSS = "#guia-doc{--bg:#0a0e16; --surface:#0f1524; --surface2:#141b2d;
 const GUIA_HTML = `
 <header class="hero">
   <div class="wrap">
-    <div class="tag">hira · Guía end-to-end · v9.5 · para todo público (edición de estudio · documento vivo)</div>
+    <div class="tag">hira · Guía end-to-end · v9.8 · para todo público (edición de estudio · documento vivo)</div>
     <h1>Agente de Selección de Talento — Guía completa</h1>
     <p>Un asistente con inteligencia artificial que <b>entrevista candidatos por Telegram</b>, los
     <b>evalúa</b> contra los requisitos del puesto, le entrega a Recursos Humanos un <b>informe con
@@ -96,6 +99,10 @@ const GUIA_HTML = `
   <a href="#decisiones">21 · Decisiones</a>
   <a href="#madurez">22 · Madurez</a>
   <a href="#evaldiy">23 · Evaluación DIY</a>
+  <a href="#finops">24 · FinOps</a>
+  <a href="#checklists">25 · Checklists</a>
+  <a href="#plantillas">26 · Plantillas</a>
+  <a href="#antipatrones">27 · Anti-patrones</a>
 </div></nav>
 
 <main class="wrap">
@@ -143,13 +150,14 @@ const GUIA_HTML = `
       <a href="#run">16</a> → <a href="#troubleshooting">17.5</a>.</p>
       <p><b>Al terminar sabrás:</b> cómo se protege (auth, tenants, PII, anti-inyección), cómo se
       observa (trazas, costos, SLAs) y cómo se despliega y depura en vivo.</p></div>
-    <div class="card"><h4>Nivel 5 · Constructor — llévatelo a TU proyecto (≈2 h)</h4>
-      <p>La <a href="#playbook">Parte II</a>: <a href="#decisiones">21</a> →
-      <a href="#madurez">22</a> → <a href="#evaldiy">23</a>, más los deep-dives
-      "🧑‍💻 Impleméntalo tú" de <a href="#fundamentos">Fundamentos</a>.</p>
-      <p><b>Al terminar sabrás:</b> decidir tu arquitectura (chain/grafo, RAG/fine-tuning, modelo,
-      despliegue, observabilidad), autoevaluar la madurez de tu operación con los frameworks de
-      audit/ y montar tu primer harness de evaluación.</p></div>
+    <div class="card"><h4>Nivel 5 · Constructor — llévatelo a TU proyecto (≈3 h)</h4>
+      <p>La <a href="#playbook">Parte II</a> completa: <a href="#decisiones">21</a> →
+      <a href="#madurez">22</a> → <a href="#evaldiy">23</a> → <a href="#finops">24</a> →
+      <a href="#checklists">25</a> → <a href="#plantillas">26</a> → <a href="#antipatrones">27</a>,
+      más los deep-dives "🧑‍💻 Impleméntalo tú" de <a href="#fundamentos">Fundamentos</a>.</p>
+      <p><b>Al terminar sabrás:</b> decidir tu arquitectura, autoevaluar tu madurez, montar tu harness
+      de evaluación, estimar costos en una servilleta, verificar producción con checklists y no repetir
+      los errores que este proyecto ya pagó.</p></div>
   </div>
 </section>
 
@@ -2775,6 +2783,7 @@ uv run python scripts/demo.py --alberto</pre>
   <table>
     <thead><tr><th>Versión</th><th>Fecha</th><th>Qué cambió</th></tr></thead>
     <tbody>
+      <tr><td class="mono">v9.8</td><td class="mono">2026-07-06</td><td>Parte II (2/2): sección 24 (FinOps — fórmula de servilleta con ejemplo trabajado a precios reales, costo por conversación, escalera de ahorro cortar→abaratar→evitar), 25 (4 checklists portables: seguridad LLM ×10, observabilidad ×7, production readiness ×30 en 10 dimensiones, despliegue ×7 — imprimibles), 26 (plantillas: ADR-lite, ADR completo, post-mortem 5 líneas, spec de dominio 7 secciones) y 27 (catálogo de 13 anti-patrones reales con síntoma→antídoto→dónde se aprendió).</td></tr>
       <tr><td class="mono">v9.5</td><td class="mono">2026-07-06</td><td>Parte II (1/2) — Playbook: sección 21 (5 marcos de decisión: chain/grafo, RAG/fine-tuning/contexto, modelo + banco de aceptación, despliegue/serverless por componente, observabilidad construir/comprar), 22 (rúbrica de madurez fusionada de los 3 frameworks de audit/ + el caso 72→81→85 explicado + autoevaluación en 5 pasos) y 23 (harness de evaluación portátil: set JSON + runner exit-code + gate, con las 5 líneas de defensa). Nivel 5 "Constructor" en la ruta de estudio. Pasada de exactitud: golden 28→31 casos, routing real (schedule al 8b; classify volvió al principal con 3 vías).</td></tr>
       <tr><td class="mono">v9.3</td><td class="mono">2026-07-06</td><td>Fundamentos aprendibles: cada tecnología de la sección F gana un deep-dive "🧑‍💻 Impleméntalo tú" con código en 3 niveles — básico (corre solo), intermedio (patrones de producción) y avanzado (el código real del agente, citado) — para LLM, prompts, RAG, agentes, LangChain/LangGraph y LLMOps; + tabla del stack de soporte (no-IA) en una línea por pieza.</td></tr>
       <tr><td class="mono">v9.2</td><td class="mono">2026-07-06</td><td>UX de estudio: buscador in-page (también encuentra texto dentro de deep-dives plegados y los abre), deep-links con ancla ¶ (#prompt-*, #api-*), navegación anterior/siguiente por sección e impresión limpia (tema claro + deep-dives abiertos). Glosario +19 términos (evaluación, seguridad, FinOps, SDD). Corrección de números (27 migraciones, 98 parámetros).</td></tr>
@@ -2877,9 +2886,10 @@ npx @fission-ai/openspec@latest show &lt;capacidad&gt;          <span class="c">
   <h2><span class="num">II</span>Parte II — Playbook: construir soluciones de IA end-to-end</h2>
   <div class="simple">🟢 <b>En simple:</b> la Parte I (secciones 1–20) describe ESTE sistema; desde aquí
   la guía cambia de pregunta: ya no "¿cómo quedó esto?" sino <b>"¿cómo decides TÚ en tu proyecto?"</b>.
-  La Parte II destila lo aprendido en marcos reutilizables — cómo decidir la arquitectura (21), cómo
-  medir la madurez de tu operación (22) y cómo montar evaluación desde cero (23) — usando siempre este
-  proyecto como <b>caso resuelto</b>. Nada es teoría importada: cada tarjeta cita el documento real del
+  La Parte II destila lo aprendido en marcos reutilizables — cómo decidir la arquitectura (21), medir
+  la madurez de tu operación (22), montar evaluación desde cero (23), estimar costos antes de construir
+  (24), verificar con checklists (25), documentar con plantillas (26) y esquivar los errores ya pagados
+  (27) — usando siempre este proyecto como <b>caso resuelto</b>. Nada es teoría importada: cada tarjeta cita el documento real del
   repo (<span class="file">docs/</span>, <span class="file">audit/</span>, <span class="file">spec/</span>,
   <span class="file">tests/</span>) donde la decisión vivió de verdad.</div>
 </section>
@@ -3091,10 +3101,211 @@ npx @fission-ai/openspec@latest show &lt;capacidad&gt;          <span class="c">
   <code>PROMPT_VERSION</code> no sabrás QUÉ cambió cuando el banco se ponga rojo.</div>
 </section>
 
+<!-- 24 -->
+<section id="finops">
+  <h2><span class="num">24</span>FinOps — estima el costo ANTES de construir</h2>
+  <div class="simple">🟢 <b>En simple:</b> el gasto en LLM se puede estimar con una multiplicación en una
+  servilleta ANTES de escribir código — y se controla con tres palancas en un orden preciso. La sorpresa
+  de fin de mes no viene del promedio: viene de los <b>bucles sin tope</b> y de no medir por etapa.</div>
+
+  <h3>La fórmula de servilleta</h3>
+  <pre class="snippet">costo mensual ≈ conversaciones/mes × llamadas LLM/conversación
+                × (tokens_entrada × precio_in + tokens_salida × precio_out)
+
+<span class="c"># Ejemplo trabajado (números redondos del caso real; precios Groq por 1M tokens):
+#   200 candidatos/mes · una entrevista completa ≈ 20-25 llamadas
+#   (prescreen ~4k tokens, 6 evaluaciones ~1.5k c/u, classify por turno ~0.5k, dudas RAG ~1.5k)
+#   ≈ 35k tokens entrada + 6k salida por conversación
+#
+#   qwen3-32b  ($0.29/$0.59):  35k×0.29/1M + 6k×0.59/1M ≈ $0.014 por conversación
+#   → 200 conversaciones/mes ≈ $2.80/mes                       ← el LLM casi nunca es el costo
+#   llama-3.1-8b ($0.05/$0.08): la misma conversación ≈ $0.002  ← pero SOLO donde pase el banco</span></pre>
+  <p><b>La métrica reina es el costo por conversación</b> (aquí: por candidato entrevistado), no el
+  total: es comparable entre meses, entre modelos y entre empresas, y es la que le pones precio al
+  cliente. La conclusión del ejemplo también es un marco: cuando el costo del LLM es centavos, la
+  palanca importante no es abaratar tokens — es <b>impedir el gasto sin valor</b> (bucles, abuso, turnos
+  vacíos) y conocer el costo antes de prometer precios.</p>
+
+  <h3>La escalera de ahorro (en este orden de esfuerzo/beneficio)</h3>
+  <table>
+    <thead><tr><th>Palanca</th><th>Qué hace</th><th>Cuándo conviene (break-even)</th><th>Aquí</th></tr></thead>
+    <tbody>
+      <tr><td><b>1 · Cortar llamadas</b></td><td>Gates que responden SIN llamar al LLM: input vacío, tope de dudas, cooldown/tope diario, dedupe, acuse terminal.</td><td>Siempre — es código trivial y ahorra el 100% de la llamada evitada.</td><td>TurnGovernor + topes del motor (sección <a href="#cerebro">4</a>).</td></tr>
+      <tr><td><b>2 · Abaratar llamadas</b></td><td>Routing por etapa: las simples y frecuentes van a un modelo ~6× más barato.</td><td>Cuando la etapa pasa su suite golden con el modelo chico — y solo entonces (la reversión de classify es el contraejemplo, sección <a href="#decisiones">21</a>).</td><td><code>LLM_CHEAP_STAGES=schedule</code> → llama-3.1-8b (6/6 en slot).</td></tr>
+      <tr><td><b>3 · Evitar llamadas</b></td><td>Caché semántica: la duda "¿cuánto pagan?" ya respondida sirve para "¿cuál es el sueldo?" — 0 tokens, 0 RAG.</td><td>Cuando hay preguntas repetidas entre usuarios del mismo contexto (aquí: candidatos de la misma vacante).</td><td><code>INTERVIEW_ANSWER_CACHE_ENABLED</code> (<span class="file">agente/answer_cache.py</span>).</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Los tres hábitos FinOps que no se pueden improvisar después</h3>
+  <ul class="tight">
+    <li><b>Metering por (etapa, modelo) desde el día uno</b>: es barato de instrumentar temprano e
+    <b>imposible de reconstruir</b> después — sin atribución no hay optimización dirigida
+    (<span class="file">orquestacion/llm.py</span> · MeteredLLM).</li>
+    <li><b>Precio como configuración viva, costo calculado en lectura</b>: cambiar tarifas recalcula el
+    histórico sin migraciones; el costo mostrado es estimado (tokens × precio configurado) y eso se dice.</li>
+    <li><b>Presupuesto = gasto agregado + umbral + dedupe + correo</b>: cuatro piezas simples
+    (aquí: alerta al 80% del presupuesto mensual, una vez por tenant/mes) ya evitan la sorpresa —
+    sección <a href="#confiabilidad">10</a>.</li>
+  </ul>
+  <p class="src">Fuentes: spec/Costos.md (palancas, invariantes, escalera) · docs/adr-seleccion-modelo.md (precios reales, banco de aceptación) · costos vivos en /costos y /api/metrics.</p>
+</section>
+
+<!-- 25 -->
+<section id="checklists">
+  <h2><span class="num">25</span>Checklists portables — imprime y marca</h2>
+  <div class="simple">🟢 <b>En simple:</b> cuatro listas de verificación destiladas de las auditorías
+  reales de este repo, escritas para aplicarse a CUALQUIER proyecto con LLM. Cada ítem apunta a dónde
+  este sistema lo resuelve (para copiar la solución, no solo el checkbox). Con Cmd/Ctrl+P salen en
+  tema claro listas para marcar.</div>
+
+  <div class="card"><h4>① Seguridad LLM (10 puntos)</h4>
+    <ul class="tight">
+      <li>☐ <b>El LLM nunca ejecuta</b>: solo produce texto/JSON que código determinista parsea por clave y ejecuta vía adaptadores contractuales (Protocol + factory — <a href="#arquitectura">2</a>).</li>
+      <li>☐ Todo texto de usuario que entra a un prompt va <b>sanitizado y entre delimitadores</b>, en TODOS los prompts (el hallazgo S1: tres estaban sin blindar — <a href="#llm">11</a>).</li>
+      <li>☐ Los ataques se prueban como <b>proceso repetible</b> (12 ataques nightly), no como auditoría única — <a href="#evaldiy">23</a>.</li>
+      <li>☐ <b>Ninguna credencial en logs</b> — incluidas las que imprimen tus librerías (aquí httpx logueaba la URL con el token del bot: hallazgo F1 real; loggers de terceros a WARNING + errores re-lanzados saneados).</li>
+      <li>☐ Toda salida dinámica se <b>escapa donde se renderiza</b> (nombres y justificaciones del LLM en correos HTML: F3).</li>
+      <li>☐ <b>Mínimo privilegio en dos capas</b>: guards por endpoint blindados por un test estructural en CI + RLS en la DB como defensa en profundidad (F2 — <a href="#seguridad">9</a>).</li>
+      <li>☐ <b>Rate limiting en cada superficie pública</b>: login por IP, cooldown + tope diario por chat del bot, throttle de sync — el LLM convierte abuso en factura (R1-R4).</li>
+      <li>☐ Secretos fuera del código, <b>gate al arrancar en producción</b> (secretos débiles = no arranca) y rotación documentada (<span class="file">docs/gestion_secretos.md</span>).</li>
+      <li>☐ <b>PII minimizada</b> antes de salir al proveedor del LLM + retención programada + derecho al olvido en cascada (checkpoint incluido — <a href="#seguridad">9</a>).</li>
+      <li>☐ Capacidades de asistentes externos (MCP) con <b>confirmación en dos pasos</b> para mutaciones: capability ≠ autoridad (<a href="#apis">12</a>).</li>
+    </ul>
+    <p class="src">Marco: docs/auditoria_integraciones_externas.md (F1–F5, todos cerrados) + tests/redteam/.</p></div>
+
+  <div class="card"><h4>② Observabilidad mínima viable (7 puntos)</h4>
+    <ul class="tight">
+      <li>☐ Tokens, latencia y errores <b>por etapa Y por modelo</b> — imposible de reconstruir después (<a href="#finops">24</a>).</li>
+      <li>☐ <b>Trazas con contenido</b> (prompt/respuesta exactos) consultables, con la PII bajo TU control (tabla propia o self-hosted).</li>
+      <li>☐ Costo estimado <b>visible en el dashboard</b> + presupuesto con alerta push al 80%.</li>
+      <li>☐ <b>Percentiles</b> (p95/p99), no solo promedios — y del turno completo del usuario, no solo de la llamada LLM.</li>
+      <li>☐ Alertas que <b>llegan solas</b> (correo/push, con dedupe por condición/día) — lo crítico no espera a que alguien mire el panel.</li>
+      <li>☐ Calidad <b>juzgada a diario</b> sobre muestras reales (signo vital), no solo el banco offline (foto).</li>
+      <li>☐ Logs <b>correlacionables</b> (request-id propagado) + error tracking sin PII (Sentry con send_default_pii=False).</li>
+    </ul>
+    <p class="src">Marco: el plan O-1..O-6 completo, sección <a href="#confiabilidad">10</a>.</p></div>
+
+  <div class="card"><h4>③ Production readiness (las 10 dimensiones)</h4>
+    <p>Las preguntas de la auditoría e2e de este repo (<span class="file">docs/auditoria_e2e.md</span>,
+    10 dimensiones, backlog cerrado) convertidas en checklist — 3 por dimensión:</p>
+    <details class="deep"><summary>Las 30 preguntas, por dimensión</summary><div class="body">
+    <table>
+      <thead><tr><th>Dimensión</th><th>Pregúntate</th></tr></thead>
+      <tbody>
+        <tr><td><b>Rate limiting</b></td><td>☐ ¿Login con tope por IP? ☐ ¿El canal del bot tiene cooldown y tope diario ANTES de gastar LLM? ☐ ¿Las operaciones caras (sync, reenvíos) son idempotentes o con throttle?</td></tr>
+        <tr><td><b>Seguridad</b></td><td>☐ ¿Revocar un usuario corta su sesión viva? ☐ ¿Credenciales sensibles enmascaradas por rol? ☐ ¿El borrado purga TODA la PII residual (colas, auditoría, checkpoints)?</td></tr>
+        <tr><td><b>Arquitectura</b></td><td>☐ ¿El routing multi-tenant aguanta un usuario que llega "por fuera" (deep-link, no invitado)? ☐ ¿Hay carreras entre barridos y mensajes del usuario (lock por conversación)? ☐ ¿Los archivos-dios están partidos por responsabilidad?</td></tr>
+        <tr><td><b>Base de datos</b></td><td>☐ ¿Listados sin N+1 y con paginación? ☐ ¿Operaciones multi-fila atómicas (RPC/transacción)? ☐ ¿Lo que crece sin límite (checkpoints, colas) tiene purga programada?</td></tr>
+        <tr><td><b>UX</b></td><td>☐ ¿Errores en idioma humano (no "Error: 500")? ☐ ¿La sesión expirada avisa (no pierde formularios en silencio)? ☐ ¿Acciones destructivas con confirmación proporcional (escribe-el-nombre)?</td></tr>
+        <tr><td><b>Observabilidad</b></td><td>☐ ¿Los fallbacks del LLM se cuentan (o degradan invisibles)? ☐ ¿Las alertas de reconciliación llegan a una UI/correo (no solo logs)? ☐ ¿Métricas HTTP por ruta?</td></tr>
+        <tr><td><b>Pipeline LLM</b></td><td>☐ ¿Validación de entrada Y de salida en cada llamada? ☐ ¿Prompts versionados con gate? ☐ ¿Banco golden con contraejemplos?</td></tr>
+        <tr><td><b>Estado / memoria</b></td><td>☐ ¿Costo por turno constante (estado curado, no historial acumulado al LLM)? ☐ ¿La PII del estado (checkpoints) entra a la retención? ☐ ¿La memoria larga es consultable y borrable?</td></tr>
+        <tr><td><b>Grafo / consistencia</b></td><td>☐ ¿Efectos externos con registro-primero (no evento-primero)? ☐ ¿Divergencia motor↔negocio detectada y alertada? ☐ ¿Transiciones con timestamp (se puede reconstruir el flujo)?</td></tr>
+        <tr><td><b>Control de bucles</b></td><td>☐ ¿TODO ciclo con LLM tiene tope explícito? ☐ ¿El agotamiento escala a humano (no cierra en silencio)? ☐ ¿Los contadores viven en el estado (auditables)?</td></tr>
+      </tbody>
+    </table>
+    </div></details>
+    <p class="src">Cada pregunta nació de un hallazgo real (R1-R4, S1-S5, A1-A5, D1-D5, U1-U4, O1-O3, M1-M2, G1-G4, I1-I4) — el deep-dive por dimensión está en el documento.</p></div>
+
+  <div class="card"><h4>④ Despliegue (7 puntos)</h4>
+    <ul class="tight">
+      <li>☐ <b>Todo el estado fuera del contenedor</b> (DB/objeto): el pod se puede matar sin perder nada.</li>
+      <li>☐ <b>Entornos separados</b> (dev/prod) con gate de secretos que BLOQUEA el arranque en prod.</li>
+      <li>☐ Los nombres de env vars <b>coinciden EXACTO</b> con lo que lee tu config (aquí pydantic ignoraba APP_ENV en silencio — bug real).</li>
+      <li>☐ <b>Health endpoint honesto</b> (dependencias + degradación visible) usado como probe.</li>
+      <li>☐ Migraciones versionadas aplicadas <b>antes</b> del primer arranque.</li>
+      <li>☐ Imagen <b>versionada e inmutable</b> por merge (sha, no latest) — Entrega Continua aunque el deploy sea manual.</li>
+      <li>☐ Sabes qué componente <b>puede escalar y cuál no</b>, y los manifests lo codifican honesto (aquí: polling = 1 réplica Recreate; webhook = 2+ RollingUpdate).</li>
+    </ul>
+    <p class="src">Marco: docs/despliegue.md · sección <a href="#run">16</a>.</p></div>
+</section>
+
+<!-- 26 -->
+<section id="plantillas">
+  <h2><span class="num">26</span>Plantillas copiables — los 4 documentos que valen su peso</h2>
+  <div class="simple">🟢 <b>En simple:</b> los documentos cortos que hicieron la diferencia en este
+  proyecto, listos para copiar. La regla común: si no cabe en una pantalla, no se va a mantener.</div>
+
+  <div class="grid g2">
+    <div class="card"><h4>ADR-lite — una decisión por fila</h4>
+      <p>Para el registro corriente de decisiones (así está escrito <span class="file">docs/arquitectura.md</span>: ~25 decisiones en 5 tablas):</p>
+      <pre class="snippet">| Decisión | Alternativas | Por qué |
+|---|---|---|
+| Postgres para el negocio | SQLite; Mongo | RLS nativa, migraciones CLI,
+  camino local→cloud sin cambios |</pre>
+      <p>Suficiente el 90% de las veces. La prueba de calidad: ¿la columna
+      "Alternativas" tiene contenido real (algo que de verdad se consideró)?</p></div>
+
+    <div class="card"><h4>ADR completo — para decisiones con matriz</h4>
+      <p>Cuando la decisión pesa (elegir modelo, proveedor, arquitectura), el formato de
+      <span class="file">docs/adr-seleccion-modelo.md</span>:</p>
+      <pre class="snippet"># ADR — &lt;decisión&gt;
+**Fecha** · **Estado** (propuesto/aceptado/revertido) · **Contexto** (qué lo motivó)
+## Decisión         &lt;qué se decidió, numerado&gt;
+## Matriz           &lt;criterios × candidatos, con ★ y notas honestas&gt;
+## Alternativas     &lt;las descartadas Y POR QUÉ&gt;
+## Procedimiento    &lt;cómo se revierte/cambia — con banco de aceptación&gt;</pre>
+      <p>El detalle que lo hace vivo: cuando la realidad revierte algo (classify volvió al
+      modelo principal), se ANOTA en el ADR con fecha — no se borra la historia.</p></div>
+
+    <div class="card"><h4>Post-mortem de 5 líneas</h4>
+      <p><span class="file">docs/postmortem-template.md</span> — tras cualquier incidente con impacto
+      en un usuario. Sin culpables: la pregunta es "¿qué del sistema permitió esto?".</p>
+      <pre class="snippet">## AAAA-MM-DD — &lt;título&gt;
+- **Impacto:**    a quién y cuánto ("3 candidatos sin correo por 2 h")
+- **Causa raíz:** lo de fondo, no el síntoma
+- **Detección:**  cómo nos enteramos y en cuánto tiempo
+- **Mitigación:** qué devolvió la normalidad
+- **Prevención:** cambios concretos CON dueño y ticket</pre>
+      <p>Regla de cierre: un post-mortem sin acción de prevención registrada <b>no está
+      cerrado</b>. Y un bug atrapado por CI no necesita post-mortem (el proceso ya lo cubrió).</p></div>
+
+    <div class="card"><h4>Spec de dominio — 7 secciones</h4>
+      <p>La plantilla de los 22 docs de <span class="file">spec/</span> (ver <span class="file">spec/README.md</span>):</p>
+      <pre class="snippet">1. Propósito y alcance        5. Patrones reutilizables
+2. Decisiones de diseño       6. Pendientes conocidos
+3. Diseño e implementación    7. Trazabilidad (tests ·
+4. Contratos e invariantes       migraciones · docs)</pre>
+      <p>Sus 4 principios: el spec es el <b>contrato</b> (se actualiza antes de implementar);
+      trazabilidad en <b>tres capas</b> (spec→código→tests); decisiones <b>con porqués</b> (lo
+      revertido se documenta, no se borra); <b>deuda declarada</b> (la sección 6 — deuda no escrita
+      es deuda invisible). Para el ciclo formal de cambios (proposal/design/tasks/deltas), el
+      workflow OpenSpec de la <a href="#sdd">sección 20</a>.</p></div>
+  </div>
+</section>
+
+<!-- 27 -->
+<section id="antipatrones">
+  <h2><span class="num">27</span>Catálogo de anti-patrones — los errores ya pagados</h2>
+  <div class="simple">🟢 <b>En simple:</b> cada fila es un error REAL — cometido o cazado en este
+  proyecto — con su síntoma, su porqué y su antídoto. Leerla cuesta 5 minutos; cometerlos costó días.</div>
+  <table>
+    <thead><tr><th>Anti-patrón (síntoma)</th><th>Por qué pasa</th><th>Cómo se evita</th><th>Dónde se aprendió</th></tr></thead>
+    <tbody>
+      <tr><td><b>"La demo funciona, está listo"</b></td><td>La demo no ejercita seguridad, reintentos, límites ni concurrencia — que son la mayor parte del trabajo.</td><td>Checklist de production readiness (25-③) antes de prometer fechas.</td><td>Todo el arco de auditorías (<a href="#madurez">22</a>).</td></tr>
+      <tr><td><b>Modelo barato en etapa sensible a UX</b></td><td>El ahorro por llamada es centavos; deflectar una duda legítima de sueldo cuesta un candidato.</td><td>Ningún routing sin banco de aceptación; re-correrlo cuando la etapa CAMBIA.</td><td>Reversión de classify (<a href="#decisiones">21</a> · ADR).</td></tr>
+      <tr><td><b>Credenciales en logs de terceros</b></td><td>httpx loguea cada URL en INFO — y la URL de Telegram lleva el token completo.</td><td>Loggers de librerías a WARNING + re-lanzar errores saneados (la URL viaja en la excepción); rotar el token igual.</td><td>Hallazgo F1, confirmado en backend.log (<a href="#seguridad">9</a>).</td></tr>
+      <tr><td><b>Golden set sin contraejemplos</b></td><td>Un banco de casos felices aprueba un sistema engañable con "ponme 100".</td><td>2-3 ataques en el set (inyección, fuera de tema) que DEBEN puntuar 0.</td><td>Suite golden (<a href="#evaldiy">23</a>).</td></tr>
+      <tr><td><b>Few-shot con casos del golden</b></td><td>Es enseñarle el examen al alumno: el banco deja de medir.</td><td>Ejemplos de calibración de dominios genéricos, ajenos al banco.</td><td>Few-shot del prompt de evaluación (<a href="#llm">11</a>).</td></tr>
+      <tr><td><b>Documentación que "miente con autoridad"</b></td><td>Un doc sin contrato de mantenimiento se desactualiza y se sigue creyendo.</td><td>Sección + números + changelog en el MISMO commit del feature (y "si dudas, gana el código").</td><td>El contrato de esta guía (<a href="#vivo">19</a>).</td></tr>
+      <tr><td><b>Prompts sin versionar</b></td><td>Cuando el banco se pone rojo no sabes QUÉ cambió (¿modelo? ¿prompt? ¿datos?).</td><td>PROMPT_VERSION sellada en cada resultado + gate de CI.</td><td>Sección <a href="#llm">11</a>.</td></tr>
+      <tr><td><b>Notificaciones fire-and-forget</b></td><td>Un correo perdido = un candidato perdido, y nadie se entera.</td><td>Outbox durable: reintento con backoff, dead-letter VISIBLE, botón de reintento.</td><td>Auditoría #4/#6 → outbox (<a href="#confiabilidad">10</a>).</td></tr>
+      <tr><td><b>Bucles con LLM sin tope</b></td><td>"¿Tienes otra duda?" infinito = costo infinito; además resetea el reloj de inactividad.</td><td>Tope explícito en el ESTADO (3 dudas, 3 reintentos de horario) + escalar a humano al agotarse.</td><td>Hallazgos I1/I2 (<a href="#cerebro">4</a>).</td></tr>
+      <tr><td><b>Evento externo antes del registro local</b></td><td>Crash entre "crear evento Calendar" y "guardar la fila" → el reintento DUPLICA el evento.</td><td>Registro-primero: fila → efecto externo → completar la fila; reconciliación detecta filas cojas.</td><td>Hallazgo G2 (<a href="#agendamiento">8</a>).</td></tr>
+      <tr><td><b>Env vars que tu config ignora en silencio</b></td><td>pydantic lee el nombre EXACTO del campo e ignora el resto: APP_ENV no es ENVIRONMENT.</td><td>Smoke del gate de producción en el entorno real (¿bloquea con secretos débiles?).</td><td>Bug real del ConfigMap k8s (<a href="#run">16</a>).</td></tr>
+      <tr><td><b>Dedupe por campo mutable</b></td><td>El re-sync deduplicaba por chat_id… que el claim de demo reasigna → candidata duplicada.</td><td>Dedupe por el id ESTABLE de la plataforma origen (source_ref), nunca por un campo que el sistema muta.</td><td>Bug real del smoke UI (<a href="#sourcing">7</a>).</td></tr>
+      <tr><td><b>Sentinel 0.0 para "nunca corrió"</b></td><td>En un host recién booteado time.monotonic() &lt; intervalo → el primer barrido se salta.</td><td>Sentinel None (ausencia ≠ valor); y CI en un runner fresco lo destapa.</td><td>Bug real destapado por el PRIMER run de CI (<a href="#run">16</a>).</td></tr>
+    </tbody>
+  </table>
+  <div class="note">📌 <b>Cómo usar el catálogo:</b> antes de un release, recorre la columna "síntoma"
+  como checklist inverso; cuando cometas un error nuevo que duela, agrégalo con su fila — el catálogo
+  crece igual que el golden: con cada bug real.</div>
+</section>
+
 </main>
 
 <footer>
-  hira · Agente de Selección de Talento · Guía v9.5 (2026-07-06) · documento vivo de solo lectura · un producto de Datawith.AI.
+  hira · Agente de Selección de Talento · Guía v9.8 (2026-07-06) · documento vivo de solo lectura · un producto de Datawith.AI.
 </footer>
 `;
 
