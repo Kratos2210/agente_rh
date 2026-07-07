@@ -221,7 +221,10 @@ def test_retrieval_golden_shape():
 
     data = json.loads((ROOT / "tests" / "golden" / "retrieval_set.json").read_text(encoding="utf-8"))
     assert 0 < data["min_hit_rate"] <= 1
-    assert len(data["cases"]) >= 5
+    # Context precision (auditoría v4, dimensión A): golden etiquetado ampliado a 20-30 casos.
+    assert len(data["cases"]) >= 20, f"golden de recuperación ampliado: se esperaban ≥20, hay {len(data['cases'])}"
+    ids = [c["id"] for c in data["cases"]]
+    assert len(ids) == len(set(ids)), "IDs duplicados en el golden de recuperación"
     for c in data["cases"]:
         assert c["id"] and c["question"] and c["expect"]
 

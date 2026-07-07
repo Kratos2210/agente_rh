@@ -1,5 +1,5 @@
 {
-  "_comment": "Golden de RECUPERACIÓN (paso 4 + roadmap v2 paso 3): mide hit@k del retriever de company_kb SIN LLM. Cada caso: una duda típica del candidato → un substring que DEBE aparecer en el contexto recuperado. Requiere la colección sembrada (scripts/seed_company_kb.py) con la vacante demo 'Analista de Automatizaciones e IA'. Correr: uv run python scripts/retrieval_eval.py. REGLA DE CRECIMIENTO: agregar 2-3 dudas por cada vacante real que se cargue, con un 'expect' que exista textualmente en su company_info/details.",
+  "_comment": "Golden de RECUPERACIÓN (context precision, dimensión A) — mide hit@k del retriever de company_kb SIN LLM. Cada caso: una duda típica del candidato → un substring que DEBE aparecer en el contexto recuperado (top final_k, tras hybrid BM25+vectorial+cross-encoder). Requiere la colección sembrada (scripts/seed_company_kb.py) con la vacante demo 'Analista de Automatizaciones e IA' + INTERVIEW_RAG_ENABLED=true. Correr: uv run python scripts/retrieval_eval.py. Estudio de sensibilidad de chunking: uv run python scripts/chunking_study.py. REGLA DE CRECIMIENTO: agregar 2-3 dudas por cada vacante real que se cargue, con un 'expect' que exista textualmente en su company_info/details. NOTA: con una sola vacante demo el documento cabe en pocos chunks (< final_k), así que el retriever los devuelve casi todos y el hit@k mide presencia; se vuelve discriminante de recuperación a medida que se siembran más vacantes o con chunks chicos (ver chunking_study).",
   "min_hit_rate": 0.8,
   "cases": [
     {
@@ -67,6 +67,108 @@
       "question": "¿El rol integra sistemas como ERP o CRM?",
       "expect": "ERP",
       "note": "Funciones: integración de sistemas (ERP, CRM) vía APIs."
+    },
+    {
+      "id": "horario-dias",
+      "question": "¿Qué días de la semana se trabaja?",
+      "expect": "lunes a viernes",
+      "note": "Requisitos: disponibilidad presencial de lunes a viernes."
+    },
+    {
+      "id": "planilla",
+      "question": "¿El contrato es en planilla?",
+      "expect": "Planilla completa",
+      "note": "Beneficios: planilla completa."
+    },
+    {
+      "id": "rpa-power-automate",
+      "question": "¿Trabajan con Power Automate para automatizar?",
+      "expect": "Power Automate",
+      "note": "Funciones: RPA con Power Automate."
+    },
+    {
+      "id": "rpa-blue-prism",
+      "question": "¿Usan Blue Prism en el equipo?",
+      "expect": "Blue Prism",
+      "note": "Funciones: RPA con Blue Prism."
+    },
+    {
+      "id": "ia-nlp",
+      "question": "¿El rol trabaja con procesamiento de lenguaje natural?",
+      "expect": "NLP",
+      "note": "Funciones: agentes de IA para NLP."
+    },
+    {
+      "id": "apis-rest",
+      "question": "¿Se integran sistemas mediante APIs REST?",
+      "expect": "APIs REST",
+      "note": "Funciones: integración vía APIs REST y conectores."
+    },
+    {
+      "id": "cloud-computing",
+      "question": "¿Piden conocimientos de cloud?",
+      "expect": "Cloud Computing",
+      "note": "Requisitos: dominio de Cloud Computing."
+    },
+    {
+      "id": "control-versiones",
+      "question": "¿Se usa control de versiones y DevOps?",
+      "expect": "Control de Versiones",
+      "note": "Requisitos: DevOps & Control de Versiones."
+    },
+    {
+      "id": "sector-empresa",
+      "question": "¿A qué sector pertenece la empresa?",
+      "expect": "retail",
+      "note": "Empresa del sector retail."
+    },
+    {
+      "id": "metodologia-kanban",
+      "question": "¿Manejan tableros Kanban?",
+      "expect": "Kanban",
+      "note": "Funciones: metodologías ágiles SCRUM/Kanban."
+    },
+    {
+      "id": "integracion-crm",
+      "question": "¿El puesto conecta con el CRM de la empresa?",
+      "expect": "CRM",
+      "note": "Funciones: integración de sistemas (ERP, CRM)."
+    },
+    {
+      "id": "modelamiento-procesos",
+      "question": "¿Se hace modelamiento de procesos?",
+      "expect": "Modelamiento de Procesos",
+      "note": "Requisitos: Modelamiento de Procesos."
+    },
+    {
+      "id": "descuento-porcentaje",
+      "question": "¿De cuánto es el descuento en la marca?",
+      "expect": "40%",
+      "note": "Beneficios: descuentos en la marca del 40%."
+    },
+    {
+      "id": "objetivo-rol",
+      "question": "¿Cuál es el objetivo principal del puesto?",
+      "expect": "tiempos operativos",
+      "note": "Descripción: reducción de tiempos operativos."
+    },
+    {
+      "id": "ia-prediccion",
+      "question": "¿El rol construye modelos de predicción?",
+      "expect": "predicción",
+      "note": "Funciones: clasificación, predicción y automatización cognitiva."
+    },
+    {
+      "id": "capacitacion-usuarios",
+      "question": "¿Incluye capacitar a los usuarios?",
+      "expect": "capacitación a usuarios",
+      "note": "Funciones: soporte técnico y capacitación a usuarios."
+    },
+    {
+      "id": "diversidad-inclusion",
+      "question": "¿La empresa tiene políticas de inclusión y diversidad?",
+      "expect": "inclusivo",
+      "note": "Cierre: entorno diverso, inclusivo y respetuoso."
     }
   ]
 }
