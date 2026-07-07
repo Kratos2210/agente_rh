@@ -882,6 +882,11 @@ def _quality_judge_llm(tenant_id: str | None = None):
         llm = build_default_llm()
     else:
         llm = build_llm_from_config(cfg)
+    # Respaldo + breaker (R3): el juez también degrada al segundo proveedor (no-op sin config).
+    from core.config import get_settings
+    from orquestacion.fallback import wrap_with_fallback
+
+    llm = wrap_with_fallback(llm, get_settings())
     cache[tenant_id] = (fingerprint, llm)
     return llm
 

@@ -71,6 +71,9 @@ vacante. Reporte paginado en `GET /api/costs` + página `/costos`; costo visible
 
 - Costos de embeddings/re-ranker no se miden (corren local, costo ≈ CPU).
 - Presupuesto con acción dura (throttle al 100 %) — hoy solo alerta.
+- Con el proveedor de RESPALDO activo (`LLM_FALLBACK_*`, ver `spec/Orquestacion.md`), cargar
+  su fila de precios en `llm_pricing`: el failover atribuye tokens al modelo de respaldo y sin
+  precio ese gasto computa 0.
 
 ## 7. Trazabilidad
 

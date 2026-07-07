@@ -155,6 +155,10 @@ def main() -> int:
     parser.add_argument("--case", default="", help="ID de un caso puntual (default: todos)")
     parser.add_argument("--model", default="", help="Modelo a evaluar (override; default: OPENAI_MODEL del .env). "
                                                      "Úsalo como banco de aceptación de un modelo barato candidato.")
+    parser.add_argument("--base-url", default="", help="Endpoint compatible-OpenAI de OTRO proveedor "
+                                                       "(banco de aceptación del proveedor de RESPALDO, R3).")
+    parser.add_argument("--api-key-env", default="", help="Nombre de la variable de entorno con la API key del "
+                                                          "proveedor de --base-url (nunca la key por argumento).")
     args = parser.parse_args()
 
     load_dotenv()
@@ -176,7 +180,15 @@ def main() -> int:
 
     # MeteredLLM para que cada llamada quede etiquetada por etapa (los runners internos
     # ya marcan stage con complete_staged).
-    inner = build_default_llm(args.model or None)
+    api_key = os.getenv(args.api_key_env, "") if args.api_key_env else ""
+    if args.api_key_env and not api_key:
+        print(f"La variable {args.api_key_env} está vacía o no existe.")
+        return 2
+    inner = build_default_llm(
+        args.model or None,
+        base_url=args.base_url or None,
+        api_key=api_key or None,
+    )
     throttle = float(os.getenv("GOLDEN_THROTTLE_SECONDS", "0") or "0")
     if throttle > 0:
         inner = _ThrottledLLM(inner, throttle)

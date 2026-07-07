@@ -226,9 +226,12 @@ audit; documentos durables en Postgres con borrado íntegro; trazas y Phoenix **
    scaffolding ya listo; rotar el token del bot y la service key al migrar.
 
 ### Mediano plazo (estabilización e infraestructura — semanas)
-1. **Fallback de proveedor LLM + circuit breaker** (R3): segundo endpoint OpenAI-compatible
-   (p. ej. AI Gateway/OpenRouter) reusando `build_default_llm(model=)`; validarlo con el banco
-   de aceptación existente (`golden_eval.py --model`) antes de habilitarlo como fallback.
+1. ✅ **Fallback de proveedor LLM + circuit breaker** (R3) — implementado 2026-07-07
+   (change `openspec/changes/llm-fallback-circuit-breaker/`): `orquestacion/fallback.py`
+   (`FallbackLLM` + `CircuitBreaker` config-gated por `LLM_FALLBACK_*`, envuelto en
+   `_build_pair`/bot/juez, atribución del modelo real en metering/trazas) +
+   `golden_eval.py --base-url/--api-key-env` como banco de aceptación del respaldo.
+   **Gated**: falta elegir/validar el proveedor real y setear el `.env` (ADR actualizado).
 2. **Context precision/recall formales** (dimensión A): ampliar el golden de retrieval de 6 a
    20–30 casos etiquetados y añadir el juez de pertinencia de contexto ya existente al nightly
    con umbral propio; estudio simple de sensibilidad de chunking (2–3 configuraciones vs hit@k).

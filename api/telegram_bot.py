@@ -152,9 +152,12 @@ def build_bot_app(settings: Settings, state: dict[str, Any]) -> Application:
     from retrieval.answer_cache import build_answer_cache
     from retrieval.rag import build_company_retriever
 
+    from orquestacion.fallback import wrap_with_fallback
+
     runner = make_postgres_runner(
         MeteredLLM(
-            build_default_llm(),
+            # Proveedor de respaldo + circuit breaker (R3): no-op sin LLM_FALLBACK_*.
+            wrap_with_fallback(build_default_llm(), settings),
             trace=settings.llm_trace_enabled,
             trace_max_chars=settings.llm_trace_max_chars,
             overrides=build_stage_overrides(settings),  # routing de costos (paso 5)

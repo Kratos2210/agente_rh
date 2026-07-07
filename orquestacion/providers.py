@@ -322,12 +322,19 @@ def build_overrides_from_config(cfg: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_pair(cfg: dict[str, Any] | None, settings):
-    """(inner, overrides) según el config, o desde el `.env` si config es None."""
+    """(inner, overrides) según el config, o desde el `.env` si config es None.
+
+    El LLM principal se envuelve con el proveedor de RESPALDO de la instalación
+    (`LLM_FALLBACK_*`, no-op sin config): cubre tanto el `.env` como el BYOK caído.
+    Los overrides baratos no llevan respaldo (su call site ya degrada al heurístico)."""
+    from orquestacion.fallback import wrap_with_fallback
     from orquestacion.llm import build_default_llm, build_stage_overrides
 
     if cfg is None:
-        return build_default_llm(), build_stage_overrides(settings)
-    return build_llm_from_config(cfg), build_overrides_from_config(cfg)
+        inner, overrides = build_default_llm(), build_stage_overrides(settings)
+    else:
+        inner, overrides = build_llm_from_config(cfg), build_overrides_from_config(cfg)
+    return wrap_with_fallback(inner, settings), overrides
 
 
 def build_tenant_metered_llm(tenant_id: str | None, settings):

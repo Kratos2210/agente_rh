@@ -163,7 +163,11 @@ class MeteredLLM:
             bucket[k] += int(usage.get(k, 0) or 0)
         bucket["calls"] = bucket.get("calls", 0) + 1
         bucket["duration_ms"] = bucket.get("duration_ms", 0) + ms
-        self._add_trace(model, prompt, out, None, ms)
+        # Atribución POST-call: con proveedor de respaldo (FallbackLLM) el modelo que
+        # sirvió puede diferir del leído antes de llamar. Para LLMs planos es el mismo.
+        served = getattr(inner, "model", "") or model
+        self._models[self.stage] = served
+        self._add_trace(served, prompt, out, None, ms)
         return out
 
     def drain(self) -> dict[str, dict[str, int]]:

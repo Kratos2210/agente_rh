@@ -96,8 +96,11 @@ LLM) está en [Evaluacion.md](Evaluacion.md).
 
 ## 6. Pendientes conocidos
 
-- Fallback automático de proveedor LLM (hoy: fallback por llamada con `low_confidence`, no
-  failover de proveedor) — mediano plazo auditoría v4.
+- ~~Fallback automático de proveedor LLM~~ **hecho (2026-07-07)**: `orquestacion/fallback.py`
+  (`FallbackLLM` + `CircuitBreaker`, config-gated por `LLM_FALLBACK_*`, envuelto en
+  `providers._build_pair`/bot/juez; atribución del modelo real en el metering). Falta elegir y
+  validar el proveedor real con el banco (`golden_eval.py --base-url --api-key-env`) — ver
+  `docs/adr-seleccion-modelo.md` y `openspec/changes/llm-fallback-circuit-breaker/`.
 - Few-shot solo en `evaluate`; evaluar si `classify`/`answer` lo ameritan.
 
 ## 7. Trazabilidad
