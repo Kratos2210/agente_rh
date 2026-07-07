@@ -40,6 +40,11 @@
 // estados de core/estados.py) + deep-dives del parser de slots y del registro-primero; sección 15
 // reescrita como tabla razonada (pin · por qué · política de actualización); sección 17 con los
 // pendientes como roadmap priorizado (impacto · esfuerzo · rúbrica §22 · dónde se propone).
+// v11 (2026-07-07): nueva sección F·2 "Aprende LangChain & LangGraph paso a paso" — mini-curso
+// para principiantes portado del material de estudio (../spec-sdd/studylangchain): 8 lecciones
+// con analogías (oficina con recepcionista, cinturón de herramientas, línea de montaje, formulario)
+// + deep-dive plegable con código por lección. Cubre el hueco de los 4 tipos de memoria (buffer/
+// ventana/tokens/resumen), LCEL, prompt templates, parsers, grafos y agentes ReAct.
 import { Shell } from "@/components/Shell";
 import { GuiaEnhancements } from "./guia-enhancements";
 
@@ -79,6 +84,7 @@ const GUIA_HTML = `
 <nav class="toc"><div class="wrap">
   <a href="#resumen">0 · Resumen</a>
   <a href="#fundamentos">F · Fundamentos</a>
+  <a href="#curso">F·2 · Aprende paso a paso</a>
   <a href="#funcional">1 · Qué hace</a>
   <a href="#arquitectura">2 · Arquitectura</a>
   <a href="#modulos">3 · Mapa del código</a>
@@ -554,6 +560,243 @@ sys.exit(1 if fails else 0)   <span class="c"># si el modelo derrapa, te enteras
       <tr><td><b>Docker / Kubernetes</b></td><td>Empaquetar la app con TODO lo que necesita (imagen) / orquestar esas imágenes en producción.</td><td><span class="file">despliegue/</span>: Compose local, overlays dev/prod, CI que publica a GHCR — sección <a href="#run">16</a>.</td></tr>
     </tbody>
   </table>
+</section>
+
+<!-- F·2 -->
+<section id="curso">
+  <h2><span class="num">F·2</span>Aprende LangChain &amp; LangGraph paso a paso</h2>
+  <p class="lead">Un <b>mini-curso guiado</b> para quien nunca programó: los mismos conceptos que usa
+  este agente, pero contados desde cero y en orden, cada uno con una <b>analogía del mundo real</b> y un
+  deep-dive plegable <b>"🧑‍💻 Míralo en código"</b>. La sección <a href="#fundamentos">F · Fundamentos</a>
+  te da el <b>porqué</b> de cada pieza; esta te enseña <b>cómo se escribe</b>. Al final de cada lección,
+  un puntero a <b>dónde vive de verdad en el proyecto</b>. Portado del material de estudio de
+  <span class="file">studylangchain</span> (curso práctico en español).</p>
+  <div class="note">📌 El curso original usa el modelo <b>Qwen</b> (Alibaba) o <b>Gemini</b> (Google);
+  aquí los ejemplos usan <code>ChatOpenAI</code> apuntando a Groq, que es lo que usa este repo. El patrón
+  es <b>idéntico</b> para cualquier proveedor compatible-OpenAI — solo cambia la URL y el nombre del modelo.</div>
+
+  <h3>🗣️ Lección 1 · Tu primer LLM: mensajes y <code>temperature</code></h3>
+  <div class="simple">🟢 <b>En simple:</b> hablarle a un LLM es como darle una orden a un
+  <b>practicante brillante pero literal</b>. La conversación se arma con tres tipos de mensaje:
+  el <b>System</b> (le dices quién es: "eres un evaluador de RR.HH."), el <b>Human</b> (lo que tú
+  escribes) y el <b>AI</b> (lo que él responde). Y hay una perilla, <b>temperature</b>, que regula
+  cuánto se arriesga.</div>
+  <ul class="tight">
+    <li><b>temperature = 0.0</b> → siempre responde lo mismo, máxima consistencia (ideal para
+    evaluar/clasificar). <b>0.7</b> → más creativo y variado (ideal para redactar). <b>0.1–0.2</b> →
+    punto medio confiable, que es lo que el agente usa para puntuar.</li>
+    <li>📌 <b>En este proyecto:</b> el LLM evalúa, clasifica y redacta repreguntas con temperature baja —
+    sección <a href="#llm">11</a>.</li>
+  </ul>
+  <details class="deep"><summary>🧑‍💻 Míralo en código</summary><div class="body">
+    <pre class="snippet"><span class="c"># pip install langchain-openai   (en este repo: uv add langchain-openai)</span>
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import SystemMessage, HumanMessage
+
+llm = ChatOpenAI(
+    base_url="https://api.groq.com/openai/v1",
+    model="qwen/qwen3-32b",
+    temperature=0.2,          <span class="c"># baja: queremos consistencia, no invención</span>
+)
+respuesta = llm.invoke([
+    SystemMessage(content="Eres un reclutador experto y directo."),
+    HumanMessage(content="Resume en una línea qué hace un analista de automatizaciones."),
+])
+print(respuesta.content)      <span class="c"># .content = el texto de la respuesta</span></pre>
+    <p class="src">Curso: llmodel.ipynb · Real: orquestacion/qa_chain.py (build_llm) · orquestacion/llm.py</p>
+  </div></details>
+
+  <h3>📝 Lección 2 · Prompt templates: moldes con huecos</h3>
+  <div class="simple">🟢 <b>En simple:</b> en vez de reescribir la instrucción cada vez, haces un
+  <b>molde con casillas en blanco</b> — <code>{variable}</code> — y lo rellenas al momento. Y para el
+  historial de una conversación se usa <b>MessagesPlaceholder</b>, que es como un
+  <b>"separador de libros"</b>: un espacio reservado dentro del molde que dice "aquí después meto la
+  lista de mensajes anteriores".</div>
+  <details class="deep"><summary>🧑‍💻 Míralo en código</summary><div class="body">
+    <pre class="snippet">from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
+molde = ChatPromptTemplate.from_messages([
+    ("system", "Eres un entrevistador. Haces UNA pregunta a la vez."),
+    MessagesPlaceholder("historial"),   <span class="c"># hueco reservado para lo ya conversado</span>
+    ("human", "{mensaje}"),             <span class="c"># la casilla que rellenamos ahora</span>
+])
+prompt = molde.invoke({"historial": mensajes_previos, "mensaje": "Hola, ¿empezamos?"})</pre>
+    <p class="src">Curso: llmodel_two.ipynb · memoria.ipynb · Real: agente/prompts.py (los 7 prompts)</p>
+  </div></details>
+
+  <h3>⛓️ Lección 3 · LCEL: el pipe <code>|</code> (línea de montaje)</h3>
+  <div class="simple">🟢 <b>En simple:</b> LCEL (LangChain Expression Language) usa el operador
+  <code>|</code> (pipe) para <b>encadenar estaciones</b>, igual que una <b>línea de montaje</b>:
+  los datos entran por un extremo → el <b>molde</b> los formatea → el <b>modelo</b> los procesa →
+  el <b>parser</b> limpia la salida. Se lee de izquierda a derecha, como el recorrido de la pieza.</div>
+  <details class="deep"><summary>🧑‍💻 Míralo en código</summary><div class="body">
+    <pre class="snippet"><span class="c"># ❌ antes (a mano, paso a paso):
+#   prompt = molde.invoke({...}); salida = llm.invoke(prompt); texto = salida.content
+# ✅ con LCEL (la línea de montaje en una expresión):</span>
+from langchain_core.output_parsers import StrOutputParser
+
+cadena = molde | llm | StrOutputParser()   <span class="c"># datos → molde → modelo → texto limpio</span>
+texto = cadena.invoke({"mensaje": "Resume LangChain en una frase"})</pre>
+    <p class="src">Curso: llmodel_two.ipynb · Real: deep-dive #code-langgraph en la sección <a href="#fundamentos">F</a></p>
+  </div></details>
+
+  <h3>📋 Lección 4 · Salida estructurada: que rellene un formulario</h3>
+  <div class="simple">🟢 <b>En simple:</b> pedirle texto libre al LLM es frágil. Mejor darle un
+  <b>formulario con campos obligatorios</b> (con Pydantic: <code>BaseModel</code> + <code>Field</code>)
+  y exigirle que lo devuelva completo. Así en vez de un párrafo recibes un objeto con
+  <code>score</code>, <code>justificación</code>, etc. — listo para que el código lo use sin adivinar.</div>
+  <ul class="tight"><li>📌 <b>En este proyecto:</b> cada respuesta se evalúa contra un contrato JSON
+  (<code>score</code> 0-100 + justificación + repregunta) y hay un <b>plan B</b> si el modelo devuelve
+  basura — sección <a href="#evaluacion">6</a>.</li></ul>
+  <details class="deep"><summary>🧑‍💻 Míralo en código</summary><div class="body">
+    <pre class="snippet">from pydantic import BaseModel, Field
+from langchain_core.output_parsers import PydanticOutputParser
+
+class Evaluacion(BaseModel):                       <span class="c"># el "formulario"</span>
+    score: int = Field(description="Nota de 0 a 100")
+    justificacion: str = Field(description="Por qué esa nota")
+
+parser = PydanticOutputParser(pydantic_object=Evaluacion)
+molde = ChatPromptTemplate.from_template(
+    "Evalúa la respuesta.\n{formato}\n\nRespuesta: {texto}"
+).partial(formato=parser.get_format_instructions())   <span class="c"># le explica el formato exacto</span>
+
+cadena = molde | llm | parser
+ev = cadena.invoke({"texto": "Automaticé el registro de ventas; ahorré 6 h/semana"})
+print(ev.score, ev.justificacion)   <span class="c"># objeto tipado, no texto suelto</span></pre>
+    <p class="src">Curso: llmodel_three.ipynb · Real: evaluation/scorer.py (evaluate_answer)</p>
+  </div></details>
+
+  <h3>🔀 Lección 5 · Chains y trabajo en lote</h3>
+  <div class="simple">🟢 <b>En simple:</b> una tarea grande se parte en <b>micro-cadenas</b> que se
+  encadenan (traducir → resumir → detectar idioma → responder), y con <code>RunnablePassthrough</code>
+  vas <b>arrastrando</b> los datos de una etapa a la siguiente. Y si tienes <b>muchas filas</b>
+  (p. ej. 100 reseñas), <code>.batch()</code> las procesa todas de una, en paralelo.</div>
+  <details class="deep"><summary>🧑‍💻 Míralo en código</summary><div class="body">
+    <pre class="snippet">from langchain_core.runnables import RunnablePassthrough
+
+resumir = ChatPromptTemplate.from_template("Resume: {texto}") | llm | StrOutputParser()
+sentimiento = ChatPromptTemplate.from_template("¿Positivo o negativo?: {resumen}") | llm | StrOutputParser()
+
+<span class="c"># encadena: el resumen alimenta al análisis de sentimiento</span>
+cadena = RunnablePassthrough.assign(resumen=resumir) | RunnablePassthrough.assign(animo=sentimiento)
+
+<span class="c"># procesa muchas filas de golpe:</span>
+resultados = cadena.batch([{"texto": r} for r in resenas])   <span class="c"># en paralelo</span></pre>
+    <p class="src">Curso: chain.ipynb · chaintwo.ipynb · Real: evaluation/ (micro-etapas con fallback)</p>
+  </div></details>
+
+  <h3>🧠 Lección 6 · Los 4 tipos de memoria (el hueco grande)</h3>
+  <div class="simple">🟢 <b>En simple:</b> un LLM es <b>amnésico</b> por defecto: cada mensaje es
+  independiente, no recuerda lo anterior. Darle memoria es reenviarle lo conversado — pero reenviarlo
+  <b>todo</b> se vuelve caro y lento. Por eso hay <b>4 estrategias</b>, según cuánto quieras recordar
+  vs. cuánto quieras gastar.</div>
+  <table>
+    <thead><tr><th>Estrategia</th><th>Qué guarda</th><th>Trade-off</th><th>Cuándo usarla</th></tr></thead>
+    <tbody>
+      <tr><td><b>Buffer completo</b></td><td>Toda la conversación, palabra por palabra.</td><td>Recuerdo perfecto, pero el costo crece sin parar.</td><td>Charlas cortas.</td></tr>
+      <tr><td><b>Ventana K</b></td><td>Solo los últimos K mensajes (<code>historial[-2:]</code>).</td><td>Costo fijo, pero olvida lo viejo.</td><td>Chats largos donde solo importa lo reciente.</td></tr>
+      <tr><td><b>Límite por tokens</b></td><td>Los mensajes que quepan en un presupuesto de tokens.</td><td>Control fino del costo; recorta por tamaño, no por número.</td><td>Cuando el gasto manda.</td></tr>
+      <tr><td><b>Resumen</b></td><td>Un resumen ejecutivo que se va actualizando.</td><td>Comprime historia larga en poco; puede perder detalles finos.</td><td>Conversaciones muy largas.</td></tr>
+    </tbody>
+  </table>
+  <div class="note">🔥 <b>La prueba de fuego (memoria de resumen):</b> tras contar que planea ir de
+  trekking a la montaña, el usuario pregunta "¿qué equipo básico debería llevar?" — <b>sin</b> repetir
+  "trekking" ni "montaña". El modelo lo deduce porque el resumen lo guardó. Eso es memoria útil.</div>
+  <ul class="tight"><li>📌 <b>En este proyecto</b> el problema se resuelve un nivel más arriba: el
+  estado completo de la entrevista se guarda en Postgres (<b>checkpointer durable</b>) tras cada turno,
+  así la conversación sobrevive reinicios y continúa días después — sección <a href="#cerebro">4</a>.</li></ul>
+  <details class="deep"><summary>🧑‍💻 Míralo en código (ventana K y resumen)</summary><div class="body">
+    <pre class="snippet"><span class="c"># Ventana K: solo los últimos 2 intercambios entran al prompt</span>
+recientes = historial[-4:]                 <span class="c"># 2 turnos = 2 human + 2 ai</span>
+prompt = molde.invoke({"historial": recientes, "mensaje": nuevo})
+
+<span class="c"># Resumen: en vez de reenviar todo, mantienes un resumen que se actualiza</span>
+def actualizar_resumen(resumen_previo: str, ultimo_turno: str) -> str:
+    p = f"Resumen actual: {resumen_previo}\nNuevo intercambio: {ultimo_turno}\nDevuelve el resumen actualizado."
+    return llm.invoke(p).content</pre>
+    <p class="src">Curso: memoria.ipynb · memoriac2.ipynb · memeoriac3.ipynb · memoriac4.ipynb · Real: agente/state.py + checkpointer (agente/graph.py)</p>
+  </div></details>
+
+  <h3>🏢 Lección 7 · LangGraph: la oficina con recepcionista</h3>
+  <div class="simple">🟢 <b>En simple:</b> LangGraph organiza una conversación como una
+  <b>oficina</b>. Cuando entra un alumno le dan una <b>hoja con casillas</b> (el estado) que
+  <b>viaja de mano en mano</b>; primero pasa por la <b>recepción</b> (un router que decide a quién
+  derivar) y de ahí a la oficina que corresponda. Todo el edificio se planea, se construye y se
+  <b>inaugura</b> antes de abrir al público.</div>
+  <table>
+    <thead><tr><th>En la oficina…</th><th>En LangGraph</th></tr></thead>
+    <tbody>
+      <tr><td>La hoja con casillas que viaja</td><td><code>TypedDict</code> — el estado compartido</td></tr>
+      <tr><td>El terreno vacío donde construir</td><td><code>StateGraph(Estado)</code></td></tr>
+      <tr><td>Cada oficina física (recepción, aulas)</td><td><code>add_node("nombre", funcion)</code></td></tr>
+      <tr><td>El cartel ENTRADA (nadie se salta la recepción)</td><td><code>set_entry_point("router")</code></td></tr>
+      <tr><td>La recepción que deriva según el caso</td><td><code>add_conditional_edges(...)</code></td></tr>
+      <tr><td>Inaugurar el edificio (queda operativo)</td><td><code>.compile()</code></td></tr>
+      <tr><td>Una cámara para ver el paso a paso</td><td><code>.stream()</code></td></tr>
+    </tbody>
+  </table>
+  <details class="deep"><summary>🧑‍💻 Míralo en código</summary><div class="body">
+    <pre class="snippet">from typing import TypedDict
+from langgraph.graph import StateGraph, END
+
+class Estado(TypedDict):        <span class="c"># la "hoja" que viaja de nodo en nodo</span>
+    pregunta: str
+    materia: str
+    respuesta: str
+
+def recepcion(e: Estado) -&gt; Estado: ...     <span class="c"># clasifica la pregunta</span>
+def fisica(e: Estado) -&gt; Estado: ...        <span class="c"># experto de física</span>
+def a_donde(e: Estado) -&gt; str:              <span class="c"># la recepción DECIDE el destino</span>
+    return e["materia"]                      <span class="c"># "fisica" | "historia" | ...</span>
+
+g = StateGraph(Estado)                        <span class="c"># el terreno</span>
+g.add_node("recepcion", recepcion)            <span class="c"># las oficinas</span>
+g.add_node("fisica", fisica)
+g.set_entry_point("recepcion")                <span class="c"># el cartel ENTRADA</span>
+g.add_conditional_edges("recepcion", a_donde) <span class="c"># la recepción deriva</span>
+g.add_edge("fisica", END)
+app = g.compile()                             <span class="c"># inaugurar</span>
+
+for paso in app.stream({"pregunta": "¿Qué es la gravedad?"}):   <span class="c"># la cámara</span>
+    print(paso)</pre>
+    <p class="src">Curso: chain3.ipynb · Real: agente/graph.py · agente/nodes.py · el cerebro completo con diagrama en la sección <a href="#cerebro">4</a> (y el deep-dive <a href="#fundamentos">#code-langgraph</a>)</p>
+  </div></details>
+
+  <h3>🛠️ Lección 8 · Agentes ReAct con herramientas</h3>
+  <div class="simple">🟢 <b>En simple:</b> un LLM "leyó toda la biblioteca del mundo" pero <b>no sabe
+  calcular</b> ni consultar datos frescos — por eso a veces se equivoca con total confianza. La solución:
+  darle un <b>cinturón de herramientas</b> (funciones reales: una calculadora, una búsqueda, un
+  agendador). Con <b>ReAct</b> (Re-Act = <b>Razonar y Actuar</b>) le impones un método: "antes de
+  hablar, <b>piensa</b>; si no sabes algo, <b>usa</b> una herramienta, <b>observa</b> el resultado, y
+  recién ahí <b>responde</b>". Y con <code>.stream()</code> ves su <b>monólogo interior</b> paso a paso.</div>
+  <details class="deep"><summary>🧑‍💻 Míralo en código</summary><div class="body">
+    <pre class="snippet">from langchain_core.tools import tool
+from langgraph.prebuilt import create_react_agent
+
+@tool
+def calculadora(expresion: str) -&gt; str:
+    """Evalúa una operación matemática. Úsala para cualquier cálculo."""  <span class="c"># el docstring = para qué sirve</span>
+    return str(eval(expresion))
+
+agente = create_react_agent(llm, tools=[calculadora])   <span class="c"># le colgamos el cinturón</span>
+
+for paso in agente.stream({"messages": [("user", "¿Cuánto es 1234 * 5678?")]}):
+    print(paso)   <span class="c"># Razona → llama a calculadora → observa → responde</span></pre>
+    <p class="src">Curso: agent.ipynb · Real: aquí el "agente" es el grafo de la entrevista (deep-dive <a href="#fundamentos">#code-agente</a>); un turno completo en la sección <a href="#turno">5</a></p>
+  </div></details>
+
+  <div class="warn">⚠️ <b>Errores comunes del principiante (los que enseña el propio curso):</b>
+  <ul class="tight">
+    <li><b>Confiar en la salida como si fuera verdad</b> — en los ejemplos del curso, el modelo a veces
+    <b>alucina</b>: confunde nombres o mezcla idiomas con total seguridad. La salida del LLM es
+    <b>texto a validar</b>, no un dato confiable. Por eso este proyecto pide JSON, parsea y tiene un
+    <b>plan B</b> en cada etapa — ver <a href="#fundamentos">Errores comunes de Fundamentos</a>.</li>
+    <li><b>"Con más memoria siempre responde mejor"</b> — no: reenviar toda la conversación cuesta
+    tokens y confunde. Elige la estrategia de memoria (lección 6) según el caso.</li>
+    <li><b>Saltarse la herramienta</b> — si la tarea necesita cálculo o datos frescos, un LLM sin
+    herramientas <b>inventa</b>. El cinturón de la lección 8 existe justo para eso.</li>
+  </ul></div>
 </section>
 
 <!-- 1 -->
