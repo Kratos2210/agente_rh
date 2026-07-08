@@ -18,6 +18,7 @@ const NAV = [
 const ADMIN_NAV = [
   { label: "Costos", href: "/costos", match: (p: string) => p.startsWith("/costos") },
   { label: "Observabilidad", href: "/observabilidad", match: (p: string) => p.startsWith("/observabilidad") },
+  { label: "Usuarios", href: "/usuarios", match: (p: string) => p.startsWith("/usuarios") },
 ];
 
 function TopBar() {

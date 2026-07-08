@@ -508,9 +508,27 @@ async function loginRequest(email: string, password: string): Promise<LoginRespo
   return res.json() as Promise<LoginResponse>;
 }
 
+// Usuario del dashboard (gestión del 2.º operador, admin-only). Sin hash de contraseña.
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  active: boolean;
+  tenant_id: string;
+  created_at?: string;
+}
+
 export const api = {
   login: (email: string, password: string) => loginRequest(email, password),
   me: () => req<AuthUser>("/api/auth/me"),
+  getUsers: () => req<User[]>("/api/users"),
+  createUser: (body: { email: string; password: string; name: string; role: string }) =>
+    req<User>("/api/users", { method: "POST", body: JSON.stringify(body) }),
+  updateUser: (
+    id: string,
+    body: Partial<{ active: boolean; role: string; name: string; password: string }>,
+  ) => req<User>(`/api/users/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   listVacancies: () => req<Vacancy[]>("/api/vacancies"),
   getVacancy: (id: string) => req<Vacancy>(`/api/vacancies/${id}`),
   createVacancy: (body: Partial<Vacancy> & { questions?: Question[] }) =>
