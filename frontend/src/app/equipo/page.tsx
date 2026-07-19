@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Shell } from "@/components/Shell";
-import { api, Recruiter } from "@/lib/api";
+import { api, errorMessage, Recruiter } from "@/lib/api";
 import { avatarColor, initials } from "@/lib/stages";
 
 const MONO = "var(--font-jetbrains), monospace";
@@ -19,8 +19,11 @@ export default function EquipoPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY });
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
-  const load = () => { api.listRecruiters().then(setRecruiters).catch(() => {}); };
+  const load = () => {
+    api.listRecruiters().then((r) => { setRecruiters(r); setError(""); }).catch((e) => setError(errorMessage(e)));
+  };
   useEffect(load, []);
 
   const openNew = () => { setForm({ ...EMPTY }); setEditingId(null); setAdding(true); };
@@ -52,6 +55,8 @@ export default function EquipoPage() {
           background: "linear-gradient(135deg,var(--ac),var(--ac-btn))", color: "#fff", fontWeight: 700, fontSize: 13.5, cursor: "pointer", border: "none",
         }}>+ Invitar miembro</button>
       </div>
+
+      {error && <p style={{ color: "#f87171", marginBottom: 14 }}>Error: {error}</p>}
 
       {adding && (
         <div style={{ padding: 20, borderRadius: 16, background: "var(--card)", border: "1px solid var(--edge)", marginBottom: 16 }}>

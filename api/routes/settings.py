@@ -16,6 +16,7 @@ from api.runtime import (
     _DEFAULT_INACTIVITY,
     _DEFAULT_LLM_BUDGET,
     _DEFAULT_LLM_PRICING,
+    _DEFAULT_MEDICAL,
     _DEFAULT_QUALITY_ALERTS,
     _DEFAULT_RETENTION,
     _DEFAULT_SCHEDULING,
@@ -189,6 +190,26 @@ def put_retention(
     repo.set_app_setting("retention", payload.model_dump(), user["tenant_id"])
     _audit(user, "settings.update", entity_type="settings", entity_id="retention")
     return repo.get_app_setting("retention", _DEFAULT_RETENTION, user["tenant_id"])
+
+
+class MedicalExamSettingsIn(BaseModel):
+    """Examen médico pre-contratación (auditoría v3): activo, aprobar gerencia pasa a
+    medical_pending en vez de contratar directo."""
+    enabled: bool = False
+
+
+@router.get("/api/settings/medical-exam")
+def get_medical_exam_settings(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    return repo.get_app_setting("medical_exam", _DEFAULT_MEDICAL, user["tenant_id"])
+
+
+@router.put("/api/settings/medical-exam")
+def put_medical_exam_settings(
+    payload: MedicalExamSettingsIn, user: dict[str, Any] = Depends(require_role("admin"))
+) -> dict[str, Any]:
+    repo.set_app_setting("medical_exam", payload.model_dump(), user["tenant_id"])
+    _audit(user, "settings.update", entity_type="settings", entity_id="medical_exam")
+    return repo.get_app_setting("medical_exam", _DEFAULT_MEDICAL, user["tenant_id"])
 
 
 @router.get("/api/settings/llm-pricing")

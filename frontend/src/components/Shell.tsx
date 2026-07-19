@@ -9,12 +9,14 @@ import { clearSession, getToken, getUser } from "@/lib/auth";
 const NAV = [
   { label: "Vacantes", href: "/", match: (p: string) => p === "/" || p.startsWith("/vacantes") || p.startsWith("/candidatos") },
   { label: "Pipeline", href: "/pipeline", match: (p: string) => p.startsWith("/pipeline") },
+  { label: "Onboarding", href: "/onboarding", match: (p: string) => p.startsWith("/onboarding") },
   { label: "Equipo", href: "/equipo", match: (p: string) => p.startsWith("/equipo") },
   { label: "Guía", href: "/guia", match: (p: string) => p.startsWith("/guia") },
 ];
 
 // Entradas visibles solo para administradores.
 const ADMIN_NAV = [
+  { label: "Costos", href: "/costos", match: (p: string) => p.startsWith("/costos") },
   { label: "Observabilidad", href: "/observabilidad", match: (p: string) => p.startsWith("/observabilidad") },
 ];
 
@@ -22,6 +24,7 @@ function TopBar() {
   const pathname = usePathname() || "/";
   const router = useRouter();
   const [user, setUser] = useState<{ email: string; name: string; role: string } | null>(null);
+  const [search, setSearch] = useState("");
   useEffect(() => setUser(getUser() as { email: string; name: string; role: string } | null), []);
   const logout = () => {
     clearSession();
@@ -61,11 +64,25 @@ function TopBar() {
       })}
       <div style={{ flex: 1 }} />
       <div style={{
-        display: "flex", alignItems: "center", gap: 9, padding: "8px 14px", borderRadius: 10,
+        display: "flex", alignItems: "center", gap: 9, padding: "0 14px", borderRadius: 10,
         background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.07)", minWidth: 210,
         color: "var(--muted-3)", fontSize: 13,
       }}>
-        <span style={{ fontSize: 14, opacity: 0.7 }}>⌕</span><span>Buscar vacante o candidato…</span>
+        <span style={{ fontSize: 14, opacity: 0.7 }}>⌕</span>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter → búsqueda server-side del Pipeline global (busca en TODAS las vacantes).
+            if (e.key === "Enter" && search.trim()) {
+              router.push(`/pipeline?q=${encodeURIComponent(search.trim())}`);
+              setSearch("");
+            }
+          }}
+          placeholder="Buscar candidato…"
+          aria-label="Buscar candidato"
+          style={{ flex: 1, padding: "9px 0", background: "transparent", border: "none", outline: "none", color: "#eef2f9", fontSize: 13 }}
+        />
       </div>
       <Link href="/configuracion" aria-label="Configuración" style={{
         width: 36, height: 36, borderRadius: 10, background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.07)",

@@ -58,6 +58,7 @@ class SlidingWindowLimiter:
 # Veredictos de TurnGovernor.check().
 TURN_OK = "ok"                # procesar el turno
 TURN_COOLDOWN = "cooldown"    # demasiado seguido: ignorar en silencio
+TURN_DUPLICATE = "duplicate"  # mismo texto reenviado en segundos (doble-tap/red): ignorar en silencio
 TURN_CAP_NOTICE = "cap_notice"  # tope diario recién alcanzado: avisar UNA vez
 TURN_BLOCKED = "blocked"      # sobre el tope: ignorar en silencio
 
@@ -68,25 +69,44 @@ class TurnGovernor:
     `check(chat_id)` devuelve TURN_OK / TURN_COOLDOWN / TURN_CAP_NOTICE / TURN_BLOCKED.
     El aviso de tope se emite una sola vez por día (para no generar un loop de spam)."""
 
-    def __init__(self, cooldown_seconds: float = 2.0, max_turns_per_day: int = 120):
+    def __init__(self, cooldown_seconds: float = 2.0, max_turns_per_day: int = 120, dedup_seconds: float = 6.0):
         self.cooldown_seconds = float(cooldown_seconds)
         self.max_turns_per_day = int(max_turns_per_day)
+        # Ventana de dedupe de texto idéntico: un mismo mensaje reenviado en estos segundos
+        # (doble-tap del candidato o reintento de red) se ignora. Reenviar el MISMO texto no
+        # aporta información nueva; suprimirlo evita procesarlo como un turno extra contra la
+        # pregunta ya avanzada (que lo clasificaría como fuera de tema y deflectaría de más).
+        self.dedup_seconds = float(dedup_seconds)
         self._last: dict[str, float] = {}
+        self._last_text: dict[str, tuple[str, float]] = {}  # chat → (texto, monotonic)
         self._counts: dict[str, int] = {}          # clave "chat|YYYY-MM-DD"
         self._day: Optional[_date] = None
         self._lock = threading.Lock()
 
-    def check(self, chat_id: str, now: Optional[float] = None, today: Optional[_date] = None) -> str:
+    def check(
+        self, chat_id: str, now: Optional[float] = None, today: Optional[_date] = None, text: Optional[str] = None
+    ) -> str:
         now = time.monotonic() if now is None else now
         today = today or datetime.now(timezone.utc).date()
         key = f"{chat_id}|{today.isoformat()}"
+        chat = str(chat_id)
+        norm = text.strip() if text else ""
         with self._lock:
             if self._day != today:  # día nuevo: los contadores de ayer ya no sirven
                 self._counts = {k: v for k, v in self._counts.items() if k.endswith(today.isoformat())}
                 self._day = today
-            last = self._last.get(str(chat_id))
+            last = self._last.get(chat)
             if last is not None and (now - last) < self.cooldown_seconds:
                 return TURN_COOLDOWN
+            # Dedupe de texto idéntico reenviado en la ventana (solo aplica a mensajes de texto;
+            # botones/documentos pasan text=None). No consume cupo del tope diario.
+            if norm:
+                prev = self._last_text.get(chat)
+                if prev is not None and prev[0] == norm and (now - prev[1]) < self.dedup_seconds:
+                    return TURN_DUPLICATE
+                if len(self._last_text) > _PRUNE_THRESHOLD:
+                    self._last_text = {k: v for k, v in self._last_text.items() if (now - v[1]) < self.dedup_seconds}
+                self._last_text[chat] = (norm, now)
             count = self._counts.get(key, 0)
             if self.max_turns_per_day and count >= self.max_turns_per_day:
                 # Recién alcanzado (== tope) → aviso único; después, silencio.
@@ -101,5 +121,6 @@ class TurnGovernor:
     def reset(self) -> None:
         with self._lock:
             self._last.clear()
+            self._last_text.clear()
             self._counts.clear()
             self._day = None

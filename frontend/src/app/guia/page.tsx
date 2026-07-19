@@ -18,7 +18,7 @@
 import { Shell } from "@/components/Shell";
 
 export const metadata = {
-  title: "Guía · Agente de Selección — Datawith.AI",
+  title: "Guía · hira — Agente de Selección",
   description: "Guía end-to-end del Agente de Selección de Talento, explicada para cualquier persona.",
 };
 
@@ -27,7 +27,7 @@ const GUIA_CSS = "#guia-doc{--bg:#0a0e16; --surface:#0f1524; --surface2:#141b2d;
 const GUIA_HTML = `
 <header class="hero">
   <div class="wrap">
-    <div class="tag">Datawith.AI · Guía end-to-end · v8 · para todo público (edición de estudio)</div>
+    <div class="tag">hira · Guía end-to-end · v8 · para todo público (edición de estudio)</div>
     <h1>Agente de Selección de Talento — Guía completa</h1>
     <p>Un asistente con inteligencia artificial que <b>entrevista candidatos por Telegram</b>, los
     <b>evalúa</b> contra los requisitos del puesto, le entrega a Recursos Humanos un <b>informe con
@@ -2092,7 +2092,7 @@ uv run python scripts/demo.py --alberto</pre>
 </main>
 
 <footer>
-  Agente de Selección de Talento · Datawith.AI · Guía v6 (2026-07-03) · documento de solo lectura.
+  hira · Agente de Selección de Talento · Guía v8 (2026-07-04) · documento de solo lectura · un producto de Datawith.AI.
 </footer>
 `;
 

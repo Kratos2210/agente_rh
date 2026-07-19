@@ -22,6 +22,7 @@ from api.runtime import (
     _DEFAULT_SCHEDULING,
     _DEFAULT_SLA_ALERTS,
     _RETENTION_STATUSES,
+    _now_iso,
     _now_local,
     _parse_dt,
     _state,
@@ -370,6 +371,9 @@ def _inactivity_sweep(settings: Settings) -> dict[str, int]:
 # Umbral por defecto para considerar "estancada" una coordinación de horario sin reunión.
 _SCHEDULING_STUCK_SECONDS = 24 * 3600
 
+# Umbral para considerar estancado el examen médico (sin cita programada o sin resultado).
+_MEDICAL_STUCK_SECONDS = 7 * 86400
+
 
 def _reconcile_scheduling_stuck(convs, meeting_conv_ids, now, threshold_seconds) -> list[str]:
     """IDs de conversaciones en `scheduling` inactivas > umbral y **sin reunión** creada.
@@ -453,6 +457,25 @@ def _collect_ops_alerts(tenant_id: str | None = None) -> list[dict[str, Any]]:
             "type": "delivery_failed", "conversation_id": conv.get("id"), "candidate_id": conv.get("candidate_id"),
             "detail": f"Entrega por Telegram fallida en la conversación {conv.get('id')} — el último mensaje no llegó al candidato.",
         })
+    # Examen médico estancado (auditoría v3): aprobó gerencia y lleva > 7 días esperando
+    # la cita (medical_pending) o el resultado (medical_scheduled) — el candidato quedaría
+    # en un limbo nuevo sin esta señal. Best-effort: un fallo de esta consulta no debe
+    # tumbar el resto de las alertas.
+    try:
+        now_utc = datetime.now(timezone.utc)
+        for cand in repo.list_candidates_by_statuses(["medical_pending", "medical_scheduled"]):
+            if not in_tenant(cand.get("vacancy_id")):
+                continue
+            ref = cand.get("updated_at") or cand.get("created_at")
+            if (now_utc - _parse_dt(ref)).total_seconds() < _MEDICAL_STUCK_SECONDS:
+                continue
+            what = "sin cita programada" if cand.get("status") == "medical_pending" else "sin resultado registrado"
+            alerts.append({
+                "type": "medical_stuck", "candidate_id": cand.get("id"),
+                "detail": f"Examen médico estancado ({what} hace más de 7 días) — candidato {cand.get('id')}.",
+            })
+    except Exception:  # noqa: BLE001
+        logger.exception("Ops alerts: chequeo de examen médico estancado falló")
     service = _state.get("service")
     if service:
         for conv in repo.list_conversations_by_states(
@@ -497,6 +520,7 @@ _ALERT_REPORT_KEY = {
     "scheduling_stuck": "scheduling_stuck",
     "state_divergence": "state_divergence",
     "delivery_failed": "delivery_failed",
+    "medical_stuck": "medical_stuck",
 }
 
 
@@ -507,6 +531,7 @@ def _reconciliation_sweep(settings: Settings) -> dict[str, int]:
     report = {
         "alerts": 0, "dead_letter": 0, "meetings_no_link": 0,
         "scheduling_stuck": 0, "state_divergence": 0, "delivery_failed": 0,
+        "medical_stuck": 0,
     }
     for alert in _collect_ops_alerts():
         report["alerts"] += 1
@@ -1007,6 +1032,88 @@ def _http_snapshot_sweep(settings: Settings) -> dict[str, int]:
     return {"saved": len(rows)}
 
 
+# ── Onboarding: kit de materiales en la fecha de ingreso (auditoría v3, Parte C) ──
+
+def _deliver_onboarding_kit(
+    settings: Settings, candidate: dict[str, Any], vacancy: dict[str, Any], kit: dict[str, Any], *, sent_by: str
+) -> dict[str, Any]:
+    """Envía el kit por correo + Telegram y sella `onboarding.sent_at` (guard de idempotencia
+    en DB, restart-safe). Compartido por el endpoint manual y el barrido del scheduler.
+
+    Se sella ANTES de despachar: los envíos van por el outbox (reintentos durables), así el
+    orden registro-primero no pierde nada y cierra la carrera manual-vs-sweep (ambos podían
+    pasar el chequeo de `sent_at` antes de que cualquiera lo escribiera → kit duplicado)."""
+    from agente.prompts import NOTIFY_ONBOARDING
+    from notifications.email import render_kit_materials_text
+
+    onboarding = {"sent_at": _now_iso(), "sent_by": sent_by}
+    repo.update_candidate(candidate["id"], {"onboarding": onboarding})
+    email_sent = outbox.deliver_onboarding(settings, vacancy, candidate, kit)
+    welcome = str(kit.get("welcome", "")).strip() or "Hoy comienza tu primer día con nosotros."
+    text = NOTIFY_ONBOARDING.format(
+        name=candidate.get("name") or "",
+        welcome=welcome,
+        materials=render_kit_materials_text(kit),
+    )
+    telegram_sent = outbox.deliver_candidate_text(
+        settings, candidate, text, tenant_id=vacancy.get("tenant_id")
+    )
+    return {"email_sent": email_sent, "telegram_sent": telegram_sent, "onboarding": onboarding}
+
+
+# Ventana de catch-up del kit: si el backend estuvo caído el día D, el kit sale igual
+# en los días siguientes (hasta este límite; después ya no tiene sentido el "primer día").
+_ONBOARDING_CATCHUP_DAYS = 7
+
+
+def _onboarding_sweep(settings: Settings) -> dict[str, int]:
+    """Envía el kit de onboarding a los contratados cuya fecha de ingreso llegó.
+
+    Reglas: candidato `hired` con `start_date` fijada, kit configurado en su vacante y sin
+    `onboarding.sent_at` (guard primario en DB — el set de `_state` solo ahorra reprocesos
+    dentro del mismo proceso). Se envía desde el día D hasta D+7 (catch-up) y solo en
+    horario laboral del tenant (el candidato lo recibe a una hora razonable)."""
+    from datetime import date, timedelta
+
+    report = {"sent": 0}
+    hired = repo.list_candidates_by_statuses(["hired"])
+    if not hired:
+        return report
+    vac_tenant = _vacancy_tenant_map()
+    sched_for = _tenant_cfg_resolver("scheduling", _DEFAULT_SCHEDULING)
+    sent_cache: set[str] = _state.setdefault("onboarding_sent", set())
+    vacancies: dict[str, dict[str, Any]] = {}
+    for cand in hired:
+        if cand["id"] in sent_cache:
+            continue
+        if (cand.get("onboarding") or {}).get("sent_at"):
+            sent_cache.add(cand["id"])
+            continue
+        raw = str(cand.get("start_date") or "").strip()
+        if not raw:
+            continue
+        try:
+            start = date.fromisoformat(raw[:10])
+        except ValueError:
+            continue
+        tid = vac_tenant.get(cand.get("vacancy_id"))
+        today = _now_local(sched_for(tid).get("timezone", "America/Lima")).date()
+        if not (start <= today <= start + timedelta(days=_ONBOARDING_CATCHUP_DAYS)):
+            continue
+        if not _is_working_now(settings, tid):
+            continue
+        vid = cand.get("vacancy_id")
+        if vid not in vacancies:
+            vacancies[vid] = repo.get_vacancy(vid) or {}
+        kit = (vacancies[vid] or {}).get("onboarding_kit") or {}
+        if not (kit.get("welcome") or kit.get("materials")):
+            continue
+        _deliver_onboarding_kit(settings, cand, vacancies[vid], kit, sent_by="scheduler")
+        sent_cache.add(cand["id"])
+        report["sent"] += 1
+    return report
+
+
 # ── Loop principal ────────────────────────────────────────────────────────────────
 
 def _prune_fired_slots(fired: set[str], today) -> set[str]:
@@ -1090,6 +1197,10 @@ async def _scheduler_loop() -> None:
             quality = await asyncio.to_thread(_quality_sweep, settings)
             if quality.get("tenants"):
                 logger.info("Calidad → %s", quality)
+            # Onboarding (auditoría v3): kit de materiales a los contratados cuyo primer día llegó.
+            onboarding = await asyncio.to_thread(_onboarding_sweep, settings)
+            if onboarding.get("sent"):
+                logger.info("Onboarding → %s", onboarding)
             # Snapshot de métricas HTTP a DB (O-6): historial que sobrevive redeploys.
             snap = await asyncio.to_thread(_http_snapshot_sweep, settings)
             if snap.get("saved"):

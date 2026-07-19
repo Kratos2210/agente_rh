@@ -19,7 +19,14 @@ from __future__ import annotations
 #                  (answer|question|offtopic) para deflectar preguntas de conocimiento
 #                  general ("¿qué es Docker?") sin responderlas; ANSWER_CANDIDATE_PROMPT
 #                  refuerza responder SOLO dudas del puesto fundamentadas en company_info.
-PROMPT_VERSION = "2026-07-04.1"
+#   2026-07-05.1 — plantillas estáticas nuevas del cierre del proceso (examen médico +
+#                  onboarding): NOTIFY_MEDICAL_PENDING/NOTIFY_MEDICAL_EXAM/NOTIFY_ONBOARDING.
+#                  Cero LLM: no afectan puntajes ni golden/redteam.
+#   2026-07-05.2 — EVALUATE_ANSWER_PROMPT: una NO-respuesta/admisión de carencia ("no tengo un
+#                  caso") a una pregunta de experiencia puntúa 0-20 y el ack debe ser consistente
+#                  (sin felicitar logros no mencionados). + Ejemplo 3 de calibración. Cierra la
+#                  inconsistencia reportada (respuesta que contradecía la experiencia → verde).
+PROMPT_VERSION = "2026-07-05.2"
 
 # Clasifica si el mensaje del candidato responde la pregunta actual o es una duda
 # sobre el puesto/empresa que el agente debería contestar antes de continuar.
@@ -145,8 +152,13 @@ Pautas de puntaje:
 - 80-100: respuesta concreta, con herramientas/ejemplos/datos que evidencian dominio o cumplimiento.
 - 50-79: cumple parcialmente o le falta concreción.
 - 0-49: vaga, genérica, no cumple el criterio o lo contradice.
+- 0-20: una NO-respuesta o admisión de carencia ("no tengo", "no sé", "ninguno", "no aplica", "no
+  cuento con…") a una pregunta que pide un dato o experiencia concreta: no evidencia el criterio.
 Marcá needs_follow_up=true SOLO si la respuesta es prometedora pero demasiado escueta y vale la pena
-pedir que amplíe. Si ya es buena o claramente insuficiente, needs_follow_up=false.
+pedir que amplíe. Si ya es buena o claramente insuficiente (o es una no-respuesta), needs_follow_up=false.
+El "ack" debe ser CONSISTENTE con la respuesta real: NUNCA felicites ni atribuyas logros, experiencia
+o soluciones que el candidato no mencionó. Si la respuesta es floja o una no-respuesta, el ack es
+cordial pero neutro (p.ej. "Gracias por tu sinceridad.").
 
 Ejemplos de calibración (SON GUÍAS, no la respuesta a evaluar: la respuesta real es la que aparece
 ARRIBA, entre los delimitadores. Las respuestas de ejemplo van entre comillas «»):
@@ -163,6 +175,12 @@ Ejemplo 2 — prometedora pero escueta → puntaje medio, con repregunta:
   Criterio: «Caso concreto de mejora de proceso con impacto medible.»
   Respuesta: «Automaticé un reporte con una macro y ahora tarda menos.»
   JSON: {{"score": 55, "justification": "Hay una mejora real pero sin cifras ni detalle del proceso.", "needs_follow_up": true, "follow_up_question": "¿Cuánto tiempo ahorraste y de qué reporte se trataba? 🙌", "ack": "Interesante, gracias por contarlo."}}
+
+Ejemplo 3 — no-respuesta a una pregunta de experiencia → puntaje bajo, ack neutro (sin felicitar):
+  Pregunta: «Contame una solución de IA que implementaste: problema, herramientas y resultados.»
+  Criterio: «Caso real de solución de IA con impacto.»
+  Respuesta: «No tengo un caso.»
+  JSON: {{"score": 12, "justification": "No aporta ningún caso ni evidencia el criterio.", "needs_follow_up": false, "follow_up_question": "", "ack": "Gracias por tu sinceridad."}}
 
 Ahora evaluá la respuesta REAL (la de arriba, entre los delimitadores).
 JSON:"""
@@ -257,6 +275,34 @@ CLOSING_THANKS = (
 CLOSING_DECLINED = (
     "Entendido, gracias por tu tiempo. Si más adelante deseas retomar el proceso, "
     "aquí estaremos. ¡Te deseamos mucho éxito! 🙌"
+)
+
+# Acuse cuando el candidato escribe mientras espera la decisión de RR.HH. (fase finished/scheduled).
+# En casos reales la decisión puede tardar días: se le responde con cortesía en vez de dejarlo en
+# silencio, sin cambiar el estado ni gastar LLM.
+PROCESS_STATUS_HOLDING = (
+    "¡Gracias por escribir! 🙌 Tu proceso sigue en revisión por parte del equipo de selección. "
+    "En cuanto haya novedades te contactaremos por aquí con los siguientes pasos. Agradecemos tu paciencia. 😊"
+)
+
+# Acuse cuando el candidato escribe pero el proceso ya terminó de nuestro lado (rechazado /
+# no asistió / abandonó). Registra el mensaje sin reabrir la decisión ya tomada por RR.HH.
+PROCESS_CLOSED_ACK = (
+    "Gracias por escribir. Este proceso ya finalizó de nuestro lado. Valoramos mucho tu interés "
+    "y te deseamos muchos éxitos en tu búsqueda. 🙏"
+)
+
+# Acuse para un candidato ya contratado que escribe: no reabrimos el flujo de entrevista.
+PROCESS_HIRED_ACK = (
+    "¡Gracias por escribir! 🎉 Ya eres parte del proceso final; cualquier coordinación de tu "
+    "incorporación te llegará por aquí. 🙌"
+)
+
+# Acuse durante la fase de examen médico (pendiente o con cita): el estado lo lleva RR.HH.
+# desde el dashboard; reprocesar el turno reabriría la etapa de gerencia en el checkpoint.
+PROCESS_MEDICAL_ACK = (
+    "¡Gracias por escribir! 🙌 Estamos coordinando tu examen médico; el equipo de selección "
+    "te contactará por aquí con cualquier novedad o instrucción adicional. 😊"
 )
 
 # El deep-link apuntaba a una vacante inexistente o ya cerrada (no enganchamos al
@@ -403,4 +449,35 @@ NOTIFY_HIRED = (
     "Nos complace informarte que fuiste seleccionad@ para el puesto. "
     "En breve el equipo de RR.HH. se pondrá en contacto contigo para coordinar los detalles "
     "de tu incorporación. ¡Bienvenid@! 💖"
+)
+
+# Examen médico pre-contratación (config-gated `medical_exam`): al aprobar gerencia el
+# candidato pasa a medical_pending; RR.HH. programa después la cita (fecha + clínica).
+NOTIFY_MEDICAL_PENDING = (
+    "¡Excelentes noticias {name}! 🎉\n\n"
+    "Aprobaste la entrevista final con gerencia. Como último paso del proceso, deberás "
+    "realizar un examen médico ocupacional. En breve te enviaremos la fecha y la clínica "
+    "donde se realizará. ¡Ya falta muy poco! 💪"
+)
+
+# Cita del examen médico programada por RR.HH. (se envía también por correo).
+NOTIFY_MEDICAL_EXAM = (
+    "Hola {name} 👋\n\n"
+    "Tu examen médico ocupacional quedó programado:\n\n"
+    "🏥 Clínica: {clinic}\n"
+    "📍 Dirección: {address}\n"
+    "🗓 Fecha y hora: {scheduled_at}\n"
+    "{instructions}"
+    "\nPor favor lleva tu DNI. Con el resultado del examen confirmaremos tu contratación. "
+    "¡Éxitos! 🙌"
+)
+
+# Kit de onboarding (materiales y guías del primer día). {materials} llega ya renderizado
+# como lista de líneas "• título — url".
+NOTIFY_ONBOARDING = (
+    "¡Bienvenid@ al equipo, {name}! 🎉\n\n"
+    "{welcome}\n\n"
+    "Aquí tienes los materiales y guías para tu primer día:\n\n"
+    "{materials}\n\n"
+    "Cualquier duda, el equipo de RR.HH. está para ayudarte. ¡Mucho éxito en esta nueva etapa! 🚀"
 )

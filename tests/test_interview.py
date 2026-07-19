@@ -42,10 +42,13 @@ class FakeLLM:
             # La respuesta va entre delimitadores anti-inyección (<<<respuesta>>> … <<<fin>>>).
             m = re.search(r"<<<respuesta>>>\n(.*?)\n<<<fin>>>", prompt, re.S)
             answer = m.group(1) if m else ""
-            needs = any(s in answer for s in self.follow_up_on)
+            # El follow-up solo procede en una respuesta AÚN escueta; una vez ampliada (texto
+            # acumulado largo) ya no. Y como "escueta" implica score medio, se emite bajo el
+            # techo que suprime la repregunta (el turno completo usa self.score → verde).
+            needs = any(s in answer for s in self.follow_up_on) and len(answer.strip()) < 20
             return json.dumps(
                 {
-                    "score": self.score,
+                    "score": 60 if needs else self.score,
                     "justification": "ok",
                     "needs_follow_up": needs,
                     "follow_up_question": "¿Podrías ampliar con ejemplos?" if needs else "",
@@ -178,6 +181,20 @@ def test_documents_can_be_skipped():
     runner.send(tid, text="omitir")          # omite CV → pide CUL
     s = runner.send(tid, text="omitir")       # omite CUL → cierra
     assert s["phase"] == PHASE_FINISHED
+
+
+def test_message_while_awaiting_decision_gets_holding_ack():
+    # Score bajo → 'finished' (no califica; espera decisión de RR.HH.). Un mensaje del candidato
+    # ("¿cómo va el proceso?") recibe un acuse cordial en vez de silencio, sin cambiar de fase.
+    runner = make_memory_runner(FakeLLM(score=40))
+    tid = "test:holding"
+    runner.start(tid, _vacancy(), _questions(n=1, max_follow_ups=0))
+    runner.send(tid, button="accept")
+    s_fin = runner.send(tid, text="Respuesta breve.")
+    assert s_fin["phase"] == PHASE_FINISHED
+    s_msg = runner.send(tid, text="¿cómo va el proceso?")
+    assert s_msg["phase"] == PHASE_FINISHED                       # no reabre el flujo
+    assert any("revisión" in m.lower() for m in s_msg["outbound"])  # acuse "en revisión"
 
 
 def test_timeout_in_interview_closes_as_no_response():

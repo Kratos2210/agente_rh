@@ -19,10 +19,21 @@ from typing import Any, Callable, Optional
 from agente.graph import InterviewRunner
 from agente.prompts import (
     NO_OPEN_VACANCY,
+    PROCESS_CLOSED_ACK,
+    PROCESS_HIRED_ACK,
+    PROCESS_MEDICAL_ACK,
     SCHEDULING_CONFIRMED,
     SCHEDULING_CONFIRMED_ONSITE,
     VACANCY_UNAVAILABLE,
 )
+
+# Estados terminales fijados por RR.HH. (fuera del motor): una vez decididos, un mensaje del
+# candidato NO debe reprocesarse ni re-sincronizar el negocio (el checkpoint reabría la decisión).
+_TERMINAL_CLOSED_STATUSES = {"rejected", "no_show", "declined", "no_response"}
+# Estados que lleva RR.HH. desde el dashboard con el checkpoint aún en la etapa de gerencia:
+# reprocesar un mensaje aquí re-sincronizaría el negocio a "mgr_scheduled" y sacaría al
+# candidato del flujo médico (los endpoints médicos pasarían a responder 409).
+_MEDICAL_HOLD_STATUSES = {"medical_pending", "medical_scheduled"}
 from agente.state import (
     PHASE_AWAITING_DOCS,
     PHASE_CLOSED,
@@ -232,6 +243,28 @@ class InterviewService:
             return resolved
         vacancy, candidate, conv = resolved
 
+        # Decisión terminal ya tomada por RR.HH. (rechazo/no_show/abandono), candidato ya
+        # contratado o en fase de examen médico: registramos el mensaje en la transcripción pero
+        # NO reprocesamos el turno ni re-sincronizamos el negocio — el checkpoint del motor
+        # reabría la decisión ya tomada (o revertiría el estado médico a mgr_scheduled).
+        # Acuse cortés (cero LLM). Nota: `finished` (esperando decisión) NO entra aquí: lo maneja
+        # el motor con un acuse de "en revisión" (fix del acuse durante la espera).
+        status = candidate.get("status")
+        if status in _TERMINAL_CLOSED_STATUSES or status == "hired" or status in _MEDICAL_HOLD_STATUSES:
+            if inbound.text:
+                repositories.add_message(conv["id"], "user", inbound.text)
+            elif inbound.button:
+                label = "Acepto" if inbound.button == "accept" else "No interesado"
+                repositories.add_message(conv["id"], "user", f"[{label}]")
+            if status == "hired":
+                ack = PROCESS_HIRED_ACK
+            elif status in _MEDICAL_HOLD_STATUSES:
+                ack = PROCESS_MEDICAL_ACK
+            else:
+                ack = PROCESS_CLOSED_ACK
+            repositories.add_message(conv["id"], "assistant", ack)
+            return TurnResult(messages=[ack])
+
         # Contexto para el tracing LangSmith (no-op si el LLM no lo soporta): así los
         # runs dejan de ser invocaciones sueltas y se agrupan por conversación.
         set_ctx = getattr(self.runner.llm, "set_context", None)
@@ -275,6 +308,21 @@ class InterviewService:
             conv["id"], {"last_activity_at": _now_iso(), "reminders_sent": 0}
         )
         return self._result(new_state)
+
+    def is_awaiting_documents(self, channel: str, chat_id: str) -> bool:
+        """True si la conversación de ese chat está en la fase que pide documentos (CV/CUL).
+
+        El canal lo usa para decidir cómo tratar un adjunto: solo dentro de esta fase se
+        valida como documento del proceso (solo PDF). Fuera de ella un adjunto (una imagen,
+        un PDF suelto) NO debe pedir "reenvíalo en PDF" — se pasa como un turno más y el
+        motor lo ignora con cortesía según la fase. Ante cualquier fallo devuelve False
+        (conservador: no forzar el flujo de documentos si no hay certeza de la fase)."""
+        try:
+            state = self.runner.get_state(f"{channel}:{chat_id}")
+        except Exception:  # noqa: BLE001
+            logger.warning("is_awaiting_documents: no se pudo leer el estado", exc_info=True)
+            return False
+        return bool(state) and state.get("phase") == PHASE_AWAITING_DOCS
 
     def _resolve_context(
         self, inbound: InboundMessage

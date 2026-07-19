@@ -140,3 +140,62 @@ def test_existing_conversation_is_sticky(monkeypatch):
     assert result.messages == ["Siguiente pregunta"]
     assert not calls["created_candidates"]  # no crea un candidato duplicado en otra vacante
     assert not calls["created_convs"]
+
+
+# ── Decisión terminal ya tomada: un mensaje del candidato no reabre el proceso ─────
+
+class _NoSendRunner(_FakeRunner):
+    def send(self, *a, **k):
+        raise AssertionError("no debe reprocesar un candidato con decisión terminal")
+
+
+def _terminal_conv(monkeypatch, status: str):
+    conv = {"id": "conv1", "candidate_id": "cand1", "vacancy_id": UUID_A}
+    cand = {"id": "cand1", "vacancy_id": UUID_A, "status": status, "cv_profile": {}}
+    _patch_repo(monkeypatch, vacancies={UUID_A: _vacancy(UUID_A)}, conversation=conv, candidate=cand)
+    recorded: list = []
+    monkeypatch.setattr(svc.repositories, "add_message",
+                        lambda cid, role, content: recorded.append((role, content)))
+    return recorded
+
+
+def test_rejected_candidate_message_does_not_reopen(monkeypatch):
+    from agente.prompts import PROCESS_CLOSED_ACK
+
+    recorded = _terminal_conv(monkeypatch, "rejected")
+    result = InterviewService(_NoSendRunner()).process(
+        InboundMessage(channel="telegram", chat_id="777", text="como va el proceso?")
+    )
+    assert result.messages == [PROCESS_CLOSED_ACK]
+    # La transcripción sí registra el mensaje del candidato + el acuse (no se pierde).
+    assert ("user", "como va el proceso?") in recorded
+    assert ("assistant", PROCESS_CLOSED_ACK) in recorded
+
+
+def test_hired_candidate_message_gets_warm_ack(monkeypatch):
+    from agente.prompts import PROCESS_HIRED_ACK
+
+    _terminal_conv(monkeypatch, "hired")
+    result = InterviewService(_NoSendRunner()).process(
+        InboundMessage(channel="telegram", chat_id="777", text="gracias!")
+    )
+    assert result.messages == [PROCESS_HIRED_ACK]
+
+
+def test_medical_phase_message_does_not_revert_status(monkeypatch):
+    """BUG demo: el checkpoint sigue en gerencia; reprocesar un mensaje durante la fase
+    médica re-sincronizaba status='mgr_scheduled' y rompía los endpoints médicos (409)."""
+    from agente.prompts import PROCESS_MEDICAL_ACK
+
+    for status in ("medical_pending", "medical_scheduled"):
+        recorded = _terminal_conv(monkeypatch, status)
+        updates: list = []
+        monkeypatch.setattr(svc.repositories, "update_candidate",
+                            lambda cid, data: updates.append(data))
+        result = InterviewService(_NoSendRunner()).process(
+            InboundMessage(channel="telegram", chat_id="777", text="gracias, ahi estare")
+        )
+        assert result.messages == [PROCESS_MEDICAL_ACK]
+        assert not updates  # el status médico queda intacto
+        assert ("user", "gracias, ahi estare") in recorded
+        assert ("assistant", PROCESS_MEDICAL_ACK) in recorded

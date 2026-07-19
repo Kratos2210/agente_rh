@@ -256,6 +256,9 @@ class Settings(BaseSettings):
     #   - tope diario: turnos procesados por chat y día (0 = sin tope).
     bot_turn_cooldown_seconds: float = 2.0
     bot_max_turns_per_day: int = 120
+    #   - dedupe: un MISMO texto reenviado en estos segundos (doble-tap/reintento de red) se
+    #     ignora para no procesarlo como un turno extra contra la pregunta ya avanzada (0 = off).
+    bot_turn_dedup_seconds: float = 6.0
 
     # Documentos del candidato (CV/CUL): tamaño máximo cuyo CONTENIDO se replica en
     # Postgres (audit D2: un PDF de 20 MB ≈ 27 MB de JSON por request de PostgREST).

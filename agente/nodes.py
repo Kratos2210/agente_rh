@@ -22,6 +22,7 @@ from agente.prompts import (
     DOC_SKIPPED,
     EMPTY_ANSWER_NUDGE,
     OFFTOPIC_DEFLECTION,
+    PROCESS_STATUS_HOLDING,
     QUALIFIED_NEXT_STEPS,
     QUESTIONS_EXHAUSTED,
     REQUEST_DOC,
@@ -136,7 +137,12 @@ def handle_turn(state: InterviewState, llm: LLM, retriever=None, answer_cache=No
             state["outbound"].append(CLOSING_DECLINED)
         else:
             _handle_scheduling(state, llm, text=text)
-    # PHASE_FINISHED / PHASE_SCHEDULED / PHASE_CLOSED: no se procesa nada más.
+    elif phase in (PHASE_FINISHED, PHASE_SCHEDULED):
+        # Entrevista terminada / reunión agendada: se espera la decisión de RR.HH. (puede tardar
+        # días). Un mensaje del candidato ("¿cómo va el proceso?") recibe un acuse cordial en vez
+        # de silencio, sin cambiar el estado ni gastar LLM. El mensaje ya quedó en la transcripción.
+        state["outbound"].append(PROCESS_STATUS_HOLDING)
+    # PHASE_CLOSED: no se responde (ya se despidió al cerrar).
 
     state["pending_input"] = None
     state["pending_button"] = None

@@ -41,3 +41,45 @@ def test_validate_rejects_non_pdf():
 def test_validate_rejects_oversized():
     ok, reason = validate_document("application/pdf", MAX_DOCUMENT_BYTES + 1, "cv.pdf")
     assert ok is False and "MB" in reason
+
+
+# ── is_awaiting_documents: gate de fase para adjuntos entrantes (UX: no pedir PDF
+#    cuando no se están recolectando documentos) ────────────────────────────────
+from agente.service import InterviewService
+
+
+class _StubRunner:
+    def __init__(self, state):
+        self._state = state
+
+    def get_state(self, thread_id):
+        return self._state
+
+
+def _svc_with_state(state):
+    svc = InterviewService.__new__(InterviewService)  # sin el constructor pesado
+    svc.runner = _StubRunner(state)
+    return svc
+
+
+def test_awaiting_documents_true_only_in_docs_phase():
+    assert _svc_with_state({"phase": "awaiting_docs"}).is_awaiting_documents("telegram", "1") is True
+
+
+def test_awaiting_documents_false_in_other_phases():
+    for phase in ("interviewing", "finished", "scheduling", "scheduled", "greeting", "closed"):
+        assert _svc_with_state({"phase": phase}).is_awaiting_documents("telegram", "1") is False
+
+
+def test_awaiting_documents_false_without_conversation():
+    assert _svc_with_state({}).is_awaiting_documents("telegram", "1") is False
+
+
+def test_awaiting_documents_false_on_runner_error():
+    class _BoomRunner:
+        def get_state(self, thread_id):
+            raise RuntimeError("checkpoint DB caída")
+
+    svc = InterviewService.__new__(InterviewService)
+    svc.runner = _BoomRunner()
+    assert svc.is_awaiting_documents("telegram", "1") is False

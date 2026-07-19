@@ -26,7 +26,7 @@ from telegram.ext import (
 )
 
 from agente.service import InterviewService
-from api.ratelimit import TURN_BLOCKED, TURN_CAP_NOTICE, TURN_COOLDOWN, TurnGovernor
+from api.ratelimit import TURN_BLOCKED, TURN_CAP_NOTICE, TURN_COOLDOWN, TURN_DUPLICATE, TurnGovernor
 from channels.base import CHANNEL_TELEGRAM, InboundMessage
 from channels.telegram import send_messages
 from core.config import Settings
@@ -145,6 +145,7 @@ def build_bot_app(settings: Settings, state: dict[str, Any]) -> Application:
     _governor = TurnGovernor(
         cooldown_seconds=settings.bot_turn_cooldown_seconds,
         max_turns_per_day=settings.bot_max_turns_per_day,
+        dedup_seconds=settings.bot_turn_dedup_seconds,
     )
 
     # RAG de dudas del candidato (config-gated, lazy): None si interview_rag_enabled=False.
@@ -220,10 +221,10 @@ async def _dispatch(
         await context.bot.send_message(chat_id=chat.id, text="No tienes acceso a este bot.")
         return
 
-    # R2: cooldown + tope diario por chat ANTES de gastar LLM. En cooldown se ignora en
-    # silencio (mensajes en ráfaga); al alcanzar el tope se avisa UNA vez y luego silencio.
-    verdict = _governor.check(str(chat.id))
-    if verdict == TURN_COOLDOWN or verdict == TURN_BLOCKED:
+    # R2: cooldown + dedupe + tope diario por chat ANTES de gastar LLM. En cooldown/duplicado se
+    # ignora en silencio (ráfaga o mismo texto reenviado); al alcanzar el tope se avisa UNA vez.
+    verdict = _governor.check(str(chat.id), text=text)
+    if verdict in (TURN_COOLDOWN, TURN_DUPLICATE, TURN_BLOCKED):
         return
     if verdict == TURN_CAP_NOTICE:
         logger.warning("Chat %s alcanzó el tope diario de turnos del bot", chat.id)
@@ -292,6 +293,24 @@ async def _on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     doc = msg.document if msg else None
     if doc is None or chat is None:
         return
+
+    # Un adjunto solo se trata como documento del proceso (CV/CUL, solo PDF) si la
+    # conversación está en la fase que los pide. Fuera de esa fase (entrevista, revisión,
+    # agendamiento…) NO se debe pedir "reenvíalo en PDF" ni sugerir subir nada: se despacha
+    # como un turno más y el motor lo ignora con cortesía según la fase.
+    service: InterviewService = context.bot_data["service"]
+    awaiting = await asyncio.to_thread(
+        service.is_awaiting_documents, CHANNEL_TELEGRAM, str(chat.id)
+    )
+    if not awaiting:
+        document = {
+            "file_id": doc.file_id,
+            "filename": doc.file_name or "",
+            "mime": doc.mime_type or "",
+        }
+        await _dispatch(update, context, text=None, button=None, document=document)
+        return
+
     # Validación previa a la descarga: solo PDF, dentro del límite de tamaño.
     ok, reason = validate_document(doc.mime_type, doc.file_size, doc.file_name)
     if not ok:

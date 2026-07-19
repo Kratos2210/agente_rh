@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from core.estados import ensure_valid_status
 from db.client import get_supabase
 
 
@@ -169,6 +170,10 @@ def add_candidate_document(candidate_id: str, doc: dict[str, Any]) -> dict[str, 
 
 
 def update_candidate(candidate_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    # Guard del catálogo (auditoría v4, R5): un status con typo falla AQUÍ, ruidoso,
+    # en vez de romper silenciosamente el kanban y los barridos del scheduler.
+    if "status" in payload:
+        ensure_valid_status(payload["status"])
     return (
         get_supabase().table("candidates").update(payload).eq("id", candidate_id).execute().data[0]
     )
@@ -319,6 +324,51 @@ def list_candidate_rows(
     )
     if search:
         # % y _ son comodines de ilike: se escapan para buscar el texto literal.
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        q = q.ilike("name", f"%{escaped}%")
+    if limit is not None:
+        q = q.range(offset, offset + limit - 1)
+    res = q.execute()
+    return (res.data or [], res.count or 0)
+
+
+# Estados del "cierre" del proceso (post-gerencia): examen médico → contratado. La vista
+# Onboarding los agrupa por sub-estado (fecha de ingreso / kit enviado) usando los campos extra.
+CLOSING_STATUSES = ("medical_pending", "medical_scheduled", "hired")
+
+# Columnas del cierre: las livianas + los jsonb que la vista necesita (start_date/onboarding/
+# medical_exam) + el score embebido (paridad con las tarjetas). NO se añaden a la ruta caliente
+# del pipeline (`_CANDIDATE_ROW_COLS`) para no encarecer ese listado.
+_CLOSING_ROW_COLS = (
+    "id,name,status,channel,source,created_at,vacancy_id,start_date,onboarding,medical_exam,prescreen,"
+    "conversations(id,created_at,scorecards(semaphore,total_score))"
+)
+
+
+def list_closing_candidates(
+    vacancy_ids: list[str],
+    *,
+    search: str = "",
+    limit: Optional[int] = None,
+    offset: int = 0,
+) -> tuple[list[dict[str, Any]], int]:
+    """Candidatos en el cierre del proceso (médico/contratado) de las vacantes dadas + total.
+
+    Espejo de `list_candidate_rows` pero con las columnas del onboarding y filtrado a
+    `CLOSING_STATUSES`. `vacancy_ids` debe incluir vacantes cerradas (una vacante se cierra al
+    llenarse; su contratado sigue en onboarding) — por eso el endpoint usa `list_vacancies`
+    sin el filtro `status="open"`."""
+    if not vacancy_ids:
+        return ([], 0)
+    q = (
+        get_supabase()
+        .table("candidates")
+        .select(_CLOSING_ROW_COLS, count="exact")
+        .in_("vacancy_id", vacancy_ids)
+        .in_("status", list(CLOSING_STATUSES))
+        .order("created_at", desc=True)
+    )
+    if search:
         escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         q = q.ilike("name", f"%{escaped}%")
     if limit is not None:
@@ -1101,7 +1151,72 @@ def usage_rows_since(since_iso: str) -> list[dict[str, Any]]:
     )
 
 
+def usage_rows_detailed_since(since_iso: str) -> list[dict[str, Any]]:
+    """Como `usage_rows_since` pero con `created_at` + `candidate_id` (página Costos):
+    permite agregar por día y hacer drill-down por candidato. Usa idx_llm_usage_created.
+
+    Paginado con `.range()`: PostgREST aplica su tope de filas por respuesta y un rango de
+    días amplio en un tenant activo lo supera — sin el bucle el reporte se truncaba en
+    silencio (costos incompletos sin error visible)."""
+    page = 1000
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        batch = (
+            get_supabase().table("llm_usage")
+            .select("vacancy_id,candidate_id,model,stage,calls,input_tokens,output_tokens,total_tokens,created_at")
+            .gte("created_at", since_iso)
+            .order("created_at")
+            .range(offset, offset + page - 1)
+            .execute()
+            .data
+            or []
+        )
+        rows.extend(batch)
+        if len(batch) < page:
+            return rows
+        offset += page
+
+
+def candidate_names(ids: list[str]) -> dict[str, str]:
+    """{candidate_id → name} para los ids dados (drill-down de la página Costos).
+
+    Consulta en chunks para no desbordar el querystring de PostgREST. Ids borrados no
+    aparecen (sus filas de usage tampoco: FK cascade); anonimizados devuelven ""."""
+    out: dict[str, str] = {}
+    unique = [i for i in dict.fromkeys(ids) if i]
+    for start in range(0, len(unique), 100):
+        chunk = unique[start : start + 100]
+        rows = (
+            get_supabase().table("candidates")
+            .select("id,name")
+            .in_("id", chunk)
+            .execute()
+            .data
+            or []
+        )
+        out.update({r["id"]: r.get("name", "") for r in rows})
+    return out
+
+
 # ── Métricas: embudo de candidatos ──────────────────────────────────────────────
+
+# Todo estado posterior a la decisión favorable del scorecard cuenta como "avanzado": con el
+# agendamiento activo el status literal "advanced" casi nunca se asigna (pasa directo a
+# scheduling → etapas lead/mgr → médico → hired) y el embudo mostraba 0 perpetuo.
+ADVANCED_STATUSES = {
+    "advanced",
+    "scheduling",
+    "scheduled",
+    "lead_scheduling",
+    "lead_scheduled",
+    "mgr_scheduling",
+    "mgr_scheduled",
+    "medical_pending",
+    "medical_scheduled",
+    "hired",
+}
+
 
 def _funnel(candidates: list[dict[str, Any]]) -> dict[str, int]:
     """Cuenta candidatos por etapa del embudo de postulación."""
@@ -1113,6 +1228,7 @@ def _funnel(candidates: list[dict[str, Any]]) -> dict[str, int]:
         "interviewing": 0,
         "finished": 0,
         "advanced": 0,
+        "hired": 0,
         "rejected": 0,
     }
     for c in candidates:
@@ -1131,8 +1247,10 @@ def _funnel(candidates: list[dict[str, Any]]) -> dict[str, int]:
             funnel["interviewing"] += 1
         elif status == "finished":
             funnel["finished"] += 1
-        elif status == "advanced":
+        elif status in ADVANCED_STATUSES:
             funnel["advanced"] += 1
+            if status == "hired":
+                funnel["hired"] += 1
         elif status == "rejected":
             funnel["rejected"] += 1
     return funnel
@@ -1332,16 +1450,26 @@ def delete_candidate(candidate_id: str) -> None:
 
 
 def anonymize_candidate(candidate_id: str) -> dict[str, Any]:
-    """Borra la PII del candidato conservando la fila (para métricas agregadas)."""
-    return update_candidate(
-        candidate_id,
-        {
-            "name": "",
-            "channel_user_id": f"anon-{candidate_id[:8]}",
-            "cv_profile": {},
-            "documents": [],
-        },
-    )
+    """Borra la PII del candidato conservando la fila (para métricas agregadas).
+
+    Incluye los exámenes (auditoría v3): las credenciales del psicológico y la cita +
+    RESULTADO del médico (dato sensible de salud, Ley 29733) no deben sobrevivir a la
+    retención."""
+    payload = {
+        "name": "",
+        "channel_user_id": f"anon-{candidate_id[:8]}",
+        "cv_profile": {},
+        "documents": [],
+        "psych_exam": None,
+        "medical_exam": None,
+        "onboarding": None,
+        "start_date": None,
+    }
+    try:
+        return update_candidate(candidate_id, payload)
+    except Exception:  # noqa: BLE001 — retro-compat: entorno sin la migración 0027
+        legacy = {k: v for k, v in payload.items() if k not in ("medical_exam", "onboarding", "start_date")}
+        return update_candidate(candidate_id, legacy)
 
 
 def list_candidates_by_statuses(statuses: list[str]) -> list[dict[str, Any]]:

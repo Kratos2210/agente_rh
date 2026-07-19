@@ -14,6 +14,13 @@ def test_funnel_counts_by_stage_and_verdict():
         {"status": "finished", "prescreen": {"verdict": "pass"}},
         {"status": "advanced", "prescreen": {"verdict": "pass"}},
         {"status": "pending"},  # candidato directo por Telegram (sin prescreen)
+        # Multi-etapa: con scheduling activo el literal "advanced" casi nunca se asigna;
+        # todo estado post-decisión favorable debe contar como avanzado (fix embudo demo).
+        {"status": "scheduled"},
+        {"status": "lead_scheduling"},
+        {"status": "mgr_scheduled"},
+        {"status": "medical_pending"},
+        {"status": "hired"},
     ]
     f = _funnel(cands)
     assert f["imported"] == 5  # los que tienen verdict
@@ -22,7 +29,8 @@ def test_funnel_counts_by_stage_and_verdict():
     assert f["invited"] == 1
     assert f["interviewing"] == 1
     assert f["finished"] == 1
-    assert f["advanced"] == 1
+    assert f["advanced"] == 6  # advanced + scheduled + lead/mgr + medical + hired
+    assert f["hired"] == 1
 
 
 def test_aggregate_tokens_sums_and_groups_by_stage():

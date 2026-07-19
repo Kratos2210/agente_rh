@@ -296,3 +296,171 @@ def send_psych_exam_email(settings: Settings, vacancy: dict, candidate: dict, ex
         logger.info("Correo de exámenes psicológicos enviado a %s", built[0])
     except Exception:  # noqa: BLE001
         logger.exception("No se pudo enviar el correo de exámenes psicológicos")
+
+
+# ── Examen médico pre-contratación (cita en clínica programada por RR.HH.) ─────────
+
+def build_medical_exam_email(
+    settings: Settings, vacancy: dict, candidate: dict, exam: dict
+) -> tuple[list[str], str, str, str] | None:
+    """(recipients, subject, text, html) del correo de la cita del examen médico, o None si no aplica.
+
+    RR.HH. programa fecha + clínica en el dashboard; este correo se lo comunica al candidato.
+    El resultado NO viaja por correo (dato sensible de salud, Ley 29733): solo la cita."""
+    cand_email = str((candidate.get("cv_profile") or {}).get("email", "")).strip()
+    if not (settings.smtp_host and settings.smtp_from and cand_email):
+        return None
+    clinic = str(exam.get("clinic", "")).strip()
+    address = str(exam.get("address", "")).strip()
+    scheduled_at = str(exam.get("scheduled_at", "")).strip()
+    instructions = str(exam.get("instructions", "")).strip()
+    name = candidate.get("name") or "Candidato"
+    title = vacancy.get("title", "")
+    subject = f"Examen médico ocupacional · {title}".strip(" ·")
+
+    text = "\n".join([
+        f"Estimad@ {name},",
+        "",
+        "Como último paso del proceso de selección, tu examen médico ocupacional quedó programado:",
+        "",
+        f"Clínica: {clinic}",
+        f"Dirección: {address}",
+        f"Fecha y hora: {scheduled_at}",
+        *([f"Indicaciones: {instructions}"] if instructions else []),
+        "",
+        "Por favor lleva tu DNI. Con el resultado del examen confirmaremos tu contratación.",
+        "",
+        "¡Éxitos!",
+    ])
+    h_name, h_title = _esc(str(name)), _esc(str(title))
+    h_clinic, h_address, h_when, h_instr = _esc(clinic), _esc(address), _esc(scheduled_at), _esc(instructions)
+    instr_html = f'<p style="margin:0 0 6px"><b>Indicaciones:</b> {h_instr}</p>' if instructions else ""
+    html = f"""<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;color:#111;background:#f6f7f9;padding:24px">
+      <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
+        <div style="background:#0e9d8e;color:#fff;padding:20px 24px">
+          <div style="font-size:13px;opacity:.9">Examen médico ocupacional</div>
+          <div style="font-size:22px;font-weight:700">{h_title}</div>
+        </div>
+        <div style="padding:24px;line-height:1.6;color:#333">
+          <p style="margin:0 0 12px">Estimad@ <b>{h_name}</b>,</p>
+          <p style="margin:0 0 12px">Como último paso del proceso de selección, tu examen médico ocupacional quedó programado:</p>
+          <p style="margin:0 0 6px"><b>Clínica:</b> {h_clinic}</p>
+          <p style="margin:0 0 6px"><b>Dirección:</b> {h_address}</p>
+          <p style="margin:0 0 6px"><b>Fecha y hora:</b> <span style="color:#0e9d8e;font-weight:700">{h_when}</span></p>
+          {instr_html}
+          <p style="margin:12px 0 0;color:#555">Por favor lleva tu DNI. Con el resultado del examen confirmaremos tu contratación. ¡Éxitos!</p>
+        </div>
+      </div>
+    </body></html>"""
+    return ([cand_email], subject, text, html)
+
+
+# ── Contratación (auditoría v4, corto plazo #4: hired ganaba solo Telegram) ────────
+
+def build_hired_email(
+    settings: Settings, vacancy: dict, candidate: dict
+) -> tuple[list[str], str, str, str] | None:
+    """(recipients, subject, text, html) del correo de contratación, o None si no aplica."""
+    cand_email = str((candidate.get("cv_profile") or {}).get("email", "")).strip()
+    if not (settings.smtp_host and settings.smtp_from and cand_email):
+        return None
+    name = candidate.get("name") or "Candidato"
+    title = vacancy.get("title", "")
+    subject = f"¡Felicitaciones! Fuiste seleccionad@ · {title}".strip(" ·")
+
+    text = "\n".join([
+        f"Estimad@ {name},",
+        "",
+        f"¡Felicitaciones! Completaste con éxito el proceso de selección para el puesto de {title}.",
+        "",
+        "El equipo de Recursos Humanos se pondrá en contacto contigo para coordinar los detalles",
+        "de tu incorporación (fecha de ingreso, documentación y materiales de bienvenida).",
+        "",
+        "¡Bienvenid@ al equipo!",
+    ])
+    h_name, h_title = _esc(str(name)), _esc(str(title))
+    html = f"""<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;color:#111;background:#f6f7f9;padding:24px">
+      <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
+        <div style="background:#4f46e5;color:#fff;padding:20px 24px">
+          <div style="font-size:13px;opacity:.9">Proceso de selección completado</div>
+          <div style="font-size:22px;font-weight:700">{h_title}</div>
+        </div>
+        <div style="padding:24px;line-height:1.6;color:#333">
+          <p style="margin:0 0 12px">Estimad@ <b>{h_name}</b>,</p>
+          <p style="margin:0 0 12px">¡Felicitaciones! Completaste con éxito el proceso de selección para el puesto de <b>{h_title}</b>.</p>
+          <p style="margin:0 0 12px">El equipo de Recursos Humanos se pondrá en contacto contigo para coordinar los detalles de tu incorporación (fecha de ingreso, documentación y materiales de bienvenida).</p>
+          <p style="margin:12px 0 0;color:#4f46e5;font-weight:700">¡Bienvenid@ al equipo! 🎉</p>
+        </div>
+      </div>
+    </body></html>"""
+    return ([cand_email], subject, text, html)
+
+
+# ── Kit de onboarding (materiales y guías del primer día de trabajo) ───────────────
+
+def render_kit_materials_text(kit: dict) -> str:
+    """Lista de materiales del kit como líneas '• título — url (nota)'. Reusada por Telegram."""
+    lines = []
+    for m in kit.get("materials") or []:
+        parts = [str(m.get("title", "")).strip() or "Material"]
+        if str(m.get("url", "")).strip():
+            parts.append(str(m["url"]).strip())
+        line = "• " + " — ".join(parts)
+        if str(m.get("note", "")).strip():
+            line += f" ({str(m['note']).strip()})"
+        lines.append(line)
+    return "\n".join(lines) or "• El equipo de RR.HH. te entregará los materiales en persona."
+
+
+def build_onboarding_email(
+    settings: Settings, vacancy: dict, candidate: dict, kit: dict
+) -> tuple[list[str], str, str, str] | None:
+    """(recipients, subject, text, html) del correo del kit de onboarding, o None si no aplica."""
+    cand_email = str((candidate.get("cv_profile") or {}).get("email", "")).strip()
+    if not (settings.smtp_host and settings.smtp_from and cand_email):
+        return None
+    name = candidate.get("name") or "Candidato"
+    title = vacancy.get("title", "")
+    welcome = str(kit.get("welcome", "")).strip() or (
+        "Hoy comienza tu primer día con nosotros. Preparamos estos materiales para que "
+        "conozcas la empresa y tu puesto a detalle."
+    )
+    subject = f"¡Bienvenid@! Tu kit de onboarding · {title}".strip(" ·")
+
+    text = "\n".join([
+        f"¡Bienvenid@ al equipo, {name}!",
+        "",
+        welcome,
+        "",
+        "Materiales y guías para tu primer día:",
+        render_kit_materials_text(kit),
+        "",
+        "Cualquier duda, el equipo de RR.HH. está para ayudarte. ¡Mucho éxito!",
+    ])
+    items_html = ""
+    for m in kit.get("materials") or []:
+        h_t = _esc(str(m.get("title", "")).strip() or "Material")
+        url = str(m.get("url", "")).strip()
+        h_note = _esc(str(m.get("note", "")).strip())
+        body = f'<a href="{_esc(url)}" style="color:#2563eb">{h_t}</a>' if url else h_t
+        note_html = f' — <span style="color:#555">{h_note}</span>' if h_note else ""
+        items_html += f'<li style="margin:0 0 8px">{body}{note_html}</li>'
+    if not items_html:
+        items_html = '<li style="margin:0 0 8px">El equipo de RR.HH. te entregará los materiales en persona.</li>'
+    h_name, h_title, h_welcome = _esc(str(name)), _esc(str(title)), _esc(welcome)
+    html = f"""<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;color:#111;background:#f6f7f9;padding:24px">
+      <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
+        <div style="background:#6366f1;color:#fff;padding:20px 24px">
+          <div style="font-size:13px;opacity:.9">Kit de onboarding</div>
+          <div style="font-size:22px;font-weight:700">¡Bienvenid@, {h_name}!</div>
+        </div>
+        <div style="padding:24px;line-height:1.6;color:#333">
+          <p style="margin:0 0 4px"><b>Puesto:</b> {h_title}</p>
+          <p style="margin:12px 0">{h_welcome}</p>
+          <h3 style="margin:16px 0 8px">Materiales y guías</h3>
+          <ul style="margin:0;padding-left:20px">{items_html}</ul>
+          <p style="margin:16px 0 0;color:#555">Cualquier duda, el equipo de RR.HH. está para ayudarte. ¡Mucho éxito!</p>
+        </div>
+      </div>
+    </body></html>"""
+    return ([cand_email], subject, text, html)

@@ -28,6 +28,8 @@ export const STAGE: Record<string, StageMeta> = {
   lead_scheduled: { label: "Entrevista líder", color: "#22d3ee", soft: "rgba(34,211,238,.16)" },
   mgr_scheduling: { label: "Coordinando gerencia", color: "#818cf8", soft: "rgba(129,140,248,.14)" },
   mgr_scheduled: { label: "Entrevista gerencia", color: "#818cf8", soft: "rgba(129,140,248,.16)" },
+  medical_pending: { label: "Ex. médico · por programar", color: "#fbbf24", soft: "rgba(251,191,36,.13)" },
+  medical_scheduled: { label: "Ex. médico agendado", color: "#2dd4bf", soft: "rgba(45,212,191,.15)" },
   hired: { label: "Contratado", color: "#34d399", soft: "rgba(52,211,153,.2)" },
   advanced: { label: "Avanzado", color: "#34d399", soft: "rgba(52,211,153,.16)" },
   rejected: { label: "Rechazado", color: "#f87171", soft: "rgba(248,113,113,.12)" },
@@ -48,9 +50,29 @@ export const KANBAN_COLUMNS: { key: string; label: string; color: string; status
   { key: "interviewing", label: "Entrevista", color: ACCENT.c, statuses: ["interviewing"] },
   { key: "finished", label: "Evaluado", color: "#a78bfa", statuses: ["finished", "scheduling"] },
   { key: "scheduled", label: "Entrevistas", color: "#34d399", statuses: ["scheduled", "advanced", "lead_scheduling", "lead_scheduled", "mgr_scheduling", "mgr_scheduled"] },
+  { key: "medical", label: "Ex. médico", color: "#2dd4bf", statuses: ["medical_pending", "medical_scheduled"] },
   { key: "hired", label: "Contratado", color: "#34d399", statuses: ["hired"] },
   { key: "rejected", label: "Descartado", color: "#f87171", statuses: ["prescreen_rejected", "rejected", "no_show", "declined", "no_response"] },
 ];
+
+// Sets de estados para los contadores (tiles/KPIs). Un candidato que avanzó a las etapas de
+// líder/gerencia/médico o fue contratado SIGUE contactado/agendado — sin estos sets los tiles
+// de cabecera lo perdían y no cuadraban con el Kanban de abajo.
+export const CONTACTED_STATUSES = new Set([
+  "invited", "consented", "interviewing", "finished", "scheduling", "scheduled", "advanced",
+  "lead_scheduling", "lead_scheduled", "mgr_scheduling", "mgr_scheduled",
+  "medical_pending", "medical_scheduled", "hired",
+]);
+
+export const SCHEDULED_STATUSES = new Set([
+  "scheduled", "lead_scheduled", "mgr_scheduled", "medical_scheduled",
+]);
+
+// Post-decisión favorable del scorecard (para barras de progreso / "avanzados").
+export const ADVANCED_STATUSES = new Set([
+  "advanced", "scheduling", "scheduled", "lead_scheduling", "lead_scheduled",
+  "mgr_scheduling", "mgr_scheduled", "medical_pending", "medical_scheduled", "hired",
+]);
 
 // Agrupa candidatos en las columnas del Kanban según su `status`.
 export function buildColumns<T extends { status: string }>(items: T[]) {
@@ -59,6 +81,34 @@ export function buildColumns<T extends { status: string }>(items: T[]) {
     label: col.label,
     color: col.color,
     items: items.filter((c) => col.statuses.includes(c.status)),
+  }));
+}
+
+// Columnas de la vista Onboarding (el "cierre" del proceso). A diferencia de `buildColumns`
+// (que agrupa solo por `status`), aquí los tres estados de `hired` se distinguen por campos extra:
+// fecha de ingreso fijada y kit enviado. Orden = avance del cierre.
+export interface ClosingItem { status: string; start_date?: string | null; onboarding?: { sent_at?: string } | null }
+
+export function closingColumnKey(c: ClosingItem): "medical" | "no_date" | "kit_pending" | "done" {
+  if (c.status === "medical_pending" || c.status === "medical_scheduled") return "medical";
+  if (c.onboarding?.sent_at) return "done";
+  if (!String(c.start_date || "").trim()) return "no_date";
+  return "kit_pending";
+}
+
+export const CLOSING_COLUMNS: { key: string; label: string; color: string }[] = [
+  { key: "medical", label: "Examen médico", color: "#2dd4bf" },
+  { key: "no_date", label: "Sin fecha de ingreso", color: "#fbbf24" },
+  { key: "kit_pending", label: "Kit pendiente", color: "#a78bfa" },
+  { key: "done", label: "Onboarding enviado", color: "#34d399" },
+];
+
+export function buildClosingColumns<T extends ClosingItem>(items: T[]) {
+  return CLOSING_COLUMNS.map((col) => ({
+    key: col.key,
+    label: col.label,
+    color: col.color,
+    items: items.filter((c) => closingColumnKey(c) === col.key),
   }));
 }
 

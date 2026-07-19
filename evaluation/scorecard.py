@@ -129,8 +129,16 @@ def build_scorecard(
         summary = summary or fb_summary
         recommendation = recommendation or fb_reco
 
-    # Revisión humana requerida si alguna respuesta se evaluó con baja confianza (audit #11).
-    review_required = any(a.get("low_confidence") for a in answers)
+    # Revisión humana requerida si: (a) alguna respuesta se evaluó con baja confianza (audit #11),
+    # o (b) hay una INCONSISTENCIA interna — alguna respuesta cae en banda roja (< yellow_min:
+    # vaga, no cumple o contradice el criterio) aunque el total pase. Así un "no tengo un caso" a
+    # una pregunta de experiencia alerta a RR.HH. para que decida ANTES de avanzar, en vez de
+    # colarse en verde por el peso de las demás respuestas.
+    weak_criteria = [
+        c for c in per_crit
+        if isinstance(c.get("score"), (int, float)) and c["score"] < yellow_min
+    ]
+    review_required = any(a.get("low_confidence") for a in answers) or bool(weak_criteria)
 
     return {
         "total_score": total,

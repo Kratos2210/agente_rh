@@ -18,6 +18,7 @@ from api.ratelimit import (
     TURN_BLOCKED,
     TURN_CAP_NOTICE,
     TURN_COOLDOWN,
+    TURN_DUPLICATE,
     TURN_OK,
     SlidingWindowLimiter,
     TurnGovernor,
@@ -56,6 +57,23 @@ def test_governor_daily_cap_notice_once_then_silence():
     assert gov.check("c1", now=3.0, today=d) == TURN_BLOCKED     # después, silencio
     # Día nuevo: el contador se reinicia.
     assert gov.check("c1", now=4.0, today=date(2026, 7, 2)) == TURN_OK
+
+
+def test_governor_dedup_identical_text_within_window():
+    # Reproduce el bug del doble-envío: mismo texto reenviado ~2 s después (fuera del
+    # cooldown de 2 s pero dentro de la ventana de dedupe) se ignora en silencio.
+    gov = TurnGovernor(cooldown_seconds=2.0, max_turns_per_day=100, dedup_seconds=6.0)
+    d = date(2026, 7, 1)
+    ans = "Soy Ingeniero de Sistemas titulado"
+    assert gov.check("c1", now=0.0, today=d, text=ans) == TURN_OK
+    assert gov.check("c1", now=2.5, today=d, text=ans) == TURN_DUPLICATE   # duplicado: ignorar
+    # Un texto DISTINTO en la ventana sí se procesa.
+    assert gov.check("c1", now=3.0, today=d, text="Tengo 4 años de experiencia") == TURN_OK
+    # El MISMO texto pasada la ventana de dedupe vuelve a procesarse (re-respuesta deliberada).
+    assert gov.check("c1", now=20.0, today=d, text=ans) == TURN_OK
+    # Sin texto (botón/documento) el dedupe no aplica (se espacian más que el cooldown).
+    assert gov.check("c1", now=30.0, today=d, text=None) == TURN_OK
+    assert gov.check("c1", now=33.0, today=d, text=None) == TURN_OK
 
 
 # ── Login: 5 intentos/minuto por IP (R1) ───────────────────────────────────────────

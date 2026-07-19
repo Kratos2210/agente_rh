@@ -18,12 +18,14 @@ from api.deps import (
     _require_candidate_in_tenant,
     _with_cost,
 )
-from api.runtime import _DEFAULT_SCHEDULING, _now_iso, _state, current_settings
-from api.scheduler import _bot_send, _contact_candidate
+from api.runtime import _DEFAULT_MEDICAL, _DEFAULT_SCHEDULING, _now_iso, _state, current_settings
+from api.scheduler import _bot_send, _contact_candidate, _deliver_onboarding_kit
+from core.logging_config import get_logger
 from db import repositories as repo
 from notifications import outbox
 from notifications.candidate import DECISION_ADVANCE, DECISION_HIRED, DECISION_REJECT
 
+logger = get_logger(__name__)
 router = APIRouter()
 
 # Raíz donde el bot guarda los documentos descargados de Telegram (CV/CUL).
@@ -39,6 +41,50 @@ class PsychExamIn(BaseModel):
     link: str
     code: str = ""
     key: str = ""
+
+
+class MedicalExamIn(BaseModel):
+    """Cita del examen médico ocupacional que RR.HH. programa (auditoría v3, Parte B)."""
+    clinic: str
+    scheduled_at: str  # fecha+hora legible para el candidato (la escribe RR.HH.)
+    address: str = ""
+    instructions: str = ""
+
+    @field_validator("clinic", "scheduled_at")
+    @classmethod
+    def _required(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("clinic y scheduled_at son obligatorios")
+        return v.strip()
+
+
+class MedicalResultIn(BaseModel):
+    """Resultado del examen médico: apto contrata, no_apto rechaza. Dato sensible de salud."""
+    result: str  # "apto" | "no_apto"
+    notes: str = ""
+
+    @field_validator("result")
+    @classmethod
+    def _result_valid(cls, v: str) -> str:
+        if v not in ("apto", "no_apto"):
+            raise ValueError("result debe ser 'apto' o 'no_apto'")
+        return v
+
+
+class StartDateIn(BaseModel):
+    """Fecha del primer día de trabajo (dispara el envío automático del kit de onboarding)."""
+    start_date: str  # ISO date (YYYY-MM-DD)
+
+    @field_validator("start_date")
+    @classmethod
+    def _date_valid(cls, v: str) -> str:
+        from datetime import date
+
+        try:
+            date.fromisoformat(v.strip())
+        except ValueError as e:
+            raise ValueError("start_date debe ser una fecha ISO (YYYY-MM-DD)") from e
+        return v.strip()
 
 
 class AttendanceIn(BaseModel):
@@ -128,6 +174,20 @@ def _public_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in candidate.items() if k not in _CANDIDATE_PRIVATE_FIELDS}
 
 
+def _close_conversation_on_reject(candidate_id: str, reason: str = "rejected") -> None:
+    """Cierra la conversación del candidato (estado terminal) al rechazarlo, para que los barridos
+    de inactividad dejen de recordarle/pedir documentos: el proceso ya terminó para él. Best-effort:
+    no tumba la decisión si falla ni si no hay conversación."""
+    from agente.state import PHASE_CLOSED
+
+    try:
+        conv = repo.get_conversation_by_candidate(candidate_id)
+        if conv and conv.get("state") != PHASE_CLOSED:
+            repo.update_conversation(conv["id"], {"state": PHASE_CLOSED, "closed_reason": reason})
+    except Exception:  # noqa: BLE001 — cerrar la conversación no debe tumbar el rechazo
+        logger.exception("No se pudo cerrar la conversación del candidato %s tras el rechazo", candidate_id)
+
+
 def _psych_exam_for_role(exam: dict[str, Any] | None, role: str) -> dict[str, Any] | None:
     """Credenciales del examen psicológico según el rol (auditoría S3).
 
@@ -139,6 +199,16 @@ def _psych_exam_for_role(exam: dict[str, Any] | None, role: str) -> dict[str, An
     if not exam or role_allows(role, "recruiter"):
         return exam
     return {**exam, **{k: "•••" for k in ("link", "code", "key") if exam.get(k)}}
+
+
+def _medical_exam_for_role(exam: dict[str, Any] | None, role: str) -> dict[str, Any] | None:
+    """Examen médico según el rol (patrón S3). El RESULTADO es dato sensible de salud
+    (Ley 29733): un viewer ve la cita (clínica/fecha) pero no el resultado ni sus notas."""
+    from api.auth import role_allows
+
+    if not exam or role_allows(role, "recruiter"):
+        return exam
+    return {**exam, **{k: "•••" for k in ("result", "result_notes") if exam.get(k)}}
 
 
 @router.get("/api/candidates/{candidate_id}")
@@ -159,11 +229,15 @@ def get_candidate_detail(
                 pc["label"] = labels[i]
 
     # S3: las credenciales del examen psicológico se enmascaran para viewer (van
-    # tanto en el objeto candidato como en la clave dedicada `psych_exam`).
+    # tanto en el objeto candidato como en la clave dedicada `psych_exam`). El resultado
+    # del examen médico (dato de salud) se enmascara igual.
     psych_exam = _psych_exam_for_role(candidate.get("psych_exam"), user.get("role", ""))
+    medical_exam = _medical_exam_for_role(candidate.get("medical_exam"), user.get("role", ""))
     public = _public_candidate(candidate)
     if "psych_exam" in public:
         public["psych_exam"] = psych_exam
+    if "medical_exam" in public:
+        public["medical_exam"] = medical_exam
     return {
         "candidate": public,
         "vacancy": {"id": vacancy["id"], "title": vacancy["title"]} if vacancy else None,
@@ -173,6 +247,9 @@ def get_candidate_detail(
         "meetings": repo.list_meetings_by_candidate(candidate_id),
         "stage_feedback": repo.list_stage_feedback(candidate_id),
         "psych_exam": psych_exam,
+        "medical_exam": medical_exam,
+        "start_date": candidate.get("start_date"),
+        "onboarding": candidate.get("onboarding"),
         # G4: transiciones de fase con timestamp (tiempo-por-estado del proceso).
         "transitions": repo.list_state_transitions(conv["id"]) if conv else [],
     }
@@ -262,6 +339,7 @@ def decide_candidate(
 
     if payload.decision == DECISION_REJECT:
         repo.update_candidate(candidate_id, {"status": "rejected"})
+        _close_conversation_on_reject(candidate_id)
         notified = outbox.deliver_candidate_notify(
             settings, candidate, payload.decision, tenant_id=user["tenant_id"]
         )
@@ -356,6 +434,136 @@ def send_psych_exam(
     return {"sent": sent, "psych_exam": exam}
 
 
+# ── Examen médico pre-contratación (auditoría v3, Parte B) ─────────────────────────
+
+# Estados desde los que RR.HH. puede programar (o reprogramar) la cita médica.
+_MEDICAL_SCHEDULABLE = ("medical_pending", "medical_scheduled")
+
+
+@router.post("/api/candidates/{candidate_id}/medical-exam")
+def send_medical_exam(
+    candidate_id: str,
+    payload: MedicalExamIn,
+    user: dict[str, Any] = Depends(require_role("recruiter")),
+) -> dict[str, Any]:
+    """Programa la cita del examen médico (fecha + clínica) y la notifica por correo + Telegram."""
+    from agente.prompts import NOTIFY_MEDICAL_EXAM
+
+    candidate, vacancy = _require_candidate_in_tenant(candidate_id, user)
+    if candidate.get("status") not in _MEDICAL_SCHEDULABLE:
+        raise HTTPException(409, "El candidato no está en la fase de examen médico.")
+    prev = candidate.get("medical_exam") or {}
+    # Idempotencia (doble click): la MISMA cita no se reenvía; una cita distinta sí (reprogramar).
+    if prev and (prev.get("clinic"), prev.get("address"), prev.get("scheduled_at"), prev.get("instructions")) == (
+        payload.clinic, payload.address, payload.scheduled_at, payload.instructions
+    ):
+        raise HTTPException(409, "Esa cita ya fue enviada a este candidato.")
+    settings = current_settings()
+    exam = {
+        "clinic": payload.clinic,
+        "address": payload.address,
+        "scheduled_at": payload.scheduled_at,
+        "instructions": payload.instructions,
+        "sent_at": _now_iso(),
+        "sent_by": user.get("email") or "",
+    }
+    email_sent = outbox.deliver_medical_exam(settings, vacancy, candidate, exam)
+    text = NOTIFY_MEDICAL_EXAM.format(
+        name=candidate.get("name") or "",
+        clinic=exam["clinic"],
+        address=exam["address"] or "—",
+        scheduled_at=exam["scheduled_at"],
+        instructions=(f"ℹ️ Indicaciones: {exam['instructions']}\n" if exam["instructions"] else ""),
+    )
+    telegram_sent = outbox.deliver_candidate_text(
+        settings, candidate, text, tenant_id=user["tenant_id"]
+    )
+    repo.update_candidate(candidate_id, {"medical_exam": exam, "status": "medical_scheduled"})
+    # El summary NO lleva datos clínicos (la cita/resultado son datos de salud — Ley 29733).
+    _audit(user, "candidate.medical_exam", entity_type="candidate", entity_id=candidate_id,
+           summary=f"cita de examen médico enviada · {candidate.get('name', '')}")
+    return {"email_sent": email_sent, "telegram_sent": telegram_sent, "medical_exam": exam,
+            "status": "medical_scheduled"}
+
+
+@router.post("/api/candidates/{candidate_id}/medical-result")
+def record_medical_result(
+    candidate_id: str,
+    payload: MedicalResultIn,
+    user: dict[str, Any] = Depends(require_role("recruiter")),
+) -> dict[str, Any]:
+    """Registra el resultado del examen médico: apto contrata (fin del proceso), no_apto rechaza.
+
+    El resultado es INMUTABLE: la transición (hired/rejected) ya notificó al candidato;
+    re-registrar duplicaría notificaciones. Corregir un error = borrado/erasure, no re-emitir."""
+    candidate, vacancy = _require_candidate_in_tenant(candidate_id, user)
+    exam = candidate.get("medical_exam") or {}
+    if candidate.get("status") != "medical_scheduled" or not exam:
+        raise HTTPException(409, "El candidato no tiene un examen médico agendado.")
+    if exam.get("result"):
+        raise HTTPException(409, "El resultado del examen médico ya fue registrado.")
+    settings = current_settings()
+    conv = repo.get_conversation_by_candidate(candidate_id)
+    exam = {
+        **exam,
+        "result": payload.result,
+        "result_notes": payload.notes,
+        "result_at": _now_iso(),
+        "result_by": user.get("email") or "",
+    }
+    status = "hired" if payload.result == "apto" else "rejected"
+    repo.update_candidate(candidate_id, {"medical_exam": exam, "status": status})
+    if status == "rejected":
+        _close_conversation_on_reject(candidate_id, reason="medical_no_apto")
+    notified = outbox.deliver_candidate_notify(
+        settings, candidate, DECISION_HIRED if payload.result == "apto" else DECISION_REJECT,
+        conversation_id=conv["id"] if conv else None, tenant_id=user["tenant_id"],
+    )
+    if status == "hired":
+        outbox.deliver_hired(settings, vacancy, candidate, conversation_id=conv["id"] if conv else None)
+    # Summary sin el resultado: es dato de salud y la bitácora la leen todos los admin.
+    _audit(user, "candidate.medical_result", entity_type="candidate", entity_id=candidate_id,
+           summary=f"resultado registrado · {candidate.get('name', '')}")
+    return {"status": status, "notified": notified}
+
+
+# ── Onboarding: fecha de ingreso + kit de materiales (auditoría v3, Parte C) ───────
+
+@router.post("/api/candidates/{candidate_id}/start-date")
+def set_start_date(
+    candidate_id: str,
+    payload: StartDateIn,
+    user: dict[str, Any] = Depends(require_role("recruiter")),
+) -> dict[str, Any]:
+    """Fija la fecha del primer día de trabajo; el scheduler enviará el kit ese día."""
+    candidate, _ = _require_candidate_in_tenant(candidate_id, user)
+    if candidate.get("status") != "hired":
+        raise HTTPException(409, "Solo se puede fijar la fecha de ingreso de un contratado.")
+    repo.update_candidate(candidate_id, {"start_date": payload.start_date})
+    _audit(user, "candidate.start_date", entity_type="candidate", entity_id=candidate_id,
+           summary=f"ingreso {payload.start_date} · {candidate.get('name', '')}")
+    return {"start_date": payload.start_date}
+
+
+@router.post("/api/candidates/{candidate_id}/onboarding")
+def send_onboarding_now(
+    candidate_id: str, user: dict[str, Any] = Depends(require_role("recruiter"))
+) -> dict[str, Any]:
+    """Respaldo manual: envía el kit de onboarding ahora (idempotente por onboarding.sent_at)."""
+    candidate, vacancy = _require_candidate_in_tenant(candidate_id, user)
+    if candidate.get("status") != "hired":
+        raise HTTPException(409, "Solo se puede enviar el kit a un contratado.")
+    if (candidate.get("onboarding") or {}).get("sent_at"):
+        raise HTTPException(409, "El kit de onboarding ya fue enviado a este candidato.")
+    kit = (vacancy or {}).get("onboarding_kit") or {}
+    if not (kit.get("welcome") or kit.get("materials")):
+        raise HTTPException(409, "La vacante no tiene un kit de onboarding configurado.")
+    result = _deliver_onboarding_kit(current_settings(), candidate, vacancy, kit, sent_by=user.get("email") or "")
+    _audit(user, "candidate.onboarding", entity_type="candidate", entity_id=candidate_id,
+           summary=f"kit de onboarding enviado · {candidate.get('name', '')}")
+    return result
+
+
 @router.post("/api/candidates/{candidate_id}/attendance")
 def mark_attendance(
     candidate_id: str,
@@ -390,6 +598,7 @@ def mark_attendance(
         return {"attendance": "no_show", "rescheduled": True, "messages_sent": sent, "messages": result.messages}
 
     repo.update_candidate(candidate_id, {"status": "no_show"})
+    _close_conversation_on_reject(candidate_id, reason="no_show")
     notified = outbox.deliver_candidate_notify(
         settings, candidate, DECISION_REJECT, conversation_id=conv["id"], tenant_id=user["tenant_id"]
     )
@@ -423,6 +632,7 @@ def advance_stage(
 
     if payload.decision == "rejected":
         repo.update_candidate(candidate_id, {"status": "rejected"})
+        _close_conversation_on_reject(candidate_id, reason=f"{payload.stage}_rejected")
         notified = outbox.deliver_candidate_notify(
             settings, candidate, DECISION_REJECT,
             conversation_id=conv["id"] if conv else None, tenant_id=user["tenant_id"],
@@ -431,12 +641,26 @@ def advance_stage(
 
     # Aprobado.
     next_stage = _NEXT_STAGE.get(payload.stage)
-    if next_stage is None:  # aprobar en 'manager' = contratado
+    if next_stage is None:
+        # Aprobar en 'manager': con el examen médico activo (setting por-tenant, auditoría v3)
+        # falta la cita médica antes de contratar; apagado = contrata directo (retrocompat).
+        medical_cfg = repo.get_app_setting("medical_exam", _DEFAULT_MEDICAL, user["tenant_id"]) or {}
+        if medical_cfg.get("enabled"):
+            from agente.prompts import NOTIFY_MEDICAL_PENDING
+
+            repo.update_candidate(candidate_id, {"status": "medical_pending"})
+            notified = outbox.deliver_candidate_text(
+                settings, candidate,
+                NOTIFY_MEDICAL_PENDING.format(name=candidate.get("name") or ""),
+                conversation_id=conv["id"] if conv else None, tenant_id=user["tenant_id"],
+            )
+            return {"status": "medical_pending", "notified": notified}
         repo.update_candidate(candidate_id, {"status": "hired"})
         notified = outbox.deliver_candidate_notify(
             settings, candidate, DECISION_HIRED,
             conversation_id=conv["id"] if conv else None, tenant_id=user["tenant_id"],
         )
+        outbox.deliver_hired(settings, vacancy, candidate, conversation_id=conv["id"] if conv else None)
         return {"status": "hired", "notified": notified}
 
     # Agenda la etapa siguiente (lead: modalidad elegida por RR.HH.; manager: forzado presencial).

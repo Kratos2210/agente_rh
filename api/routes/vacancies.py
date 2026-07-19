@@ -19,8 +19,17 @@ from api.deps import (
 from api.runtime import current_settings
 from api.scheduler import _contact_candidate
 from db import repositories as repo
+from retrieval.company_kb import enqueue_reindex
 
 router = APIRouter()
+
+
+def _schedule_kb_reindex(vacancy_id: str, tenant_id: str) -> None:
+    """Auditoría v4 (R4, linaje de la KB): editar/crear la vacante encola el reindex RAG
+    para que el bot no responda dudas con condiciones desactualizadas. Best-effort y
+    gated por el flag del RAG (apagado = la KB no se usa, no hay nada que refrescar)."""
+    if current_settings().interview_rag_enabled:
+        enqueue_reindex(vacancy_id, tenant_id)
 
 # R4 (auditoría): el sync importa postulantes y corre el gate de CV con LLM por cada
 # uno — sin freno, un doble click (o un tenant abusivo) multiplica el costo. 2/min por
@@ -57,6 +66,9 @@ class VacancyIn(BaseModel):
     benefits: list[str] = []
     portals: list[str] = []                     # ej. ["bumeran", "linkedin"]
     auto_agent: bool = True
+    # Kit de onboarding (auditoría v3): {welcome, materials: [{title, url?, note?}]} —
+    # materiales/guías del primer día que el scheduler envía en la fecha de ingreso.
+    onboarding_kit: dict[str, Any] = {}
     questions: list[QuestionIn] = []
 
 
@@ -90,6 +102,7 @@ def create_vacancy(
     if questions:
         repo.replace_vacancy_questions(vacancy["id"], questions)
     _audit(user, "vacancy.create", entity_type="vacancy", entity_id=vacancy["id"], summary=vacancy.get("title", ""))
+    _schedule_kb_reindex(vacancy["id"], user["tenant_id"])
     return {**vacancy, "questions": repo.get_vacancy_questions(vacancy["id"])}
 
 
@@ -127,7 +140,37 @@ def update_vacancy(
     vacancy = repo.update_vacancy(vacancy_id, data)
     repo.replace_vacancy_questions(vacancy_id, questions)
     _audit(user, "vacancy.update", entity_type="vacancy", entity_id=vacancy_id, summary=vacancy.get("title", ""))
+    _schedule_kb_reindex(vacancy_id, user["tenant_id"])
     return {**vacancy, "questions": repo.get_vacancy_questions(vacancy_id)}
+
+
+class OnboardingMaterialIn(BaseModel):
+    """Un material/guía del kit de onboarding."""
+    title: str
+    url: str = ""
+    note: str = ""
+
+
+class OnboardingKitIn(BaseModel):
+    """Kit de onboarding de la vacante (auditoría v3): bienvenida + materiales del primer día."""
+    welcome: str = ""
+    materials: list[OnboardingMaterialIn] = []
+
+
+@router.put("/api/vacancies/{vacancy_id}/onboarding-kit")
+def put_onboarding_kit(
+    vacancy_id: str,
+    payload: OnboardingKitIn,
+    user: dict[str, Any] = Depends(require_role("recruiter")),
+) -> dict[str, Any]:
+    """Actualiza SOLO el kit de onboarding (endpoint dedicado: el PUT completo de la
+    vacante reemplaza también las preguntas — demasiado radio para editar el kit)."""
+    _require_vacancy_in_tenant(vacancy_id, user)
+    kit = payload.model_dump()
+    repo.update_vacancy(vacancy_id, {"onboarding_kit": kit})
+    _audit(user, "vacancy.onboarding_kit", entity_type="vacancy", entity_id=vacancy_id,
+           summary=f"{len(kit['materials'])} material(es)")
+    return {"onboarding_kit": kit}
 
 
 @router.get("/api/vacancies/{vacancy_id}/candidates")
