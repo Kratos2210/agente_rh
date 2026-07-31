@@ -83,6 +83,7 @@ from db import repositories as repo  # noqa: F401 — re-export (los tests parch
 from notifications import outbox  # noqa: F401 — re-export (los tests parchean main.outbox)
 from core.config import Settings, get_settings
 from core.logging_config import get_logger, setup_logging
+from orquestacion import model_health
 from observabilidad.observability import setup_tracing
 
 logger = get_logger("api.main")
@@ -104,6 +105,24 @@ async def lifespan(app: FastAPI):
     if _state["phoenix_on"]:
         logger.info("Phoenix activo (endpoint=%s)", settings.phoenix_endpoint)
     _state["event_loop"] = asyncio.get_running_loop()
+
+    # ¿El modelo configurado sigue existiendo en el proveedor? Los proveedores retiran
+    # modelos sin aviso y el pipeline degradaría en silencio a heurísticas (incidente
+    # 2026-07-18: Groq retiró qwen/qwen3-32b). En hilo y con techo de tiempo: verificar
+    # es best-effort y NUNCA debe demorar ni impedir el arranque.
+    try:
+        _state["model_check"] = await asyncio.wait_for(
+            asyncio.to_thread(model_health.check_configured_models, settings), timeout=15,
+        )
+        missing = _state["model_check"].get("missing") or []
+        if missing:
+            logger.error(
+                "Modelo(s) LLM inexistentes en el proveedor: %s — el pipeline degradará a "
+                "heurísticas. Ver la alerta 'model_unavailable' en /observabilidad.",
+                ", ".join(missing),
+            )
+    except Exception:  # noqa: BLE001
+        _state["model_check"] = {"checked": False, "missing": []}
 
     # Seguridad (P0): en producción, rechaza secretos por defecto/débiles ANTES de servir.
     # Fuera del try/except de abajo a propósito: debe DETENER el arranque si algo es inseguro.
@@ -286,6 +305,10 @@ def health() -> dict[str, Any]:
     from integrations.scheduling import scheduler_mode
 
     mode = scheduler_mode(settings, scheduler) if settings else "unknown"
+    # Mismo criterio que el scheduler: un modelo retirado por el proveedor degrada las
+    # evaluaciones a heurísticas, y eso tiene que verse desde afuera (ops/k8s) sin esperar
+    # al nightly de calidad. Ver orquestacion/model_health.py.
+    unavailable = model_health.unavailable_models()
     return {
         "status": "ok",
         "telegram": bool(settings and settings.telegram_bot_token),
@@ -293,6 +316,8 @@ def health() -> dict[str, Any]:
         "supabase": bool(settings and settings.supabase_url),
         "scheduler": mode,
         "scheduler_degraded": mode == "simulated-fallback",
+        "llm_degraded": bool(unavailable),
+        "llm_models_unavailable": sorted(unavailable),
     }
 
 

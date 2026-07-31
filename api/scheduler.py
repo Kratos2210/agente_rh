@@ -32,6 +32,7 @@ from db import repositories as repo
 from notifications import outbox
 from core.config import Settings
 from core.logging_config import get_logger
+from orquestacion import model_health
 
 logger = get_logger("api.scheduler")
 
@@ -424,6 +425,19 @@ def _collect_ops_alerts(tenant_id: str | None = None) -> list[dict[str, Any]]:
 
     def in_tenant(vacancy_id: Any) -> bool:
         return tenant_id is None or vac_tenant.get(vacancy_id) == tenant_id
+
+    # Modelo LLM retirado por el proveedor (ver orquestacion/model_health.py). Es una
+    # condición de infraestructura del proceso, no de una empresa: se reporta a todos los
+    # tenants. Sin esto la degradación a heurísticas es invisible hasta el nightly.
+    for model, info in model_health.unavailable_models().items():
+        alerts.append({
+            "type": "model_unavailable", "model": model, "since": info.get("since"),
+            "detail": (
+                f"El modelo «{model}» no existe en el proveedor ({info.get('source')}) — las "
+                "evaluaciones están cayendo a heurísticas (puntaje neutro + revisión humana). "
+                "Actualizar OPENAI_MODEL / el proveedor del tenant."
+            ),
+        })
 
     dead = repo.count_outbox_by_status(tenant_id).get("failed", 0)
     if dead:

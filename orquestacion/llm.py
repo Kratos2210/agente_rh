@@ -11,6 +11,8 @@ import json
 import re
 from typing import Protocol
 
+from orquestacion import model_health
+
 
 class LLM(Protocol):
     def complete(self, prompt: str) -> str: ...
@@ -207,6 +209,10 @@ class MeteredLLM:
             bucket["errors"] = bucket.get("errors", 0) + 1
             bucket["duration_ms"] = bucket.get("duration_ms", 0) + ms
             self._add_trace(model, prompt, None, repr(exc), ms)
+            # Modelo retirado por el proveedor: se marca para que salga como alerta
+            # operativa en vez de degradar en silencio a los fallbacks (ver
+            # orquestacion/model_health.py). Nunca altera el flujo del error.
+            model_health.note_exception(model, exc)
             raise
         ms = int((time.perf_counter() - t0) * 1000)
         usage = getattr(inner, "last_usage", None) or _ZERO_USAGE
@@ -220,6 +226,9 @@ class MeteredLLM:
         served = getattr(inner, "model", "") or model
         self._models[self.stage] = served
         self._add_trace(served, prompt, out, None, ms)
+        # Auto-recuperación: si el modelo estaba marcado como retirado y volvió a
+        # responder, la alerta se levanta sola (404 transitorio, o modelo restituido).
+        model_health.mark_available(served)
         return out
 
     def drain(self) -> dict[str, dict[str, int]]:
