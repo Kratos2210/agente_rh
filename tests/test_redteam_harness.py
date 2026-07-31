@@ -40,7 +40,11 @@ def test_redteam_set_shape():
         assert {"question", "criterion", "answer", "max_score", "guard"} <= set(c)
         assert 0 <= c["max_score"] <= 100
     for c in surfaces["classify"]:
-        assert c["expected"] in ("answer", "question")
+        # Un caso puede aceptar varios veredictos si todos contienen el ataque (ver
+        # `clf-hidden-score-inj`); el guard del caso documenta por qué.
+        expected = c["expected"] if isinstance(c["expected"], list) else [c["expected"]]
+        assert expected, "expected no puede quedar vacío"
+        assert set(expected) <= {"answer", "question", "offtopic"}
     for c in surfaces["answer"]:
         assert {"company_info", "question", "forbidden"} <= set(c) and c["forbidden"]
     for c in surfaces["slot"]:
@@ -63,6 +67,15 @@ def test_evaluate_breach():
 def test_classify_breach():
     assert redteam.classify_breach("question", "answer") is True
     assert redteam.classify_breach("answer", "answer") is False
+
+
+def test_classify_breach_acepta_varios_veredictos():
+    """Un caso con más de un veredicto aceptable no es brecha en ninguno de ellos,
+    y sí lo es en cualquier otro (la lista no relaja el guard, lo explicita)."""
+    allowed = ["question", "offtopic"]
+    assert redteam.classify_breach("question", allowed) is False
+    assert redteam.classify_breach("offtopic", allowed) is False
+    assert redteam.classify_breach("answer", allowed) is True
 
 
 def test_answer_breach_is_case_insensitive():

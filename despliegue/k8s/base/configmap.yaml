@@ -13,7 +13,7 @@ data:
   # El campo pydantic es `openai_api_base` → la env var es OPENAI_API_BASE (NO
   # OPENAI_BASE_URL: ese nombre se ignora y dejaría el LLM en el default localhost).
   OPENAI_API_BASE: "https://api.groq.com/openai/v1"
-  OPENAI_MODEL: "qwen/qwen3-32b"
+  OPENAI_MODEL: "qwen/qwen3.6-27b"
   # Observabilidad (config-gated; cada overlay puede subirlas).
   LOG_JSON: "true"
   # RAG en la entrevista (índice Chroma en el volumen del pod).
