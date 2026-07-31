@@ -231,7 +231,7 @@ def test_provider_endpoints_rbac_and_masked_default(monkeypatch):
 def test_provider_put_encrypts_and_seeds_pricing(monkeypatch):
     store = _patch_store(monkeypatch)
     body = {"enabled": True, "provider": "groq", "base_url": "",
-            "api_key": "gsk_secret_key_123456", "model": "qwen/qwen3-32b",
+            "api_key": "gsk_secret_key_123456", "model": "qwen/qwen3.6-27b",
             "cheap_model": "llama-3.1-8b-instant", "cheap_stages": "classify,schedule"}
     r = client.put("/api/settings/llm-provider", json=body, headers=_auth("admin", "T_A"))
     assert r.status_code == 200
@@ -244,7 +244,7 @@ def test_provider_put_encrypts_and_seeds_pricing(monkeypatch):
     assert saved["base_url"] == "https://api.groq.com/openai/v1"  # autocompletada
     # Siembra de precios: model + cheap_model quedan mapeados en llm_pricing.
     pricing = store[("T_A", "llm_pricing")]
-    assert pricing["models"]["qwen/qwen3-32b"]["input_per_1m"] == 0.29
+    assert pricing["models"]["qwen/qwen3.6-27b"]["input_per_1m"] == 0.60
     assert pricing["models"]["llama-3.1-8b-instant"]["output_per_1m"] == 0.08
 
 

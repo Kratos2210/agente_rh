@@ -172,9 +172,11 @@ _DEFAULT_RETENTION = {"enabled": False, "days": 180}
 # Costos LLM (O-2): precio por millón de tokens POR MODELO (cada tenant configura los
 # suyos desde el dashboard). "default" aplica a modelos sin fila propia. Todo en 0 =
 # sin costo estimado (cae al escalar legado `token_price_per_1k` si está seteado).
-# Seed con el modelo demo (Groq qwen3-32b) para que el costo sea visible sin configurar.
+# Seed con el modelo demo (Groq qwen3.6-27b) para que el costo sea visible sin configurar.
+# El sucesor de qwen3-32b (retirado por Groq el 2026-07-18) cuesta ~2x el input y ~5x el
+# output: revisar el presupuesto mensual (`llm_budget`) al migrar.
 _DEFAULT_LLM_PRICING = {
-    "models": {"qwen/qwen3-32b": {"input_per_1m": 0.29, "output_per_1m": 0.59}},
+    "models": {"qwen/qwen3.6-27b": {"input_per_1m": 0.60, "output_per_1m": 3.00}},
     "default": {"input_per_1m": 0.0, "output_per_1m": 0.0},
 }
 
