@@ -9,7 +9,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from orquestacion.llm import MeteredLLM, build_stage_overrides
+from orquestacion.llm import (
+    DEFAULT_STAGE_MAX_TOKENS,
+    STAGE_MAX_TOKENS,
+    MeteredLLM,
+    build_stage_max_tokens,
+    build_stage_overrides,
+)
 from core.config import Settings
 
 
@@ -21,6 +27,10 @@ class _FakeInner:
         self.last_usage = {"input_tokens": tokens, "output_tokens": tokens, "total_tokens": 2 * tokens}
         self.metadata: dict[str, str] = {}
         self.calls: list[str] = []
+        self.max_tokens_seen: list[int | None] = []
+
+    def set_max_tokens(self, value: int | None) -> None:  # como LangChainLLM (R6)
+        self.max_tokens_seen.append(value)
 
     def complete(self, prompt: str) -> str:
         self.calls.append(prompt)
@@ -75,6 +85,56 @@ def test_set_context_fans_out_to_overrides():
 
 def test_build_stage_overrides_empty_without_cheap_model():
     assert build_stage_overrides(Settings(llm_cheap_model="")) == {}
+
+
+# ── Techo de gasto: cinturón de max_tokens por etapa (R6) ─────────────────────
+
+def test_build_stage_max_tokens_gating():
+    assert build_stage_max_tokens(Settings(llm_max_tokens_enabled=False)) is None
+    caps = build_stage_max_tokens(Settings(llm_max_tokens_enabled=True))
+    assert caps == STAGE_MAX_TOKENS
+    caps["classify"] = 1  # copia: no muta la constante del módulo
+    assert STAGE_MAX_TOKENS["classify"] != 1
+
+
+def test_metered_applies_per_stage_cap_to_active_llm():
+    big = _FakeInner("big")
+    cheap = _FakeInner("cheap")
+    m = MeteredLLM(big, overrides={"classify": cheap},
+                   max_tokens_by_stage=build_stage_max_tokens(Settings(llm_max_tokens_enabled=True)))
+    m.for_stage("classify").complete("x")        # va al barato → su cap
+    m.for_stage("answer").complete("y")           # va al principal → su cap
+    m.for_stage("desconocida").complete("z")      # etapa no listada → default
+    assert cheap.max_tokens_seen == [STAGE_MAX_TOKENS["classify"]]
+    assert big.max_tokens_seen == [STAGE_MAX_TOKENS["answer"], DEFAULT_STAGE_MAX_TOKENS]
+
+
+def test_metered_no_cap_when_belt_off():
+    big = _FakeInner("big")
+    m = MeteredLLM(big)  # max_tokens_by_stage=None (default) → cinturón apagado
+    m.for_stage("classify").complete("x")
+    assert big.max_tokens_seen == []  # nunca se toca max_tokens (comportamiento histórico)
+
+
+def test_langchain_llm_passes_max_tokens_to_invoke():
+    from orquestacion.llm import LangChainLLM
+
+    class _FakeChat:
+        model = "m"
+
+        def __init__(self):
+            self.kwargs: list[dict] = []
+
+        def invoke(self, prompt, config=None, **kwargs):
+            self.kwargs.append(kwargs)
+            return type("R", (), {"content": "ok", "usage_metadata": {}})()
+
+    chat = _FakeChat()
+    llm = LangChainLLM(chat)
+    llm.complete("sin tope")                      # sin cap → no pasa max_tokens
+    llm.set_max_tokens(96)
+    llm.complete("con tope")                      # con cap → lo pasa al invoke
+    assert chat.kwargs == [{}, {"max_tokens": 96}]
 
 
 def test_build_stage_overrides_maps_configured_stages(monkeypatch):

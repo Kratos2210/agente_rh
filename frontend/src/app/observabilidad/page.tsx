@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Shell, Card, BackLink } from "@/components/Shell";
-import { api, errorMessage, AuditEntry, HttpRouteMetric, OpsAlert, OutboxHealth, OutboxItem, QualityMetric } from "@/lib/api";
+import { api, errorMessage, AuditEntry, HttpRouteMetric, OpsAlert, OpsTimeseries, OutboxHealth, OutboxItem, QualityMetric } from "@/lib/api";
 import { isAdmin } from "@/lib/auth";
 
 // Etiquetas legibles para los tipos de alerta operativa (reconciliación).
@@ -67,12 +67,122 @@ function CountChip({ label, value, color }: { label: string; value: number; colo
   );
 }
 
+// ── Formateadores y gráfico SVG (sin librerías) ──────────────────────────────
+const fmtInt = (n: number) => Math.round(n).toLocaleString("es-PE");
+const fmtUsd = (n: number) => "$" + (n < 1 ? n.toFixed(4) : n.toFixed(2));
+const fmtMsN = (n: number) => Math.round(n).toLocaleString("es-PE") + " ms";
+const fmtPct = (n: number) => Math.round(n * 100) + "%";
+const r1 = (n: number) => Math.round(n * 10) / 10; // precisión SVG reducida
+
+function dayShort(iso: string): string {
+  const [, m, d] = iso.split("-");
+  const mon = ["", "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"][Number(m)] || m;
+  return `${Number(d)} ${mon}`;
+}
+
+type ChartPoint = { day: string; value: number | null };
+
+// Gráfico de una serie diaria: barras o línea+área, con umbral opcional (calidad).
+// `value: null` = día sin dato (calidad esporádica): sin barra / rompe la línea.
+function MiniChart({
+  title, points, kind, color, fmt, yMax, threshold, thresholdLabel,
+}: {
+  title: string;
+  points: ChartPoint[];
+  kind: "bar" | "line";
+  color: string;
+  fmt: (n: number) => string;
+  yMax?: number;
+  threshold?: number;
+  thresholdLabel?: string;
+}) {
+  const W = 300, H = 82, padL = 6, padR = 6, padT = 10, padB = 14;
+  const n = points.length;
+  const vals = points.map((p) => p.value).filter((v): v is number => v != null);
+  const maxV = yMax ?? Math.max(1, ...vals, threshold ?? 0);
+  const hasData = vals.some((v) => v > 0);
+  const innerW = W - padL - padR;
+  const x = (i: number) => padL + (n <= 1 ? innerW / 2 : (i * innerW) / (n - 1));
+  const y = (v: number) => padT + (1 - v / maxV) * (H - padT - padB);
+  const last = [...points].reverse().find((p) => p.value != null)?.value ?? 0;
+
+  const bw = innerW / Math.max(1, n);
+  const linePts = points.map((p, i) => (p.value == null ? null : `${r1(x(i))},${r1(y(p.value))}`));
+  // Segmentos continuos (rompe en null) para la polilínea.
+  const segments: string[][] = [];
+  let cur: string[] = [];
+  for (const lp of linePts) {
+    if (lp == null) { if (cur.length) { segments.push(cur); cur = []; } }
+    else cur.push(lp);
+  }
+  if (cur.length) segments.push(cur);
+  const areaPath = segments.length === 1 && segments[0].length > 1
+    ? `M${segments[0][0]} L${segments[0].slice(1).join(" ")} L${r1(x(n - 1))},${r1(y(0))} L${r1(x(0))},${r1(y(0))} Z`
+    : "";
+
+  return (
+    <div style={{ padding: "12px 14px", borderRadius: 12, background: "rgba(255,255,255,.02)", border: "1px solid var(--edge)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+        <span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600 }}>{title}</span>
+        <span style={{ fontSize: 14, fontWeight: 800, color }}>{fmt(last)}</span>
+      </div>
+      {!hasData ? (
+        <div style={{ height: H, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--muted)", fontSize: 12 }}>sin datos</div>
+      ) : (
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={title} style={{ display: "block" }}>
+          {threshold != null && (
+            <g>
+              <line x1={padL} x2={W - padR} y1={r1(y(threshold))} y2={r1(y(threshold))} stroke="#f87171" strokeWidth="1" strokeDasharray="4 3" opacity="0.7" />
+              {thresholdLabel && <text x={W - padR} y={r1(y(threshold)) - 3} textAnchor="end" fill="#f87171" fontSize="9" opacity="0.85">{thresholdLabel}</text>}
+            </g>
+          )}
+          {kind === "bar"
+            ? points.map((p, i) =>
+                p.value == null || p.value === 0 ? null : (
+                  <rect key={i} x={r1(x(i) - (bw * 0.36))} y={r1(y(p.value))} width={r1(bw * 0.72)} height={r1(H - padB - y(p.value))} rx="1.5" fill={color}>
+                    <title>{`${dayShort(p.day)}: ${fmt(p.value)}`}</title>
+                  </rect>
+                )
+              )
+            : (
+              <g>
+                {areaPath && <path d={areaPath} fill={color} opacity="0.12" />}
+                {segments.map((seg, si) => (
+                  <polyline key={si} points={seg.join(" ")} fill="none" stroke={color} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+                ))}
+                {points.map((p, i) =>
+                  p.value == null ? null : (
+                    <circle key={i} cx={r1(x(i))} cy={r1(y(p.value))} r={n > 20 ? 1.3 : 2.1} fill={color}>
+                      <title>{`${dayShort(p.day)}: ${fmt(p.value)}`}</title>
+                    </circle>
+                  )
+                )}
+              </g>
+            )}
+          <text x={padL} y={H - 3} fill="var(--muted)" fontSize="8.5">{dayShort(points[0].day)}</text>
+          <text x={W - padR} y={H - 3} textAnchor="end" fill="var(--muted)" fontSize="8.5">{dayShort(points[n - 1].day)}</text>
+        </svg>
+      )}
+    </div>
+  );
+}
+
+const QUALITY_LABEL: Record<string, string> = {
+  grounded: "Fundamentación",
+  answer_relevance: "Relevancia de respuesta",
+  context_relevance: "Relevancia de contexto",
+};
+
+const RANGE_OPTIONS = [7, 14, 30];
+
 export default function ObservabilidadPage() {
   const [outbox, setOutbox] = useState<OutboxHealth | null>(null);
   const [alerts, setAlerts] = useState<OpsAlert[] | null>(null);
   const [audit, setAudit] = useState<AuditEntry[] | null>(null);
   const [http, setHttp] = useState<HttpRouteMetric[] | null>(null);
   const [quality, setQuality] = useState<QualityMetric[] | null>(null);
+  const [ts, setTs] = useState<OpsTimeseries | null>(null);
+  const [tsDays, setTsDays] = useState(14);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [retrying, setRetrying] = useState<string | null>(null);
@@ -88,10 +198,23 @@ export default function ObservabilidadPage() {
     api.getQuality().then((r) => setQuality(r.metrics)).catch(() => setQuality([]));
   };
 
+  const loadTs = (days: number) => {
+    api.getTimeseries(days).then(setTs).catch(() => setTs(null));
+  };
+
   useEffect(() => {
     setAllowed(isAdmin());
-    if (isAdmin()) load();
+    if (isAdmin()) {
+      load();
+      loadTs(14);
+    }
   }, []);
+
+  const changeRange = (days: number) => {
+    setTsDays(days);
+    setTs(null);
+    loadTs(days);
+  };
 
   const retry = async (item: OutboxItem) => {
     setRetrying(item.id);
@@ -155,6 +278,92 @@ export default function ObservabilidadPage() {
               </div>
             ))}
           </div>
+        )}
+      </Card>
+
+      {/* ── Series de tiempo (dimensión B) ──────────────────────────── */}
+      <Card style={{ marginBottom: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 4 }}>
+          <h2 className="font-semibold">Series de tiempo</h2>
+          <div style={{ display: "flex", gap: 6 }}>
+            {RANGE_OPTIONS.map((d) => (
+              <button
+                key={d}
+                onClick={() => changeRange(d)}
+                style={{
+                  padding: "5px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer",
+                  border: "1px solid var(--edge)",
+                  background: tsDays === d ? "var(--accent)" : "transparent",
+                  color: tsDays === d ? "var(--accent-ink)" : "var(--muted)",
+                }}
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="text-sm mb-4" style={{ color: "var(--muted)" }}>
+          Tendencia diaria de la operación (zona {ts?.timezone || "America/Lima"}). Los datos ya se
+          registran; aquí se grafican en el tiempo. Pasá el cursor sobre un punto para ver el valor.
+        </p>
+
+        {!ts ? (
+          <p className="text-sm" style={{ color: "var(--muted)" }}>Cargando…</p>
+        ) : (
+          <>
+            <h3 style={{ fontSize: 13, fontWeight: 700, color: "#dbe2ee", margin: "6px 0 8px" }}>Operación LLM (esta empresa)</h3>
+            <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))" }}>
+              <MiniChart title="Llamadas / día" kind="bar" color="var(--accent)" fmt={fmtInt}
+                points={ts.llm.map((p) => ({ day: p.day, value: p.calls }))} />
+              <MiniChart title="Errores (fallback) / día" kind="bar" color="#f87171" fmt={fmtInt}
+                points={ts.llm.map((p) => ({ day: p.day, value: p.errors }))} />
+              <MiniChart title="Costo estimado / día" kind="line" color="#34d399" fmt={fmtUsd}
+                points={ts.llm.map((p) => ({ day: p.day, value: p.cost }))} />
+              <MiniChart title="Latencia media / día" kind="line" color="#d97706" fmt={fmtMsN}
+                points={ts.llm.map((p) => ({ day: p.day, value: p.avg_ms }))} />
+            </div>
+
+            <h3 style={{ fontSize: 13, fontWeight: 700, color: "#dbe2ee", margin: "18px 0 8px" }}>Calidad de las respuestas (esta empresa)</h3>
+            {Object.keys(ts.quality).length === 0 ? (
+              <p className="text-sm" style={{ color: "var(--muted)" }}>
+                Sin mediciones en el período. Activá <em>Alertas de calidad</em> y el <em>tracing</em> del bot.
+              </p>
+            ) : (
+              <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))" }}>
+                {Object.entries(ts.quality).map(([metric, pts]) => {
+                  const byDay = new Map(pts.map((p) => [p.day, p]));
+                  const thr = pts.length ? pts[pts.length - 1].threshold : undefined;
+                  return (
+                    <MiniChart
+                      key={metric}
+                      title={QUALITY_LABEL[metric] || metric}
+                      kind="line"
+                      color="#8b8cfa"
+                      fmt={fmtPct}
+                      yMax={1}
+                      threshold={thr}
+                      thresholdLabel={thr != null ? `umbral ${Math.round(thr * 100)}%` : undefined}
+                      points={ts.day_keys.map((d) => ({ day: d, value: byDay.has(d) ? byDay.get(d)!.rate : null }))}
+                    />
+                  );
+                })}
+              </div>
+            )}
+
+            <h3 style={{ fontSize: 13, fontWeight: 700, color: "#dbe2ee", margin: "18px 0 8px" }}>Rendimiento HTTP (proceso · infraestructura)</h3>
+            <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))" }}>
+              <MiniChart title="Requests / día" kind="bar" color="var(--accent)" fmt={fmtInt}
+                points={ts.http.map((p) => ({ day: p.day, value: p.requests }))} />
+              <MiniChart title="Errores 5xx / día" kind="bar" color="#f87171" fmt={fmtInt}
+                points={ts.http.map((p) => ({ day: p.day, value: p.errors }))} />
+              <MiniChart title="p95 pico / día" kind="line" color="#d97706" fmt={fmtMsN}
+                points={ts.http.map((p) => ({ day: p.day, value: p.peak_p95_ms }))} />
+            </div>
+            <p className="text-xs mt-3" style={{ color: "var(--muted)" }}>
+              El volumen HTTP se deriva como diferencia entre snapshots consecutivos (los contadores
+              son acumulados desde el arranque; un reinicio del proceso se detecta y no cuenta negativo).
+            </p>
+          </>
         )}
       </Card>
 

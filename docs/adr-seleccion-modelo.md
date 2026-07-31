@@ -91,3 +91,29 @@ Nota (2026-07-04): antes `classify` también se ruteaba al modelo barato (era bi
 
 **Revisión mensual sugerida** (auditoría 2.3.3): 10 min con el desglose `cost_by_model` del
 dashboard para decidir si mover más etapas al modelo barato o ajustar el principal.
+
+## Proveedor de RESPALDO + circuit breaker (auditoría v4, R3)
+
+Un segundo endpoint compatible-OpenAI (`LLM_FALLBACK_BASE_URL/API_KEY/MODEL` en `.env`,
+vacíos = apagado) sirve la llamada cuando el principal falla; tras `LLM_BREAKER_FAILURES`
+fallos consecutivos el circuito abre (se va directo al respaldo sin pagar el timeout) y
+sondea la recuperación cada `LLM_BREAKER_COOLDOWN_SECONDS`. Implementación:
+`orquestacion/fallback.py`; el modelo que sirvió queda atribuido en `llm_usage`/trazas
+(costos correctos solos).
+
+**Cómo elegir el respaldo** (mismos criterios de la matriz de arriba, más):
+
+1. **Proveedor distinto al principal** (si Groq cae, otro Groq cae con él). Candidatos
+   naturales del catálogo BYOK: OpenRouter (agrega varios upstreams), Gemini, Together.
+2. **Residencia de datos**: el respaldo ve la MISMA PII que el principal — aplicar el
+   mismo criterio de la Ley 29733 (pendiente de prod real, ver arriba).
+3. **Banco de aceptación ANTES de habilitarlo** (mismo gating que el modelo barato), sin
+   tocar el `.env`:
+
+```
+LLM_FALLBACK_API_KEY=<key> uv run python scripts/golden_eval.py \
+  --model <modelo> --base-url <base_url> --api-key-env LLM_FALLBACK_API_KEY
+```
+
+Se acepta si las 4 suites salen en rango (exit 0). Registrar aquí el candidato medido y su
+resultado al habilitarlo (hoy: **ninguno habilitado** — la palanca queda lista y apagada).

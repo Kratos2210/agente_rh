@@ -180,7 +180,20 @@ _DEFAULT_LLM_PRICING = {
 
 # Presupuesto LLM mensual (O-2): al alcanzar `alert_pct`% del monto, alerta una vez por
 # tenant/mes (ops alert en el dashboard + correo vía outbox si hay `notify_email`).
-_DEFAULT_LLM_BUDGET = {"enabled": False, "monthly_usd": 0.0, "alert_pct": 80, "notify_email": ""}
+# `degrade_on_exhaust` (R6): al agotar el 100% del presupuesto, pausa el AUTO-contacto de
+# candidatos nuevos (las entrevistas en curso y el contacto manual de RR.HH. siguen).
+_DEFAULT_LLM_BUDGET = {
+    "enabled": False, "monthly_usd": 0.0, "alert_pct": 80,
+    "notify_email": "", "degrade_on_exhaust": False,
+}
+
+# Proveedor LLM por-tenant (BYOK): apagado = todo sale del `.env` (retrocompat total).
+# La key se persiste cifrada (`api_key_encrypted`, Fernet ← jwt_secret); el GET solo
+# expone `api_key_masked`. Catálogo de proveedores en orquestacion/providers.py.
+_DEFAULT_LLM_PROVIDER = {
+    "enabled": False, "provider": "groq", "base_url": "", "model": "",
+    "cheap_model": "", "cheap_stages": "schedule", "api_key_masked": "",
+}
 
 # SLAs push (O-4): correo al incumplirse una condición, UNA vez por condición/día.
 # `ops_alerts` empuja las alertas operativas (dead-letter, reuniones sin link, etc.);

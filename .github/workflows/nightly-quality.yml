@@ -4,7 +4,9 @@ name: Nightly quality (golden + red team + juez)
 # de audit/auditoria_final.md, paso 1). El CI normal valida la lógica con FakeLLM;
 # este job valida los PROMPTS: la suite golden (4 suites, 28+ casos con rangos
 # esperados), el red teaming adversarial (12 ataques a los 4 puntos de inyección) y,
-# si hay base de datos accesible, el juez de fundamentación sobre trazas reales.
+# si hay base de datos accesible, el juez de calidad sobre trazas reales — que gatilla
+# por fundamentación Y por pertinencia de contexto (context precision/recall, dimensión
+# A de audit/auditoria_v4.md), cada una con su propio umbral.
 # Presupuesto acotado: ~40 llamadas cortas al LLM por corrida.
 
 on:
@@ -102,6 +104,6 @@ jobs:
       - name: Instalar dependencias
         if: steps.gate.outputs.run == 'true'
         run: uv sync --extra dev
-      - name: Juez de fundamentación (muestra 20, umbral 0.9)
+      - name: Juez de calidad (fundamentación + pertinencia de contexto, muestra 20)
         if: steps.gate.outputs.run == 'true'
-        run: uv run python scripts/groundedness_judge.py --sample 20 --min-rate 0.9
+        run: uv run python scripts/groundedness_judge.py --sample 20 --min-rate 0.9 --min-context-rate 0.8

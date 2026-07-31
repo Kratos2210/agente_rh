@@ -49,6 +49,32 @@ class Settings(BaseSettings):
     # Etapas ruteadas al modelo barato (CSV). Por defecto la más simple y frecuente.
     llm_cheap_stages: str = "schedule"
 
+    # Techo de gasto (R6, auditoría v4): cinturón de tokens de SALIDA por etapa —
+    # corta generaciones desbocadas del LLM sin recortar la salida normal. Los topes por
+    # etapa viven en orquestacion/llm.STAGE_MAX_TOKENS (holgados). Off por defecto =
+    # comportamiento actual (sin `max_tokens`); activarlo aplica el tope en cada llamada.
+    llm_max_tokens_enabled: bool = False
+
+    # BYOK por-tenant: en producción el base_url del proveedor debe ser público (anti-SSRF,
+    # ver orquestacion.providers.assert_public_llm_endpoint). Activar SOLO en instalaciones
+    # self-hosted donde el LLM corre en la red propia (p. ej. Ollama).
+    allow_private_llm_endpoints: bool = False
+
+    # Proveedor LLM de RESPALDO + circuit breaker (auditoría v4, R3). Vacíos = apagado
+    # (comportamiento actual: fallback heurístico low_confidence). Es de la INSTALACIÓN,
+    # no por-tenant: si el principal (o el BYOK del tenant) falla, la llamada se sirve con
+    # este segundo endpoint compatible-OpenAI. VALIDAR el candidato con el banco golden
+    # antes de habilitarlo: uv run python scripts/golden_eval.py --model <m> --base-url
+    # <url> --api-key-env LLM_FALLBACK_API_KEY (ver docs/adr-seleccion-modelo.md).
+    llm_fallback_base_url: str = ""
+    llm_fallback_api_key: str = ""
+    llm_fallback_model: str = ""
+    # Circuit breaker: tras N fallos consecutivos del principal el circuito abre (se va
+    # directo al respaldo sin pagar su timeout); tras el cooldown una sonda prueba si el
+    # principal volvió.
+    llm_breaker_failures: int = 3
+    llm_breaker_cooldown_seconds: int = 60
+
     # Caché semántica de las dudas del candidato (paso 5): si una pregunta MUY parecida ya
     # fue respondida para la MISMA vacante (coseno >= semantic_cache_threshold), se devuelve
     # la respuesta cacheada sin llamar al LLM (0 tokens). Las respuestas por vacante son

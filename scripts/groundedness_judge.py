@@ -1,19 +1,25 @@
 """Juez de calidad sobre trazas reales (paso 4 / O-5) — corrida manual/nightly.
 
 Muestrea las trazas `stage="answer"` de `llm_traces` (respuestas del bot a dudas del
-candidato, capturadas por O-1 con `LLM_TRACE_ENABLED=true`) y le pregunta a un LLM juez si
-cada respuesta (1) se fundamenta SOLO en la info del prompt y (2) atiende la pregunta.
-Comparte el juez con el barrido continuo del scheduler (`evaluation/quality.py`).
+candidato, capturadas por O-1 con `LLM_TRACE_ENABLED=true`) y le pregunta a un LLM juez, en
+UNA llamada, las tres dimensiones RAGAS de `evaluation/quality.py`:
+  (1) **grounded** — la respuesta se apoya SOLO en la info del prompt (fidelidad);
+  (2) **answer_relevant** — atiende la pregunta del candidato;
+  (3) **context_relevant** — la info recuperada por el RAG contenía lo necesario para
+      responder (precisión/recall de CONTEXTO — dimensión A de la auditoría v4).
+
+Comparte el juez con el barrido continuo del scheduler (`api/scheduler.py::_quality_sweep`).
 
 Requiere: DB con trazas (LLM_TRACE_ENABLED=true en el bot) + OPENAI_* reales en .env.
 
 Uso:
-    uv run python scripts/groundedness_judge.py                  # últimas 20 trazas
+    uv run python scripts/groundedness_judge.py                       # últimas 20 trazas
     uv run python scripts/groundedness_judge.py --sample 50
-    uv run python scripts/groundedness_judge.py --min-rate 0.9   # umbral de salida
+    uv run python scripts/groundedness_judge.py --min-rate 0.9 --min-context-rate 0.8
 
-Sale con 1 si la tasa de fundamentadas queda bajo `--min-rate` (nightly); sin trazas que
-juzgar sale con 0 (no es un fallo: el tracing es opt-in).
+Sale con 1 si la tasa de fundamentadas cae bajo `--min-rate` O la de contexto pertinente
+cae bajo `--min-context-rate` (cada dimensión con su propio umbral, para el nightly); sin
+trazas que juzgar sale con 0 (no es un fallo: el tracing es opt-in).
 """
 
 from __future__ import annotations
@@ -27,11 +33,38 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dotenv import load_dotenv  # noqa: E402
 
 
+def gate(
+    grounded_rate: float,
+    context_rate: float,
+    min_grounded: float,
+    min_context: float,
+) -> tuple[int, list[str]]:
+    """Decide el exit code del nightly a partir de las tasas y sus umbrales propios. Pura.
+
+    Cada dimensión gatilla por separado (fundamentación y pertinencia de contexto tienen
+    umbrales independientes: la recuperación puede degradarse aunque las respuestas sigan
+    fundamentadas, y viceversa). Devuelve (exit_code, motivos)."""
+    reasons: list[str] = []
+    if grounded_rate < min_grounded:
+        reasons.append(
+            f"fundamentación {grounded_rate:.0%} < mínimo {min_grounded:.0%} "
+            "(respuestas inventan/confirman datos fuera del prompt)"
+        )
+    if context_rate < min_context:
+        reasons.append(
+            f"contexto pertinente {context_rate:.0%} < mínimo {min_context:.0%} "
+            "(la recuperación no trajo el dato — revisar seed/chunking/retrieval)"
+        )
+    return (1 if reasons else 0), reasons
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Juez de calidad sobre trazas answer")
     parser.add_argument("--sample", type=int, default=20, help="Trazas recientes a juzgar (default 20)")
     parser.add_argument("--min-rate", type=float, default=0.9,
                         help="Tasa mínima de fundamentadas para salir 0 (default 0.9)")
+    parser.add_argument("--min-context-rate", type=float, default=0.8,
+                        help="Tasa mínima de contexto pertinente para salir 0 (default 0.8)")
     args = parser.parse_args()
 
     load_dotenv()
@@ -75,11 +108,12 @@ def main() -> int:
     g_rate, r_rate, c_rate = rate(grounded_flags), rate(relevant_flags), rate(context_flags)
     print(f"\nFundamentadas {sum(grounded_flags)}/{len(grounded_flags)} (tasa {g_rate:.0%}, "
           f"mínimo {args.min_rate:.0%}) · Relevantes {sum(relevant_flags)}/{len(relevant_flags)} ({r_rate:.0%}) "
-          f"· Contexto {sum(context_flags)}/{len(context_flags)} ({c_rate:.0%}).")
-    if g_rate < args.min_rate:
-        print("⚠ Respuestas no fundamentadas por encima del tolerado: revisar company_info/prompt.")
-        return 1
-    return 0
+          f"· Contexto pertinente {sum(context_flags)}/{len(context_flags)} ({c_rate:.0%}, "
+          f"mínimo {args.min_context_rate:.0%}).")
+    code, reasons = gate(g_rate, c_rate, args.min_rate, args.min_context_rate)
+    for reason in reasons:
+        print(f"⚠ {reason}")
+    return code
 
 
 if __name__ == "__main__":

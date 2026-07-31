@@ -1175,6 +1175,49 @@ de abajo se dejaron tal cual — mapear mentalmente a la carpeta nueva.)
   (acción externa). Mediano plazo v4: fallback de proveedor LLM, golden retrieval 20+, dashboards de
   series, e2e webhook.
 
+- **2026-07-06 — Proveedor LLM por-tenant (BYOK) con hot-swap + costos mapeados**: en /configuracion
+  se elige proveedor (Groq/Gemini/NVIDIA NIM/OpenAI/OpenRouter/Together/custom — todos
+  compatible-OpenAI, un solo camino `ChatOpenAI(base_url=, api_key=)`), modelo (datalist de sugeridos,
+  texto libre) y API key; app_setting **`llm_provider`** por-tenant (JSONB, sin migración), apagado =
+  todo del `.env` (retrocompat total). **Núcleo `orquestacion/providers.py`**: catálogo `PROVIDERS`
+  (base_urls + modelos sugeridos con precio /1M), key cifrada **Fernet** con clave derivada de
+  `jwt_secret|llm-provider` (patrón mcp-confirm; `cryptography` ya estaba en el lock, promovida a dep
+  directa; rotar JWT_SECRET → decrypt falla con warning y cae al `.env`, fail-open),
+  `resolve_llm_config(tenant_id)` con caché TTL 60 s (patrón `_is_user_revoked`),
+  `config_fingerprint` (sha256, nunca la key en claro), `refresh_metered_llm` (hot-swap: reconstruye
+  inner+overrides preservando metadata de tracing y el acumulado del turno) y
+  `build_tenant_metered_llm`. `build_default_llm` gana `base_url=`/`api_key=`; `MeteredLLM` gana
+  `config_fingerprint` + `reconfigure()`. **Call sites**: `service._process` refresca por turno
+  (try/except, jamás tumba el turno), sync-applicants construye por tenant, `_quality_judge_llm(tid)`
+  cachea por fingerprint. **Endpoints** (`api/routes/settings.py`): GET/PUT `llm-provider` (GET solo
+  `api_key_masked` `gsk_...XXXX`; PUT admin cifra o conserva con `api_key:""`, valida 422
+  custom-sin-URL/enabled-sin-key/sin-modelo, **siembra `llm_pricing`** con precios sugeridos SIN pisar
+  filas → costo mapeado al cambiar), POST `llm-provider/test` (completion efímera, `{ok, latency_ms,
+  model, error}` con la key scrubbed) y GET `llm-provider/catalog`. **Frontend**: tarjeta "Proveedor
+  LLM" en /configuracion (select proveedor → autocompleta base URL, readOnly salvo custom; datalist de
+  modelos; input password con placeholder de key enmascarada, vacío = mantener; modelo barato/etapas;
+  botones Probar conexión y Guardar); tipos+métodos en `api.ts`. La trazabilidad tokens/costo por
+  modelo ya existía (`llm_usage.model` + `compute_cost`) y funciona sola al cambiar. **Tests:
+  `test_llm_provider.py` (+17: cifrado round-trip + rotación fail-open, mask, fingerprint, TTL,
+  fail-open DB, reconfigure preserva acumulado, refresh swap con metadata, RBAC, PUT cifra + siembra
+  sin pisar, conserva key previa, 422s, catálogo, /test ok/error sin filtrar la key) → 462/463 verde
+  (el rojo es el conocido test_mcp del `.env` local); tsc OK.** Pendiente: verificación en vivo
+  (Groq→Gemini sin reiniciar + tokens de Gemini vía endpoint OpenAI-compat).
+
+- **2026-07-06 — Carpeta `spec/` (22 docs) + adopción OpenSpec (SDD)**: (1) `spec/` — especificaciones
+  por dominio con plantilla de 7 secciones (propósito/decisiones/implementación/contratos/patrones
+  reutilizables/pendientes/trazabilidad), commit `66b07eb`. (2) Auditoría de `spec/` contra el marco
+  **OpenSpec** (`audit/auditoria_openspec.md`): cubría la mitad "documentación" pero no la operativa
+  (formato normativo + ciclo de cambios) → **adoptado el CLI oficial** (`@fission-ai/openspec` 1.5.0,
+  `openspec init --tools claude`): `openspec/config.yaml` (contexto), **13 capability specs** en
+  `openspec/specs/` (requisitos "DEBE (SHALL)" + escenarios GIVEN/WHEN/THEN, derivados de los
+  Contratos de `spec/`; el validador exige la keyword literal — por eso va entre paréntesis),
+  change de ejemplo REAL `openspec/changes/inactividad-estados-medicos/` (pendiente de auditoría v3,
+  4 artefactos, sin implementar a propósito), comandos `/opsx:*` + skills en `.claude/`, cross-links
+  spec/↔openspec/. **`openspec validate --all --strict` = 14/14 verde.** Arquitectura de dos capas:
+  openspec/ = QUÉ + evolución (changes); spec/ = POR QUÉ + patrones. Mejoras futuras entran por
+  `/opsx:propose`; specs normativos nunca se editan directo.
+
 ## Cómo correr (resumen)
 1. DB: `export PATH=$HOME/.local/share/supabase:$PATH && supabase start` (storage/analytics off).
 2. `.env` con OPENAI_API_KEY (Groq), TELEGRAM_BOT_TOKEN, y keys de `supabase status`.

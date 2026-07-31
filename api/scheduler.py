@@ -194,6 +194,16 @@ def _contact_candidate(candidate: dict, vacancy: dict, settings: Settings, *, fo
             "note": f"Fuera de las franjas de auto-contacto ({franjas}, L–V): se contactará en la próxima franja hábil.",
         }
 
+    # Modo degradado por presupuesto agotado (R6): el AUTO-contacto de candidatos nuevos se
+    # PAUSA hasta el próximo mes (o hasta subir el presupuesto). Las entrevistas en curso no
+    # pasan por aquí (siguen), y el contacto manual (force=True) tampoco se ve afectado.
+    if not force and _budget_exhausted(vacancy.get("tenant_id")):
+        logger.info("Auto-contacto en pausa (presupuesto LLM agotado) para candidato %s", candidate["id"])
+        return {
+            "contacted": False, "chat_id": None, "status": candidate["status"],
+            "note": "Presupuesto LLM del mes agotado: el auto-contacto de nuevos candidatos está en pausa (las entrevistas en curso continúan). RR.HH. puede contactar manualmente.",
+        }
+
     # Claim atómico ANTES de enviar: solo un disparo gana la transición prescreen_passed →
     # invited; los demás ven que ya fue contactado y se cortan sin enviar. Evita saludos
     # duplicados ante disparos concurrentes (p.ej. botón manual + auto-contacto). Si algo
@@ -667,6 +677,43 @@ def _tenant_month_costs(now: Any = None) -> dict[str, float]:
     return costs
 
 
+def _should_degrade(cfg: dict[str, Any], spend: float) -> bool:
+    """¿Pausar el auto-contacto por presupuesto agotado? (R6). Pura/testeable.
+
+    True solo si el presupuesto está activo, el modo degradado habilitado, hay monto y el
+    gasto del mes ALCANZÓ el 100% (no el umbral de alerta — degradar es más severo)."""
+    monthly = float(cfg.get("monthly_usd", 0) or 0)
+    return (
+        bool(cfg.get("enabled"))
+        and bool(cfg.get("degrade_on_exhaust"))
+        and monthly > 0
+        and spend >= monthly
+    )
+
+
+# Costos del mes memoizados brevemente: al degradar, un barrido consulta a muchos
+# candidatos del mismo tenant; sin caché sería un escaneo de `llm_usage` por candidato.
+_BUDGET_COSTS_TTL_SECONDS = 60
+
+
+def _budget_exhausted(tenant_id: str | None) -> bool:
+    """¿El tenant agotó su presupuesto LLM con modo degradado activo? (R6, gate del
+    auto-contacto). Config-gated: sin `degrade_on_exhaust`/presupuesto → False sin tocar la
+    DB de costos (comportamiento actual). El cálculo de gasto se memoiza ~60 s."""
+    import time
+
+    cfg = repo.get_app_setting("llm_budget", _DEFAULT_LLM_BUDGET, tenant_id) or {}
+    monthly = float(cfg.get("monthly_usd", 0) or 0)
+    if not cfg.get("enabled") or not cfg.get("degrade_on_exhaust") or monthly <= 0:
+        return False
+    cache = _state.get("budget_costs_cache")
+    now = time.monotonic()
+    if not cache or now - cache[0] > _BUDGET_COSTS_TTL_SECONDS:
+        cache = (now, _tenant_month_costs())
+        _state["budget_costs_cache"] = cache
+    return _should_degrade(cfg, cache[1].get(tenant_id or "", 0.0))
+
+
 def _budget_alert_detail(spend: float, monthly: float, pct: int) -> str:
     reached = round(spend / monthly * 100) if monthly else 0
     return (
@@ -865,14 +912,29 @@ def _sla_sweep(settings: Settings) -> dict[str, int]:
 _QUALITY_SWEEP_INTERVAL_SECONDS = 60 * 60
 
 
-def _quality_judge_llm():
-    """LLM juez, construido perezosamente una vez por proceso (cacheado en _state)."""
-    llm = _state.get("quality_llm")
-    if llm is None:
+def _quality_judge_llm(tenant_id: str | None = None):
+    """LLM juez del tenant (BYOK): usa su proveedor configurado (o el .env) y se cachea
+    por fingerprint — si el tenant cambia de proveedor, el juez se reconstruye solo."""
+    from orquestacion.providers import build_llm_from_config, config_fingerprint, resolve_llm_config
+
+    cfg = resolve_llm_config(tenant_id)
+    fingerprint = config_fingerprint(cfg)
+    cache: dict = _state.setdefault("quality_llm", {})
+    hit = cache.get(tenant_id)
+    if hit and hit[0] == fingerprint:
+        return hit[1]
+    if cfg is None:
         from orquestacion.llm import build_default_llm
 
         llm = build_default_llm()
-        _state["quality_llm"] = llm
+    else:
+        llm = build_llm_from_config(cfg)
+    # Respaldo + breaker (R3): el juez también degrada al segundo proveedor (no-op sin config).
+    from core.config import get_settings
+    from orquestacion.fallback import wrap_with_fallback
+
+    llm = wrap_with_fallback(llm, get_settings())
+    cache[tenant_id] = (fingerprint, llm)
     return llm
 
 
@@ -967,7 +1029,7 @@ def _quality_sweep(settings: Settings) -> dict[str, int]:
         swept.add(f"{today}|{tid}")
         report["tenants"] += 1
         min_rate = float(cfg.get("min_rate", 0.9) or 0.9)
-        grounded, relevant, context = _judge_traces(_quality_judge_llm(), sample)
+        grounded, relevant, context = _judge_traces(_quality_judge_llm(tid), sample)
         g_rate, r_rate, c_rate = rate(grounded), rate(relevant), rate(context)
         repo.save_quality_metric(tid, METRIC_GROUNDED, today, g_rate, len(sample), min_rate)
         repo.save_quality_metric(tid, METRIC_ANSWER_RELEVANCE, today, r_rate, len(sample), min_rate)

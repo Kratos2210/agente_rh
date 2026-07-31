@@ -1,0 +1,38 @@
+schema: spec-driven
+
+# Contexto del proyecto (lo ve la IA al crear artefactos).
+context: |
+  Proyecto: agente_rh — agente de selección de talento (SaaS multi-tenant).
+  Flujo: sourcing → pre-filtro CV → entrevista conversacional por Telegram (LangGraph) →
+  scorecard con semáforo → proceso multi-etapa RR.HH./Líder/Gerencia → examen médico →
+  contratación → onboarding. Dashboard Next.js para RR.HH.
+
+  Stack: Python 3.12 + uv (NUNCA pip), FastAPI, LangGraph (checkpointer Postgres),
+  Supabase/Postgres, Chroma (RAG local), python-telegram-bot, Next.js 16 + Tailwind.
+  LLM por API compatible-OpenAI (Groq demo; BYOK por-tenant).
+
+  Convenciones:
+  - Código e identificadores en inglés; chat, docs y specs en español.
+  - Verbo normativo en specs: "DEBE (SHALL)" / "DEBE (MUST)" — la keyword inglesa entre
+    paréntesis satisface el validador de OpenSpec; el texto corre en español.
+  - Commits convencionales (feat:, fix:, docs:...).
+  - Capacidades nuevas nacen config-gated y apagadas por defecto.
+  - Toda llamada LLM pasa por MeteredLLM con etapa; todo envío externo por el outbox.
+  - Tests con fakes en las costuras (sin red); invariantes estructurales en CI.
+
+  Documentación en capas:
+  - openspec/specs/  → requisitos normativos (verdad actual) + openspec/changes/ (propuestas).
+  - spec/            → biblioteca de dominio: decisiones (ADR), implementación, patrones
+                       reutilizables, pendientes y trazabilidad. Leer el doc del dominio
+                       ANTES de proponer un cambio en su capacidad.
+  - CLAUDE.md        → bitácora cronológica de desarrollo.
+  - audit/           → auditorías de madurez con fecha.
+
+rules:
+  proposal:
+    - Escribir en español; incluir sección de fuera-de-alcance (non-goals)
+    - Referenciar el doc de dominio de spec/ que corresponda
+  tasks:
+    - Cada tarea debe cerrar con verificación (test o smoke) y respetar "uv run pytest" verde
+  specs:
+    - Requisitos con "DEBE (SHALL)" y escenarios GIVEN/WHEN/THEN en español

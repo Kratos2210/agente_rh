@@ -32,6 +32,7 @@ En `development` solo advierte (no bloquea). Cubierto por `tests/test_secrets.py
 | `GOOGLE_OAUTH_TOKEN_PATH` / `GOOGLE_CREDENTIALS_PATH` | Calendar + Sheets | Crear eventos / escribir la hoja | Google Cloud / OAuth |
 | `ADMIN_PASSWORD` | Admin inicial (bootstrap) | Acceso admin al arrancar sin usuarios | `.env` + cambiar tras 1er login |
 | `OPENAI_API_KEY` | LLM (Groq/gateway) | Consumo de tokens facturados | Panel del proveedor |
+| API keys BYOK por-tenant (DB `app_settings.llm_provider`, cifradas Fernet ← `JWT_SECRET`) | LLM elegido por el tenant | Consumo de tokens facturados al tenant | Panel del proveedor + re-ingresar en Configuración → Proveedor LLM |
 | `LANGSMITH_API_KEY` | Trazas (opcional) | Ver trazas | LangSmith |
 
 ## Rotación por secreto
@@ -55,6 +56,13 @@ El código firma **siempre** con `JWT_SECRET` y acepta al validar el actual **m�
 
 Rotación de emergencia (secreto comprometido): omite el paso 2/3 —pon solo el nuevo en
 `JWT_SECRET` y deja `JWT_SECRET_PREVIOUS` vacío— para **invalidar todas** las sesiones ya.
+
+**Efecto colateral (BYOK)**: las API keys de proveedor LLM por-tenant se cifran con clave
+derivada de `JWT_SECRET`; al rotarlo dejan de descifrar (el backend cae al LLM del `.env`
+con warning, fail-open). Cada tenant debe re-ingresar su key en Configuración → Proveedor LLM.
+Guardas del feature: la key almacenada solo viaja al endpoint con el que se guardó (cambiar
+proveedor/base_url exige re-ingresarla) y en producción solo se aceptan endpoints públicos
+(anti-SSRF; `ALLOW_PRIVATE_LLM_ENDPOINTS=true` para self-hosted).
 
 ### `SUPABASE_SERVICE_KEY` / `DATABASE_URL`
 

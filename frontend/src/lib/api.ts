@@ -298,6 +298,41 @@ export interface LlmBudgetConfig {
   monthly_usd: number;
   alert_pct: number;
   notify_email: string;
+  degrade_on_exhaust?: boolean;
+}
+
+// Proveedor LLM por-tenant (BYOK): la key nunca viaja de vuelta (solo enmascarada).
+export interface LlmProviderConfig {
+  enabled: boolean;
+  provider: string;
+  base_url: string;
+  model: string;
+  cheap_model: string;
+  cheap_stages: string;
+  api_key_masked: string;
+}
+
+// Payload del PUT/test: `api_key` vacía = conservar la almacenada.
+export interface LlmProviderSave extends Omit<LlmProviderConfig, "api_key_masked"> {
+  api_key: string;
+}
+
+export interface LlmProviderTestResult {
+  ok: boolean;
+  latency_ms: number;
+  model: string;
+  sample?: string;
+  error?: string;
+}
+
+export interface LlmProviderCatalogModel {
+  id: string;
+  input_per_1m: number;
+  output_per_1m: number;
+}
+
+export interface LlmProviderCatalog {
+  providers: Record<string, { label: string; base_url: string; models: LlmProviderCatalogModel[] }>;
 }
 
 // Página Costos: trazabilidad del consumo LLM por vacante, día y candidato.
@@ -473,9 +508,27 @@ async function loginRequest(email: string, password: string): Promise<LoginRespo
   return res.json() as Promise<LoginResponse>;
 }
 
+// Usuario del dashboard (gestión del 2.º operador, admin-only). Sin hash de contraseña.
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  active: boolean;
+  tenant_id: string;
+  created_at?: string;
+}
+
 export const api = {
   login: (email: string, password: string) => loginRequest(email, password),
   me: () => req<AuthUser>("/api/auth/me"),
+  getUsers: () => req<User[]>("/api/users"),
+  createUser: (body: { email: string; password: string; name: string; role: string }) =>
+    req<User>("/api/users", { method: "POST", body: JSON.stringify(body) }),
+  updateUser: (
+    id: string,
+    body: Partial<{ active: boolean; role: string; name: string; password: string }>,
+  ) => req<User>(`/api/users/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   listVacancies: () => req<Vacancy[]>("/api/vacancies"),
   getVacancy: (id: string) => req<Vacancy>(`/api/vacancies/${id}`),
   createVacancy: (body: Partial<Vacancy> & { questions?: Question[] }) =>
@@ -582,6 +635,12 @@ export const api = {
   getLlmBudget: () => req<LlmBudgetConfig>("/api/settings/llm-budget"),
   setLlmBudget: (body: LlmBudgetConfig) =>
     req<LlmBudgetConfig>("/api/settings/llm-budget", { method: "PUT", body: JSON.stringify(body) }),
+  getLlmProvider: () => req<LlmProviderConfig>("/api/settings/llm-provider"),
+  setLlmProvider: (body: LlmProviderSave) =>
+    req<LlmProviderConfig>("/api/settings/llm-provider", { method: "PUT", body: JSON.stringify(body) }),
+  testLlmProvider: (body: LlmProviderSave) =>
+    req<LlmProviderTestResult>("/api/settings/llm-provider/test", { method: "POST", body: JSON.stringify(body) }),
+  getLlmProviderCatalog: () => req<LlmProviderCatalog>("/api/settings/llm-provider/catalog"),
   getSlaAlerts: () => req<SlaAlertsConfig>("/api/settings/sla-alerts"),
   setSlaAlerts: (body: SlaAlertsConfig) =>
     req<SlaAlertsConfig>("/api/settings/sla-alerts", { method: "PUT", body: JSON.stringify(body) }),
@@ -601,9 +660,43 @@ export const api = {
     req<{ deleted: boolean }>(`/api/candidates/${id}`, { method: "DELETE" }),
   getHttpMetrics: () => req<{ routes: HttpRouteMetric[] }>("/api/ops/http-metrics"),
   getQuality: () => req<{ metrics: QualityMetric[] }>("/api/ops/quality"),
+  getTimeseries: (days: number) => req<OpsTimeseries>(`/api/ops/timeseries?days=${days}`),
   getTraces: (candidateId: string) =>
     req<{ items: LlmTrace[] }>(`/api/candidates/${candidateId}/traces`),
 };
+
+// Series de tiempo de observabilidad (dimensión B): tendencia diaria de operación LLM,
+// calidad y HTTP, derivada de datos ya persistidos (`GET /api/ops/timeseries`).
+export interface LlmDayPoint {
+  day: string;
+  calls: number;
+  errors: number;
+  tokens: number;
+  cost: number;
+  avg_ms: number;
+}
+export interface QualitySeriesPoint {
+  day: string;
+  rate: number;
+  sample_size: number;
+  threshold: number;
+}
+export interface HttpDayPoint {
+  day: string;
+  requests: number;
+  errors: number;
+  client_errors: number;
+  peak_p95_ms: number;
+}
+export interface OpsTimeseries {
+  days: number;
+  since: string;
+  timezone: string;
+  day_keys: string[];
+  llm: LlmDayPoint[];
+  quality: Record<string, QualitySeriesPoint[]>;
+  http: HttpDayPoint[];
+}
 
 // Signo vital de calidad (paso 4): tasa diaria de fundamentación/relevancia del bot.
 export interface QualityMetric {

@@ -24,6 +24,7 @@ def _load_script(name: str):
 
 golden_eval = _load_script("golden_eval")
 judge = _load_script("groundedness_judge")
+chunking_study = _load_script("chunking_study")
 
 
 # ── Forma del golden set ──────────────────────────────────────────────────────
@@ -112,3 +113,35 @@ def test_quality_rate():
 
     assert rate([True, True, False, True]) == 0.75
     assert rate([]) == 1.0
+
+
+# ── Gate del nightly: fundamentación y contexto con umbrales propios (puro) ────
+
+def test_judge_gate_grounded_and_context_thresholds():
+    # Ambas por encima → pasa (exit 0, sin motivos).
+    code, reasons = judge.gate(0.95, 0.90, 0.9, 0.8)
+    assert code == 0 and reasons == []
+    # Solo fundamentación cae → falla, un motivo.
+    code, reasons = judge.gate(0.80, 0.90, 0.9, 0.8)
+    assert code == 1 and len(reasons) == 1 and "fundamentación" in reasons[0]
+    # Solo contexto cae → falla por su umbral propio (independiente de la fundamentación).
+    code, reasons = judge.gate(0.95, 0.70, 0.9, 0.8)
+    assert code == 1 and len(reasons) == 1 and "contexto" in reasons[0]
+    # Ambas caen → dos motivos.
+    code, reasons = judge.gate(0.50, 0.50, 0.9, 0.8)
+    assert code == 1 and len(reasons) == 2
+
+
+# ── Estudio de chunking: ranking puro por hit@k (desempate por menos chunks) ───
+
+def test_chunking_rank_configs_orders_by_hitrate_then_chunks():
+    rows = [
+        {"label": "a", "hit_rate": 0.9, "chunks": 12},
+        {"label": "b", "hit_rate": 1.0, "chunks": 20},
+        {"label": "c", "hit_rate": 1.0, "chunks": 8},
+    ]
+    ranked = [r["label"] for r in chunking_study.rank_configs(rows)]
+    # 1.0 antes que 0.9; entre los dos de 1.0, menos chunks primero ('c' < 'b').
+    assert ranked == ["c", "b", "a"]
+
+    assert chunking_study.CHUNK_CONFIGS[-1]["chunk_size"] == 1200  # la config "grande" = default del repo

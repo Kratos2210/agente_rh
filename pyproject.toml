@@ -24,6 +24,10 @@ dependencies = [
     # Wheels puros/con wheel Intel → OK en macOS x86_64.
     "pyjwt>=2.9.0",
     "bcrypt>=4.2.0",
+    # Cifrado simétrico (Fernet) de la API key del proveedor LLM configurado por-tenant
+    # (BYOK). Ya venía en el lock como transitiva de pyjwt/google-auth; se promueve a
+    # dependencia directa porque ahora se importa explícitamente (orquestacion/providers.py).
+    "cryptography>=42.0.0",
     # Config + utilidades
     "pydantic-settings>=2.4.0",
     "python-dotenv>=1.0.1",
