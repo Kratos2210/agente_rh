@@ -37,11 +37,13 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "label": "Groq",
         "base_url": "https://api.groq.com/openai/v1",
         "models": [
-            {"id": "qwen/qwen3-32b", "input_per_1m": 0.29, "output_per_1m": 0.59},
+            # Precios verificados 2026-07-31. `qwen/qwen3-32b` y `moonshotai/kimi-k2-instruct`
+            # se quitaron: Groq los retiró (ver docs/adr-seleccion-modelo.md).
+            {"id": "qwen/qwen3.6-27b", "input_per_1m": 0.60, "output_per_1m": 3.00},
             {"id": "llama-3.1-8b-instant", "input_per_1m": 0.05, "output_per_1m": 0.08},
             {"id": "llama-3.3-70b-versatile", "input_per_1m": 0.59, "output_per_1m": 0.79},
-            {"id": "openai/gpt-oss-20b", "input_per_1m": 0.10, "output_per_1m": 0.50},
-            {"id": "moonshotai/kimi-k2-instruct", "input_per_1m": 1.00, "output_per_1m": 3.00},
+            {"id": "openai/gpt-oss-20b", "input_per_1m": 0.075, "output_per_1m": 0.30},
+            {"id": "openai/gpt-oss-120b", "input_per_1m": 0.15, "output_per_1m": 0.60},
         ],
     },
     "gemini": {

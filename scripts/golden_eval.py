@@ -98,10 +98,15 @@ def run_classify(llm, cases: list[dict]) -> int:
     failures = 0
     for c in cases:
         kind = classify_turn(llm, current_question=c["question"], message=c["message"])
-        ok = kind == c["expected"]
+        # `expected` admite una lista cuando MÁS DE UN veredicto satisface la intención del
+        # caso (p. ej. una inyección puede tratarse como respuesta —y puntuar 0— o deflectarse
+        # como fuera de tema: ninguna de las dos infla el puntaje). Evita que el banco quede
+        # atado al comportamiento de UN modelo concreto.
+        expected = c["expected"] if isinstance(c["expected"], list) else [c["expected"]]
+        ok = kind in expected
         if not ok:
             failures += 1
-        print(f"{'✅' if ok else '❌'} {c['id']:<28} kind={kind:<9} esperado={c['expected']}")
+        print(f"{'✅' if ok else '❌'} {c['id']:<28} kind={kind:<9} esperado={'|'.join(expected)}")
     return failures
 
 

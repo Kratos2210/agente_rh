@@ -630,7 +630,7 @@ export default function ConfiguracionPage() {
                       <input
                         value={prov.model}
                         onChange={(e) => setProv({ ...prov, model: e.target.value })}
-                        placeholder="qwen/qwen3-32b"
+                        placeholder="qwen/qwen3.6-27b"
                         className="px-3 py-2 rounded-lg w-full"
                         style={{ ...inputStyle, marginTop: models.length > 0 ? 8 : 0 }}
                       />
@@ -727,7 +727,7 @@ export default function ConfiguracionPage() {
             </div>
             {priceRows.map((r, i) => (
               <div key={i} className="grid gap-2" style={{ gridTemplateColumns: "2fr 1fr 1fr 32px" }}>
-                <input value={r.model} placeholder="qwen/qwen3-32b"
+                <input value={r.model} placeholder="qwen/qwen3.6-27b"
                   onChange={(e) => setPriceRows(priceRows.map((x, j) => (j === i ? { ...x, model: e.target.value } : x)))}
                   className="px-3 py-2 rounded-lg w-full" style={inputStyle} />
                 <input value={r.input} inputMode="decimal"
